@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Warlock Arena | Professional Build</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+        <div class="stats-row">
+            <div id="playerNameHud">Warlock</div>
+            <div id="scoreHud">Score: 0</div>
+        </div>
+        <div class="bars">
+            <div class="bar-container"><div id="hp-bar" class="bar hp"></div><span>HP</span></div>
+            <div class="bar-container"><div id="dummy-hp-bar" class="bar dummy-hp"></div><span>Enemy</span></div>
+        </div>
+        <div id="roundTimerHud">Shrink In: 20s</div>
+    </div>
+
+    <div id="overlay" class="overlay">
+        <div class="panel">
+            <h1>Warlock Arena</h1>
+            <p>Modular Development Build</p>
+            <input id="nameInput" type="text" maxlength="12" placeholder="Your Name">
+            <button id="startBtn" class="btn-main">START GAME</button>
+        </div>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>
