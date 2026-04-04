@@ -260,6 +260,35 @@ function damageDummy(amount) {
   if (dummy.hp <= 0) killDummy('HP reached 0');
 }
 
+// ── Generic Spell Casting ─────────────────────────────────────
+function canCastSpell(spellId) {
+  const now = performance.now() / 1000;
+  const def = SPELL_DEFS[spellId];
+  if (!def) return false;
+  if (gameState !== 'playing' || !player.alive) return false;
+  const readyAt = player[def.cooldownKey] || 0;
+  return now >= readyAt;
+}
+
+function castPlayerSpell(spellId) {
+  if (!canCastSpell(spellId)) return;
+
+  switch (spellId) {
+    case 'fire':
+      shootFire();
+      break;
+    case 'hook':
+      castHookFromPlayer();
+      break;
+    case 'blink':
+      tryTeleport();
+      break;
+    case 'shield':
+      castShield();
+      break;
+  }
+}
+
 // ── Skills ────────────────────────────────────────────────────
 function shootFire() {
   const now = performance.now() / 1000;
@@ -504,20 +533,25 @@ function resetRound() {
   arena.shrinkTimer    = arena.shrinkInterval;
   buildObstacles();
   player.hookCooldown  = getHookCooldown();
+  activeSpellLoadout   = ['fire', 'hook', 'blink', 'shield'];
+
   const p = findValidSpawnNear(playerSpawn.x, playerSpawn.y, 0);
   const d = findValidSpawnNear(dummySpawn.x,  dummySpawn.y,  0);
+
   Object.assign(player, {
     x: p.x, y: p.y, vx: 0, vy: 0,
     hp: player.maxHp, alive: true, deadReason: '',
     fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, shieldUntil: 0,
     aimX: 1, aimY: 0
   });
+
   Object.assign(dummy, {
     x: d.x, y: d.y, vx: 0, vy: 0,
     hp: dummy.maxHp, alive: dummyEnabled, deadReason: dummyEnabled ? '' : 'removed',
     fireReadyAt: 0, hookReadyAt: 0,
     aiSwitchTimer: 0, aiMoveTimer: 0, targetX: d.x, targetY: d.y
   });
+
   projectiles.length  = 0;
   particles.length    = 0;
   damageTexts.length  = 0;
@@ -536,16 +570,16 @@ function resetRound() {
 }
 
 function enterLobby() {
-  gameState     = 'lobby';
-  menuOpen      = false;
+  gameState      = 'lobby';
+  menuOpen       = false;
   waitingForBind = null;
-  winnerText    = '';
-  resultTimer   = 0;
-  overlay.style.display    = 'flex';
-  hud.style.display        = 'none';
-  topbar.style.display     = 'none';
-  menuPanel.style.display  = 'none';
-  canvas.style.cursor      = 'default';
+  winnerText     = '';
+  resultTimer    = 0;
+  overlay.style.display   = 'flex';
+  hud.style.display       = 'none';
+  topbar.style.display    = 'none';
+  menuPanel.style.display = 'none';
+  canvas.style.cursor     = 'default';
   renderLeaderboard();
   renderStore();
   renderInventory();
@@ -568,7 +602,7 @@ function startMatch() {
   saveProfile();
   player.score = getPlayerPoints(player.name);
   resetRound();
-  gameState            = 'playing';
+  gameState               = 'playing';
   overlay.style.display   = 'none';
   topbar.style.display    = 'flex';
   menuPanel.style.display = 'none';
@@ -676,13 +710,17 @@ function update(dt) {
     const h            = hooks[i];
     const targetActor  = h.owner === 'player' ? dummy : player;
     const caster       = h.owner === 'player' ? player : dummy;
+
     if (h.owner === 'player' && h.state === 'pulling' && (!dummyEnabled || !dummy.alive)) { hooks.splice(i, 1); continue; }
     if (h.owner === 'dummy'  && (!dummyEnabled || !dummy.alive))                          { hooks.splice(i, 1); continue; }
+
     if (h.state === 'flying') {
       h.progress += dt * h.speed;
       h.x = h.sx + (h.tx - h.sx) * Math.min(1, h.progress);
       h.y = h.sy + (h.ty - h.sy) * Math.min(1, h.progress);
+
       if (circleHitsObstacle(h.x, h.y, 4)) { hooks.splice(i, 1); continue; }
+
       if (dummyEnabled && targetActor.alive && distance(h.x, h.y, targetActor.x, targetActor.y) <= targetActor.r + 6) {
         h.state = 'pulling';
         if (h.owner === 'player') damageDummy(h.damage);
