@@ -207,28 +207,36 @@
     });
   }
 
-  function chooseState(dt) {
-    const p = window.player;
-    if (!p) return 'idle';
+function chooseState(dt) {
+  const p = window.player;
+  if (!p) return 'idle';
 
-    if (!p.alive) return 'hit';
+  if (!p.alive) return state.player.states.has('hit') ? 'hit' : 'idle';
 
-    const hpDrop = state.player.lastHp !== null && p.hp < state.player.lastHp - 0.01;
-    state.player.lastHp = p.hp;
-    if (hpDrop) state.player.hitTimer = cfg.hitHoldTime || 0.28;
+  const hpDrop = state.player.lastHp !== null && p.hp < state.player.lastHp - 0.01;
+  state.player.lastHp = p.hp;
+  if (hpDrop) state.player.hitTimer = cfg.hitHoldTime || 0.28;
 
-    if (p.chargeActive) state.player.dashTimer = cfg.dashHoldTime || 0.30;
+  if (p.chargeActive) state.player.dashTimer = cfg.dashHoldTime || 0.30;
 
-    state.player.castTimer = Math.max(0, state.player.castTimer - dt);
-    state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
-    state.player.dashTimer = Math.max(0, state.player.dashTimer - dt);
+  state.player.castTimer = Math.max(0, state.player.castTimer - dt);
+  state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
+  state.player.dashTimer = Math.max(0, state.player.dashTimer - dt);
 
-    if (state.player.hitTimer > 0 && state.player.states.has('hit')) return 'hit';
-    if (state.player.dashTimer > 0 && state.player.states.has('dash')) return 'dash';
+  if (state.player.hitTimer > 0 && state.player.states.has('hit')) return 'hit';
+  if (state.player.dashTimer > 0 && state.player.states.has('dash')) return 'dash';
+  if (state.player.castTimer > 0 && state.player.states.has('cast')) return 'cast';
 
-    const moving = Math.hypot(p.vx || 0, p.vy || 0) > 20 || moveStick.active || keys[keybinds.left] || keys[keybinds.right] || keys[keybinds.up] || keys[keybinds.down];
-    return moving && state.player.states.has('run') ? 'run' : 'idle';
-  }
+  const moving =
+    Math.hypot(p.vx || 0, p.vy || 0) > 20 ||
+    moveStick.active ||
+    keys[keybinds.left] ||
+    keys[keybinds.right] ||
+    keys[keybinds.up] ||
+    keys[keybinds.down];
+
+  return moving && state.player.states.has('run') ? 'run' : 'idle';
+}
 
   function updatePlayerPose(dt) {
     if (!state.ready || !window.player) return;
