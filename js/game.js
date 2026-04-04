@@ -381,8 +381,8 @@ function castArcaneCharge() {
   player.chargeDirY = dir.y;
   player.chargeTimer = 0.34;
   player.chargeHit = false;
-  player.vx = dir.x * 760;
-  player.vy = dir.y * 760;
+  player.vx = dir.x * 532;
+  player.vy = dir.y * 532;
   soundCharge();
   spawnBurst(player.x, player.y, 'rgba(180,120,255,0.95)', 16, 170);
 }
@@ -395,7 +395,7 @@ function updateArcaneCharge(dt) {
   }
 
   const dir = normalized(player.chargeDirX, player.chargeDirY);
-  const speed = 760;
+  const speed = 532;
   const stepDt = dt / 4;
 
   for (let step = 0; step < 4; step++) {
@@ -426,7 +426,7 @@ function updateArcaneCharge(dt) {
 
     if (!player.chargeHit && dummyEnabled && dummy.alive && distance(player.x, player.y, dummy.x, dummy.y) <= player.r + dummy.r + 8) {
       player.chargeHit = true;
-      damageDummy(16);
+      damageDummy(8);
       dummy.vx += dir.x * 720;
       dummy.vy += dir.y * 720;
       spawnBurst(dummy.x, dummy.y, 'rgba(210,150,255,0.95)', 18, 210);
