@@ -207,7 +207,7 @@ input[type="text"] {
   bottom: 18px;
   left: 18px;
   z-index: 20;
-  display: none;
+  display: flex;
   gap: 10px;
   align-items: flex-end;
 }
@@ -276,9 +276,4 @@ input[type="text"] {
   line-height: 1;
 }
 
-/* only show on non-touch desktop */
-@media (pointer: fine) and (min-width: 901px) {
-  #desktopSpellBar {
-    display: flex;
-  }
-}
+
