@@ -26,15 +26,40 @@
     console.log('[Warlock3D]', ...args);
   }
 
+  function getGLTFLoaderClass() {
+    if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader !== 'undefined') {
+      return THREE.GLTFLoader;
+    }
+    if (typeof GLTFLoader !== 'undefined') {
+      return GLTFLoader;
+    }
+    return null;
+  }
+
   function hasThree() {
-    return typeof THREE !== 'undefined' && typeof THREE.GLTFLoader !== 'undefined';
+    return typeof THREE !== 'undefined' && !!getGLTFLoaderClass();
   }
 
   function initScene() {
     state.container = document.getElementById('threeLayer');
-    if (!state.container || !hasThree()) {
+
+    const LoaderClass = getGLTFLoaderClass();
+
+    if (!state.container) {
       state.failed = true;
-      console.error('[Warlock3D] Missing #threeLayer or THREE/GLTFLoader not loaded.');
+      console.error('[Warlock3D] Missing #threeLayer element.');
+      return;
+    }
+
+    if (typeof THREE === 'undefined') {
+      state.failed = true;
+      console.error('[Warlock3D] THREE is not loaded.');
+      return;
+    }
+
+    if (!LoaderClass) {
+      state.failed = true;
+      console.error('[Warlock3D] GLTFLoader is not loaded.');
       return;
     }
 
@@ -64,7 +89,9 @@
     });
     state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     state.renderer.setSize(width, height);
-    state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    if ('outputColorSpace' in state.renderer && THREE.SRGBColorSpace) {
+      state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    }
 
     state.container.innerHTML = '';
     state.container.appendChild(state.renderer.domElement);
@@ -81,7 +108,7 @@
     fill.position.set(-180, 220, -60);
     state.scene.add(fill);
 
-    state.loader = new THREE.GLTFLoader();
+    state.loader = new LoaderClass();
 
     state.player.rootGroup = new THREE.Group();
     state.scene.add(state.player.rootGroup);
@@ -100,6 +127,8 @@
     state.player.rootGroup.add(shadow);
 
     window.addEventListener('resize', onResize);
+
+    log('Three.js scene initialized');
   }
 
   function onResize() {
@@ -140,7 +169,6 @@
       }
     });
 
-    // Center model around origin
     const box = new THREE.Box3().setFromObject(root);
     const center = new THREE.Vector3();
     const size = new THREE.Vector3();
@@ -149,17 +177,12 @@
 
     root.position.sub(center);
 
-    // Fit to target size
     const maxDim = Math.max(size.x || 1, size.y || 1, size.z || 1);
     const targetSize = cfg.actorScale || 28;
     const fitScale = targetSize / maxDim;
 
     root.scale.setScalar(fitScale);
-
-    // Common AI model orientation: keep neutral first
     root.rotation.set(0, 0, 0);
-
-    // Lift so feet/body sit around origin plane
     root.position.y += (size.y * fitScale) * 0.5 + (cfg.hoverHeight || 0);
 
     root.visible = false;
