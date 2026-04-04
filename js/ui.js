@@ -241,6 +241,8 @@ function updateSkillCooldownButtons() {
       ? (player.shieldUntil - now)
       : Math.max(0, player.shieldReadyAt - now),
   };
+
+  // Mobile buttons
   Object.entries(skillButtons).forEach(([key, btn]) => {
     if (!btn) return;
     const cdOverlay = btn.querySelector('.mobileBtnCooldown');
@@ -253,6 +255,28 @@ function updateSkillCooldownButtons() {
       btn.classList.remove('onCooldown');
       cdOverlay.textContent = '';
     }
+  });
+
+  // Desktop spell bar
+  Object.entries(cooldowns).forEach(([key, cd]) => {
+    const cell = document.getElementById(`dspell-${key}`);
+    const cdEl = document.getElementById(`dcd-${key}`);
+    if (!cell || !cdEl) return;
+    if (cd > 0.02) {
+      cell.classList.add('onCooldown');
+      cdEl.textContent = String(Math.ceil(cd));
+    } else {
+      cell.classList.remove('onCooldown');
+      cdEl.textContent = '';
+    }
+  });
+
+  // Keep keybind labels in sync with current bindings
+  const keyMap = { hook: 'dkey-hook', blink: 'dkey-blink', shield: 'dkey-shield' };
+  const bindMap = { hook: keybinds.hook, blink: keybinds.teleport, shield: keybinds.shield };
+  Object.entries(keyMap).forEach(([skill, elId]) => {
+    const el = document.getElementById(elId);
+    if (el) el.textContent = prettyKey(bindMap[skill]);
   });
 }
 
@@ -273,6 +297,8 @@ function updateHud() {
   toggleDummyBtn.textContent  = dummyEnabled ? 'Remove Dummy' : 'Add Dummy';
   hudToggleBtn.textContent    = hudVisible ? 'Hide Info' : 'Show Info';
   hud.style.display           = (gameState !== 'lobby' && hudVisible) ? 'block' : 'none';
+  const spellBar = document.getElementById('desktopSpellBar');
+  if (spellBar) spellBar.style.display = gameState !== 'lobby' ? '' : 'none';
   updateSkillCooldownButtons();
 }
 
