@@ -50,7 +50,7 @@ function makeStickController(stickEl, thumbEl, state) {
     e.preventDefault();
     reset();
   };
-  stickEl.addEventListener('touchend',   endTouch, { passive: false });
+  stickEl.addEventListener('touchend', endTouch, { passive: false });
   stickEl.addEventListener('touchcancel', endTouch, { passive: false });
 
   stickEl.addEventListener('mousedown', (e) => {
@@ -188,6 +188,7 @@ function bindPullCastButton(btn, handler, skillType) {
 // ── Keyboard ──────────────────────────────────────────────────
 window.addEventListener('keydown', (e) => {
   const norm = normalizeKey(e.key);
+
   if (waitingForBind) {
     e.preventDefault();
     if (!['shift', 'control', 'alt', 'meta'].includes(norm)) {
@@ -199,21 +200,27 @@ window.addEventListener('keydown', (e) => {
     }
     return;
   }
+
   keys[norm] = true;
+
   if (gameState !== 'lobby' && norm === keybinds.teleport) {
     e.preventDefault();
     startMusicIfNeeded();
-    tryTeleport();
+    castPlayerSpell('blink');
   }
+
   if (gameState === 'playing' && norm === keybinds.hook) {
     startMusicIfNeeded();
-    castHookFromPlayer();
+    castPlayerSpell('hook');
   }
+
   if (gameState === 'playing' && norm === keybinds.shield) {
     startMusicIfNeeded();
-    castShield();
+    castPlayerSpell('shield');
   }
+
   if (gameState !== 'lobby' && norm === keybinds.reset) resetRound();
+
   if (norm === keybinds.menu) {
     menuOpen = !menuOpen;
     menuPanel.style.display = menuOpen ? 'block' : 'none';
@@ -238,8 +245,8 @@ canvas.addEventListener('mousemove', (e) => {
 canvas.addEventListener('mousedown', (e) => {
   if (gameState !== 'playing') return;
   startMusicIfNeeded();
-  if (e.button === 0) shootFire();
-  else if (e.button === 2) tryTeleport();
+  if (e.button === 0) castPlayerSpell('fire');
+  else if (e.button === 2) castPlayerSpell('blink');
 });
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -326,10 +333,10 @@ nameInput.addEventListener('keydown', (e) => {
 });
 
 // ── Mobile Skill Buttons ──────────────────────────────────────
-bindPullCastButton(mobileFireBtn,     shootFire,           'fire');
-bindPullCastButton(mobileHookBtn,     castHookFromPlayer,  'hook');
-bindPullCastButton(mobileTeleportBtn, tryTeleport,         'blink');
-bindPullCastButton(mobileShieldBtn,   castShield,          'shield');
+bindPullCastButton(mobileFireBtn,     () => castPlayerSpell('fire'),   'fire');
+bindPullCastButton(mobileHookBtn,     () => castPlayerSpell('hook'),   'hook');
+bindPullCastButton(mobileTeleportBtn, () => castPlayerSpell('blink'),  'blink');
+bindPullCastButton(mobileShieldBtn,   () => castPlayerSpell('shield'), 'shield');
 
 // ── Window Resize ─────────────────────────────────────────────
 window.addEventListener('resize', () => {
