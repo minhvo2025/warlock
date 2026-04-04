@@ -200,3 +200,85 @@ input[type="text"] {
   .mobileBtnIcon.small { font-size: 20px; }
   .mobileBtn.big { width:64px; height:64px; }
 }
+
+/* ── Desktop Spell Bar ───────────────────────────────────────── */
+#desktopSpellBar {
+  position: fixed;
+  bottom: 18px;
+  left: 18px;
+  z-index: 20;
+  display: none;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.deskSpell {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(18, 18, 24, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  transition: filter 0.1s ease;
+}
+
+.deskSpell.onCooldown {
+  filter: grayscale(0.85) brightness(0.65);
+}
+
+.deskSpellIcon {
+  font-size: 26px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));
+}
+
+/* big countdown number drawn over the icon */
+.deskSpellCooldown {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  background: rgba(10, 12, 18, 0.58);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+.deskSpell.onCooldown .deskSpellCooldown {
+  display: flex;
+}
+
+.deskSpellLabel {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-top: 2px;
+  letter-spacing: 0.03em;
+}
+
+/* keybind badge — top-right corner of the cell */
+.deskSpellKey {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+  letter-spacing: 0.02em;
+  line-height: 1;
+}
+
+/* only show on non-touch desktop */
+@media (pointer: fine) and (min-width: 901px) {
+  #desktopSpellBar {
+    display: flex;
+  }
+}
