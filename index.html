@@ -21,6 +21,33 @@
     <div class="hint warn">You can walk into the lava outside the platform</div>
   </div>
 
+  <div id="desktopSpellBar">
+    <div class="deskSpell" id="dspell-fire">
+      <div class="deskSpellIcon">🔥</div>
+      <div class="deskSpellCooldown" id="dcd-fire"></div>
+      <div class="deskSpellLabel">Fire</div>
+      <div class="deskSpellKey">M1</div>
+    </div>
+    <div class="deskSpell" id="dspell-hook">
+      <div class="deskSpellIcon">🪝</div>
+      <div class="deskSpellCooldown" id="dcd-hook"></div>
+      <div class="deskSpellLabel">Hook</div>
+      <div class="deskSpellKey" id="dkey-hook">E</div>
+    </div>
+    <div class="deskSpell" id="dspell-blink">
+      <div class="deskSpellIcon">✦</div>
+      <div class="deskSpellCooldown" id="dcd-blink"></div>
+      <div class="deskSpellLabel">Blink</div>
+      <div class="deskSpellKey" id="dkey-blink">Space</div>
+    </div>
+    <div class="deskSpell" id="dspell-shield">
+      <div class="deskSpellIcon">🛡️</div>
+      <div class="deskSpellCooldown" id="dcd-shield"></div>
+      <div class="deskSpellLabel">Shield</div>
+      <div class="deskSpellKey" id="dkey-shield">Q</div>
+    </div>
+  </div>
+
   <div id="topbar">
     <button id="hudToggleBtn" class="secondary">Hide Info</button>
     <button id="menuBtn" class="secondary">Menu</button>
@@ -34,7 +61,6 @@
       </div>
       <div class="mobileLabel">Move</div>
     </div>
-
     <div class="mobileSide">
       <div class="mobileActions">
         <button class="mobileBtn big mainSkill" id="mobileFireBtn"><span class="mobileBtnIcon">🔥</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Fire</span><div class="mobileDragArrow"></div></button>
@@ -137,7 +163,7 @@
     </div>
   </div>
 
-  <!-- Scripts — order matters -->
+  <!-- Scripts: config first (globals), main last (calls everything) -->
   <script src="js/config.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/ui.js"></script>
