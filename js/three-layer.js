@@ -1,3 +1,4 @@
+console.log('WARLOCK THREE LAYER VERSION B');
 // ── Three.js Character Layer ─────────────────────────────────
 (function () {
   const cfg = window.WARLOCK_3D_CONFIG || {};
