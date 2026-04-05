@@ -314,13 +314,17 @@
     });
   }
 
-  function getWorldPosition(actor) {
-    const worldScale = cfg.worldScale || 1;
-    return {
-      x: (actor.x - window.innerWidth / 2) * worldScale,
-      z: (actor.y - window.innerHeight / 2) * worldScale,
-    };
-  }
+ function getWorldPosition(actor) {
+  const worldScale = cfg.worldScale || 1;
+
+  const centerX = canvas.width * 0.5;
+  const centerY = canvas.height * 0.5;
+
+  return {
+    x: (actor.x - centerX) * worldScale,
+    z: (actor.y - centerY) * worldScale,
+  };
+}
 
   function setPlayerState(name, force = false) {
     if (!state.ready) return;
