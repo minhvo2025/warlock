@@ -428,7 +428,7 @@ function castArcaneCharge() {
   player.chargeActive = true;
   player.chargeDirX = dir.x;
   player.chargeDirY = dir.y;
-  player.chargeTimer = 0.34;
+player.chargeTimer = player.teleportDistance / 760;
   player.chargeHit = false;
   player.vx = dir.x * 760;
   player.vy = dir.y * 760;
