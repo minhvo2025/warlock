@@ -405,7 +405,7 @@ function drawSkillAimPreview() {
     ctx.fill();
 
   } else if (skillAimPreview.type === 'charge') {
-    const len = 165;
+    const len = player.teleportDistance;
     const endX = player.x + dir.x * len;
     const endY = player.y + dir.y * len;
 
