@@ -85,10 +85,10 @@ function drawLobbyPreview() {
   previewCtx.textAlign = 'left';
 
   if (
-    window.warlockThree &&
-    typeof window.warlockThree.renderLobbyPreview === 'function'
+    window.outraThree &&
+    typeof window.outraThree.renderLobbyPreview === 'function'
   ) {
-    window.warlockThree.renderLobbyPreview();
+    window.outraThree.renderLobbyPreview();
   } else {
     // fallback if 3D preview has not loaded yet
     const x = previewCanvas.width / 2;
