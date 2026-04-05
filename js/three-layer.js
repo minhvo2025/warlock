@@ -382,7 +382,7 @@
     const stateName = chooseState(dt);
 
     state.player.rootGroup.visible = gameState !== 'lobby';
-    state.player.rootGroup.position.set(pos.x, 0, pos.z);
+    state.player.rootGroup.position.set(pos.x, -70, pos.z);
 
     const aimAngle = Math.atan2(p.aimY, p.aimX);
     state.player.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
