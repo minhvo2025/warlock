@@ -684,7 +684,7 @@
 
     const baseHeightOffset = cfg.modelYOffset || 0;
     const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
-    const mobileScreenOffsetZ = isTouchDevice ? 32 : 0;
+    const mobileScreenOffsetZ = isTouchDevice ? 40 : 0;
 
     state.player.rootGroup.visible = gameState !== 'lobby';
     state.player.rootGroup.position.set(
