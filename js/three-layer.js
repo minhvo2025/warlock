@@ -679,15 +679,19 @@
     const p = player;
     if (!p) return;
 
-    const pos = getWorldPosition(p);
+        const pos = getWorldPosition(p);
     const stateName = chooseState(dt);
 
-    const baseYOffset = isTouchDevice
-      ? (cfg.modelYOffsetMobile || 0)
-      : (cfg.modelYOffset || 0);
+    const baseHeightOffset = cfg.modelYOffset || 0;
+    const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
+    const mobileScreenOffsetZ = isTouchDevice ? 32 : 0;
 
     state.player.rootGroup.visible = gameState !== 'lobby';
-    state.player.rootGroup.position.set(pos.x, baseYOffset, pos.z);
+    state.player.rootGroup.position.set(
+      pos.x,
+      isTouchDevice ? mobileHeightOffset : baseHeightOffset,
+      pos.z + mobileScreenOffsetZ
+    );
 
     const aimAngle = Math.atan2(p.aimY, p.aimX);
     state.player.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
@@ -695,7 +699,7 @@
     setArenaPlayerState(stateName);
 
     const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
-    state.player.rootGroup.position.y = baseYOffset + bob;
+    state.player.rootGroup.position.y = (isTouchDevice ? mobileHeightOffset : baseHeightOffset) + bob;
 
     if (state.player.shadow) {
       state.player.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
