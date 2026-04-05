@@ -108,6 +108,7 @@ window.WARLOCK_3D_CONFIG = {
   castHoldTime: 0.22,
   hitHoldTime: 0.28,
   dashHoldTime: 0.30,
+  actorHeight: 45,
 };
 
 // ── Input State ───────────────────────────────────────────────
