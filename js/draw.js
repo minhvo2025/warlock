@@ -492,5 +492,4 @@ function render() {
     if (window.outraThree && window.outraThree.render) {
     window.outraThree.render();
   }
-  }
 }
