@@ -276,8 +276,8 @@ function updateSkillCooldownButtons() {
   });
 
   // Keep keybind labels in sync with current bindings
-  const keyMap  = { hook: 'dkey-hook', blink: 'dkey-blink', shield: 'dkey-shield', charge: 'dkey-charge' };
-  const bindMap = { hook: keybinds.hook, blink: keybinds.teleport, shield: keybinds.shield, charge: keybinds.charge };
+  const keyMap  = { hook: 'dkey-hook', blink: 'dkey-blink', shield: 'dkey-shield', charge: 'dkey-charge', shock: 'dkey-shock' };
+  const bindMap = { hook: keybinds.hook, blink: keybinds.teleport, shield: keybinds.shield, charge: keybinds.charge, shock: keybinds.shock };
   Object.entries(keyMap).forEach(([skill, elId]) => {
     const el = document.getElementById(elId);
     if (el) el.textContent = prettyKey(bindMap[skill]);
@@ -295,7 +295,7 @@ function updateHud() {
   roundTimerHudEl.textContent = `Shrink In: ${Math.ceil(arena.shrinkTimer)}s`;
   controlsHudEl.textContent   = isTouchDevice
     ? 'Touch: Move stick | Pull skill and release to cast | Top-right Menu'
-    : `Fire: Mouse1 | Hook: ${prettyKey(keybinds.hook)} | Teleport: ${prettyKey(keybinds.teleport)} | Shield: ${prettyKey(keybinds.shield)} | Charge: ${prettyKey(keybinds.charge)} | Menu: ${prettyKey(keybinds.menu)}`;
+    : `Fire: Mouse1 | Hook: ${prettyKey(keybinds.hook)} | Teleport: ${prettyKey(keybinds.teleport)} | Shield: ${prettyKey(keybinds.shield)} | Charge: ${prettyKey(keybinds.charge)} | Shock: ${prettyKey(keybinds.shock)} | Menu: ${prettyKey(keybinds.menu)}`;
   musicToggleBtn.textContent  = `Music: ${musicMuted ? 'Off' : 'On'}`;
   musicToggleBtn.className    = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
   toggleDummyBtn.textContent  = dummyEnabled ? 'Remove Dummy' : 'Add Dummy';
