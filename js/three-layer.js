@@ -1,6 +1,6 @@
 // ── Three.js Character Layer ─────────────────────────────────
 (function () {
-  const cfg = window.WARLOCK_3D_CONFIG || {};
+  const cfg = window.OUTRA_3D_CONFIG || {};
 
   const state = {
     container: null,
@@ -661,7 +661,7 @@
     });
   }
 
-  window.warlockThree = {
+  window.outraThree = {
     init() {
       if (!cfg.enabled) return;
       initScene();
