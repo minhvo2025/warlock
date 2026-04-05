@@ -6,7 +6,7 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
-}
+} 
 
 function normalizeKey(key) { return key === ' ' ? 'space' : String(key).toLowerCase(); }
 
