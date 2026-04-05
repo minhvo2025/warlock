@@ -51,36 +51,43 @@
   }
 
   function getPreviewSettings() {
-    const previewCfg = cfg.previewCharacter || {};
-    const mobile = isTouchDevice;
+  const previewCfg = cfg.previewCharacter || {};
+  const mobile = isTouchDevice;
 
-    return {
-      targetHeight: mobile
-        ? (previewCfg.targetHeightMobile || 70)
-        : (previewCfg.targetHeightDesktop || 118),
-      cameraFov: mobile
-        ? (previewCfg.cameraFovMobile || 40)
-        : (previewCfg.cameraFovDesktop || 28),
-      cameraY: mobile
-        ? (previewCfg.cameraYMobile || 52)
-        : (previewCfg.cameraYDesktop || 64),
-      cameraZ: mobile
-        ? (previewCfg.cameraZMobile || 420)
-        : (previewCfg.cameraZDesktop || 250),
-      lookAtY: mobile
-        ? (previewCfg.lookAtYMobile || 42)
-        : (previewCfg.lookAtYDesktop || 56),
-      modelYOffset: mobile
-        ? (previewCfg.modelYOffsetMobile || -8)
-        : (previewCfg.modelYOffsetDesktop || 0),
-      shadowScaleX: mobile
-        ? (previewCfg.shadowScaleXMobile || 1.45)
-        : (previewCfg.shadowScaleXDesktop || 1.7),
-      shadowScaleY: mobile
-        ? (previewCfg.shadowScaleYMobile || 0.72)
-        : (previewCfg.shadowScaleYDesktop || 0.8),
-    };
-  }
+  return {
+    targetHeight: mobile
+      ? (previewCfg.targetHeightMobile || 70)
+      : (previewCfg.targetHeightDesktop || 110), // slightly smaller for better framing
+
+    cameraFov: mobile
+      ? (previewCfg.cameraFovMobile || 40)
+      : (previewCfg.cameraFovDesktop || 32), // wider FOV to fit full body
+
+    cameraY: mobile
+      ? (previewCfg.cameraYMobile || 52)
+      : (previewCfg.cameraYDesktop || 78), // ↑ lift camera
+
+    cameraZ: mobile
+      ? (previewCfg.cameraZMobile || 420)
+      : (previewCfg.cameraZDesktop || 340), // ← pull camera back (KEY FIX)
+
+    lookAtY: mobile
+      ? (previewCfg.lookAtYMobile || 42)
+      : (previewCfg.lookAtYDesktop || 68), // ↑ aim at torso/head instead of legs
+
+    modelYOffset: mobile
+      ? (previewCfg.modelYOffsetMobile || -8)
+      : (previewCfg.modelYOffsetDesktop || -6), // ↓ shift model slightly down
+
+    shadowScaleX: mobile
+      ? (previewCfg.shadowScaleXMobile || 1.45)
+      : (previewCfg.shadowScaleXDesktop || 1.7),
+
+    shadowScaleY: mobile
+      ? (previewCfg.shadowScaleYMobile || 0.72)
+      : (previewCfg.shadowScaleYDesktop || 0.8),
+  };
+}
 
   function cloneMaterial(mat) {
     if (!mat) return mat;
