@@ -77,7 +77,7 @@
 
     modelYOffset: mobile
       ? (previewCfg.modelYOffsetMobile || -8)
-      : (previewCfg.modelYOffsetDesktop || -8),
+      : (previewCfg.modelYOffsetDesktop || -14),
 
     shadowScaleX: mobile
       ? (previewCfg.shadowScaleXMobile || 1.45)
