@@ -73,6 +73,36 @@ function getLeaderboard() {
   }
 }
 
+function saveLeaderboard(entries) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+}
+
+function awardWinRewards(name) {
+  const entries = getLeaderboard();
+  const existing = entries.find(e => e.name.toLowerCase() === name.toLowerCase());
+
+  if (existing) {
+    existing.points += 3;
+  } else {
+    entries.push({ name, points: 3 });
+  }
+
+  entries.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
+  saveLeaderboard(entries.slice(0, 20));
+
+  player.score = (entries.find(e => e.name.toLowerCase() === name.toLowerCase()) || { points: 0 }).points;
+  profile.wlk += 1;
+  saveProfile();
+  renderLeaderboard();
+  renderStore();
+  renderInventory();
+}
+
+function getPlayerPoints(name) {
+  const entry = getLeaderboard().find(e => e.name.toLowerCase() === name.toLowerCase());
+  return entry ? entry.points : 0;
+}
+
 // ── Math Helpers ──────────────────────────────────────────────
 function distance(ax, ay, bx, by) { return Math.hypot(bx - ax, by - ay); }
 function normalized(dx, dy) { const len = Math.hypot(dx, dy) || 1; return { x: dx / len, y: dy / len }; }
