@@ -383,6 +383,28 @@ function drawSkillAimPreview() {
       : 'rgba(220,245,255,0.75)';
     ctx.stroke();
 
+} else if (skillAimPreview.type === 'shock') {
+  const len = 115;
+  const spread = 0.6;
+
+  ctx.strokeStyle = 'rgba(255,180,120,0.35)';
+  ctx.beginPath();
+  ctx.moveTo(player.x, player.y);
+
+  ctx.lineTo(
+    player.x + (dir.x * Math.cos(spread) - dir.y * Math.sin(spread)) * len,
+    player.y + (dir.y * Math.cos(spread) + dir.x * Math.sin(spread)) * len
+  );
+
+  ctx.moveTo(player.x, player.y);
+
+  ctx.lineTo(
+    player.x + (dir.x * Math.cos(-spread) - dir.y * Math.sin(-spread)) * len,
+    player.y + (dir.y * Math.cos(-spread) + dir.x * Math.sin(-spread)) * len
+  );
+
+  ctx.stroke();
+    
   } else if (skillAimPreview.type === 'blink') {
     const target = getBlinkTargetPreview();
 
