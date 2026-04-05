@@ -259,7 +259,7 @@ function damagePlayer(amount) {
     return;
   }
   player.hp = Math.max(0, player.hp - amount);
-  if (window.warlockThree && window.warlockThree.triggerHit) window.warlockThree.triggerHit();
+  if (window.outraThree && window.outraThree.triggerHit) window.outraThree.triggerHit();
   spawnDamageText(player.x, player.y - player.r, amount);
   soundHit();
   if (player.hp <= 0) killPlayer('HP reached 0');
@@ -312,7 +312,7 @@ function shootFire() {
   const dir = getPlayerAim();
   player.fireReadyAt = now + player.fireCooldown;
   soundFire();
-  if (window.warlockThree && window.warlockThree.triggerCast) window.warlockThree.triggerCast();
+  if (window.outraThree && window.outraThree.triggerCast) window.outraThree.triggerCast();
   projectiles.push({
     owner: 'player',
     x: player.x + dir.x * (player.r + 10),
@@ -344,7 +344,7 @@ function castHookFromPlayer() {
   const dir = getPlayerAim();
   player.hookReadyAt = now + player.hookCooldown;
   soundHook();
-  if (window.warlockThree && window.warlockThree.triggerCast) window.warlockThree.triggerCast();
+  if (window.outraThree && window.outraThree.triggerCast) window.outraThree.triggerCast();
   hooks.push({
     owner: 'player', state: 'flying',
     x: player.x, y: player.y, sx: player.x, sy: player.y,
@@ -374,7 +374,7 @@ function castShield() {
   if (gameState !== 'playing' || !player.alive || now < player.shieldReadyAt) return;
   player.shieldReadyAt = now + player.shieldCooldown;
   player.shieldUntil   = now + 1.0;
-  if (window.warlockThree && window.warlockThree.triggerCast) window.warlockThree.triggerCast();
+  if (window.outraThree && window.outraThree.triggerCast) window.outraThree.triggerCast();
   spawnBurst(player.x, player.y, 'rgba(130,190,255,0.9)', 18, 140);
 }
 
@@ -392,7 +392,7 @@ function castArcaneCharge() {
   if (gameState !== 'playing' || !player.alive || now < player.chargeReadyAt || player.chargeActive) return;
   const dir = getPlayerAim();
   player.chargeReadyAt = now + player.chargeCooldown;
-  if (window.warlockThree && window.warlockThree.triggerDash) window.warlockThree.triggerDash();
+  if (window.outraThree && window.outraThree.triggerDash) window.outraThree.triggerDash();
   player.chargeActive = true;
   player.chargeDirX = dir.x;
   player.chargeDirY = dir.y;
@@ -478,7 +478,7 @@ function tryTeleport() {
   const target = getBlinkTargetPreview();
   if (target.blocked) return;
   player.teleportReadyAt = now + player.teleportCooldown;
-  if (window.warlockThree && window.warlockThree.triggerCast) window.warlockThree.triggerCast();
+  if (window.outraThree && window.outraThree.triggerCast) window.outraThree.triggerCast();
   soundTeleport();
   spawnBurst(player.x, player.y, 'rgba(160,120,255,0.9)', 18, 220);
   player.x = target.x;
