@@ -1,6 +1,6 @@
 // ── Three.js Character Layer ─────────────────────────────────
 (function () {
-  const cfg = window.WARLOCK_3D_CONFIG || {};
+  const cfg = window.OUTRA_3D_CONFIG || {};
 
   const state = {
     container: null,
@@ -41,7 +41,7 @@
   };
 
   function log(...args) {
-    console.log('[Warlock3D]', ...args);
+    console.log('[Outra3D]', ...args);
   }
 
   function getGLTFLoaderClass() {
@@ -162,20 +162,20 @@
 
     if (!state.container) {
       state.failed = true;
-      console.error('[Warlock3D] Missing #threeLayer element.');
+      console.error('[Outra3D] Missing #threeLayer element.');
       return;
     }
 
     if (typeof THREE === 'undefined') {
       state.failed = true;
-      console.error('[Warlock3D] THREE is not loaded.');
+      console.error('[Outra3D] THREE is not loaded.');
       return;
     }
 
     const LoaderClass = getGLTFLoaderClass();
     if (!LoaderClass) {
       state.failed = true;
-      console.error('[Warlock3D] GLTFLoader is not loaded.');
+      console.error('[Outra3D] GLTFLoader is not loaded.');
       return;
     }
 
@@ -415,7 +415,7 @@
 
     if (!entries.length) {
       state.failed = true;
-      console.error('[Warlock3D] No GLB paths configured.');
+      console.error('[Outra3D] No GLB paths configured.');
       return;
     }
 
@@ -476,7 +476,7 @@
               });
             }
           } catch (e) {
-            console.error('[Warlock3D] Error preparing state', name, e);
+            console.error('[Outra3D] Error preparing state', name, e);
           }
 
           remaining -= 1;
@@ -484,7 +484,7 @@
           if (remaining === 0) {
             if (state.player.states.size === 0) {
               state.failed = true;
-              console.error('[Warlock3D] No states loaded.');
+              console.error('[Outra3D] No states loaded.');
               return;
             }
 
@@ -511,7 +511,7 @@
         undefined,
         (error) => {
           remaining -= 1;
-          console.error('[Warlock3D] Failed to load', url, error);
+          console.error('[Outra3D] Failed to load', url, error);
 
           if (remaining === 0 && state.player.states.size === 0) {
             state.failed = true;
@@ -661,7 +661,7 @@
     });
   }
 
-  window.warlockThree = {
+  window.outraThree = {
     init() {
       if (!cfg.enabled) return;
       initScene();

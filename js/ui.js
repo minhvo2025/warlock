@@ -153,8 +153,8 @@ function renderInventory() {
     : '<div class="hint">No outfit items owned yet.</div>';
 
   inventoryList.innerHTML =
-    `<div class="inventoryCard"><div class="inventoryTitle">Hats</div>${hatRows}</div>` +
-    `<div class="inventoryCard"><div class="inventoryTitle">Outfit</div>${outfitRows}</div>`;
+    `<div class="inventoryCard"><div class="inventoryTitle">${BRAND.name} Hats</div>${hatRows}</div>` +
+`<div class="inventoryCard"><div class="inventoryTitle">${BRAND.name} Outfit</div>${outfitRows}</div>`;
 
   inventoryList.querySelectorAll('[data-inv-wear]').forEach(btn =>
     btn.addEventListener('click', () => equipItem(btn.getAttribute('data-inv-wear')))

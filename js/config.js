@@ -1,6 +1,17 @@
+// ── Brand ─────────────────────────────────────────────────────
+const BRAND = {
+  name: 'Outra',
+  lobbyTitle: 'Outra',
+  storagePrefix: 'outra',
+  legacyStoragePrefix: 'warlock_mvp',
+};
+
 // ── Storage Keys ──────────────────────────────────────────────
-const STORAGE_KEY = 'warlock_mvp_leaderboard_v1';
-const PROFILE_KEY = 'warlock_mvp_profile_v14';
+const STORAGE_KEY = `${BRAND.storagePrefix}_leaderboard_v1`;
+const PROFILE_KEY = `${BRAND.storagePrefix}_profile_v1`;
+
+const LEGACY_STORAGE_KEY = 'warlock_mvp_leaderboard_v1';
+const LEGACY_PROFILE_KEY = 'warlock_mvp_profile_v14';
 
 // ── Device Detection ──────────────────────────────────────────
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 900;
@@ -58,7 +69,7 @@ const storeItems = [
   { id: 'beanie',         type: 'hat',     name: 'Beanie',           cost: 3, description: 'Soft round cap',                        apply: (p) => p.store.beanie = true },
   { id: 'crown',          type: 'hat',     name: 'Crown',            cost: 7, description: 'Royal shiny crown',                     apply: (p) => p.store.crown = true },
   { id: 'strawHat',       type: 'hat',     name: 'Straw Hat',        cost: 5, description: 'Wide brim straw hat',                   apply: (p) => p.store.strawHat = true },
-  { id: 'sweater',        type: 'sweater', name: 'Sweater',          cost: 4, description: 'Cozy warlock sweater',                  apply: (p) => p.store.sweater = true },
+  { id: 'sweater',        type: 'sweater', name: 'Sweater',          cost: 4, description: 'Cozy sweater',                  apply: (p) => p.store.sweater = true },
   { id: 'boots',          type: 'boots',   name: 'Boots',            cost: 4, description: 'Adventurer boots',                      apply: (p) => p.store.boots = true },
 ];
 
@@ -92,7 +103,7 @@ const skillAimPreview = { active: false, type: null, dx: 1, dy: 0 };
 
 
 // ── 3D Character Layer ───────────────────────────────────────
-window.WARLOCK_3D_CONFIG = {
+window.OUTRA_3D_CONFIG = {
   enabled: true,
   playerCharacter: {
     idle: 'docs/art/character/idle.glb',
