@@ -104,7 +104,7 @@ window.WARLOCK_3D_CONFIG = {
   worldScale: 1,
   actorScale: 28,
   hoverHeight: 0,
-  shadowSize: 20,
+  shadowSize: 18,
   castHoldTime: 0.22,
   hitHoldTime: 0.28,
   dashHoldTime: 0.30,
