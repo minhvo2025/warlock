@@ -58,7 +58,7 @@ const storeItems = [
   { id: 'beanie',         type: 'hat',     name: 'Beanie',           cost: 3, description: 'Soft round cap',                        apply: (p) => p.store.beanie = true },
   { id: 'crown',          type: 'hat',     name: 'Crown',            cost: 7, description: 'Royal shiny crown',                     apply: (p) => p.store.crown = true },
   { id: 'strawHat',       type: 'hat',     name: 'Straw Hat',        cost: 5, description: 'Wide brim straw hat',                   apply: (p) => p.store.strawHat = true },
-  { id: 'sweater',        type: 'sweater', name: 'Sweater',          cost: 4, description: 'Cozy warlock sweater',                  apply: (p) => p.store.sweater = true },
+  { id: 'sweater',        type: 'sweater', name: 'Sweater',          cost: 4, description: 'Cozy sweater',                  apply: (p) => p.store.sweater = true },
   { id: 'boots',          type: 'boots',   name: 'Boots',            cost: 4, description: 'Adventurer boots',                      apply: (p) => p.store.boots = true },
 ];
 
