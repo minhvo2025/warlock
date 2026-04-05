@@ -1,495 +1,702 @@
-// ── Cosmetics ─────────────────────────────────────────────────
-function drawCosmetics(drawCtx, x, y, scale = 1) {
-  if (profile.equipped.boots) {
-    drawCtx.fillStyle = '#6a472d';
-    drawCtx.fillRect(x - 22 * scale, y + 20 * scale, 14 * scale, 18 * scale);
-    drawCtx.fillRect(x +  8 * scale, y + 20 * scale, 14 * scale, 18 * scale);
+// ── Three.js Character Layer ─────────────────────────────────
+(function () {
+  const cfg = window.WARLOCK_3D_CONFIG || {};
+
+  const state = {
+    container: null,
+    renderer: null,
+    scene: null,
+    camera: null,
+    loader: null,
+    ready: false,
+    failed: false,
+    debugBox: null,
+    preview: {
+      host: null,
+      canvas2d: null,
+      canvas3d: null,
+      scene: null,
+      camera: null,
+      renderer: null,
+      rootGroup: null,
+      shadow: null,
+      ready: false,
+      currentRotationY: Math.PI * 0.9,
+      targetRotationY: Math.PI * 0.9,
+      dragging: false,
+      lastX: 0,
+      states: new Map(),
+      currentState: 'idle',
+    },
+    player: {
+      states: new Map(),
+      currentState: 'idle',
+      castTimer: 0,
+      hitTimer: 0,
+      dashTimer: 0,
+      lastHp: null,
+      shadow: null,
+      rootGroup: null,
+    },
+  };
+
+  function log(...args) {
+    console.log('[Warlock3D]', ...args);
   }
-  if (profile.equipped.sweater) {
-    drawCtx.fillStyle = '#7b274c';
-    if (typeof drawCtx.roundRect === 'function') {
-      drawCtx.beginPath();
-      drawCtx.roundRect(x - 28 * scale, y - 8 * scale, 56 * scale, 42 * scale, 12 * scale);
-      drawCtx.fill();
-    } else {
-      drawCtx.fillRect(x - 28 * scale, y - 8 * scale, 56 * scale, 42 * scale);
+
+  function getGLTFLoaderClass() {
+    if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader !== 'undefined') return THREE.GLTFLoader;
+    if (typeof GLTFLoader !== 'undefined') return GLTFLoader;
+    return null;
+  }
+
+  function cloneMaterial(mat) {
+    if (!mat) return mat;
+    const cloned = mat.clone();
+    if ('skinning' in mat) cloned.skinning = mat.skinning;
+    return cloned;
+  }
+
+  function traverseMeshes(root, fn) {
+    root.traverse((obj) => {
+      if (obj.isMesh || obj.isSkinnedMesh) fn(obj);
+    });
+  }
+
+  function computeBox(root) {
+    return new THREE.Box3().setFromObject(root);
+  }
+
+  function tintModel(root, bodyColorHex, wandColorHex) {
+    const body = new THREE.Color(bodyColorHex || '#d9d9ff');
+    const wand = new THREE.Color(wandColorHex || '#7c4dff');
+
+    let meshIndex = 0;
+    traverseMeshes(root, (obj) => {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((mat) => {
+        if (!mat || !('color' in mat)) return;
+        if (meshIndex === 0) {
+          mat.color.copy(body);
+        } else if (meshIndex === 1) {
+          mat.color.copy(wand);
+        } else {
+          mat.color.lerp(body, 0.65);
+        }
+      });
+      meshIndex++;
+    });
+  }
+
+  function centerAndScaleModel(root) {
+    traverseMeshes(root, (obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      obj.frustumCulled = false;
+
+      if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map(cloneMaterial);
+      } else if (obj.material) {
+        obj.material = cloneMaterial(obj.material);
+      }
+    });
+
+    let box = computeBox(root);
+    let center = new THREE.Vector3();
+    let size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+
+    if (size.y < size.z) {
+      root.rotation.x = -Math.PI / 2;
+      box = computeBox(root);
+      box.getCenter(center);
+      box.getSize(size);
+      log('Auto-rotated model from Z-up to Y-up');
+    }
+
+    root.position.sub(center);
+
+    box = computeBox(root);
+    box.getCenter(center);
+    box.getSize(size);
+
+    const targetHeight = cfg.actorHeight || 95;
+    const sourceHeight = Math.max(size.y || 1, 1);
+    const scale = targetHeight / sourceHeight;
+
+    root.scale.setScalar(scale);
+
+    box = computeBox(root);
+    box.getCenter(center);
+    box.getSize(size);
+
+    root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
+
+    log('Prepared model size:', {
+      x: size.x.toFixed(2),
+      y: size.y.toFixed(2),
+      z: size.z.toFixed(2),
+      scale: scale.toFixed(2),
+    });
+  }
+
+  function prepareModel(root, stateName, parentGroup) {
+    centerAndScaleModel(root);
+    tintModel(root, player.bodyColor, player.wandColor);
+    root.visible = false;
+    parentGroup.add(root);
+    log('Prepared state:', stateName);
+  }
+
+  function initScene() {
+    state.container = document.getElementById('threeLayer');
+
+    if (!state.container) {
+      state.failed = true;
+      console.error('[Warlock3D] Missing #threeLayer element.');
+      return;
+    }
+
+    if (typeof THREE === 'undefined') {
+      state.failed = true;
+      console.error('[Warlock3D] THREE is not loaded.');
+      return;
+    }
+
+    const LoaderClass = getGLTFLoaderClass();
+    if (!LoaderClass) {
+      state.failed = true;
+      console.error('[Warlock3D] GLTFLoader is not loaded.');
+      return;
+    }
+
+    state.scene = new THREE.Scene();
+
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const aspect = width / height;
+    const frustumSize = height;
+
+    state.camera = new THREE.OrthographicCamera(
+      (-frustumSize * aspect) / 2,
+      (frustumSize * aspect) / 2,
+      frustumSize / 2,
+      -frustumSize / 2,
+      0.1,
+      5000
+    );
+
+    state.camera.position.set(0, 1200, 0);
+    state.camera.up.set(0, 0, -1);
+    state.camera.lookAt(0, 0, 0);
+
+    state.renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+    });
+    state.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    state.renderer.setSize(width, height);
+    state.renderer.setClearColor(0x000000, 0);
+
+    state.container.innerHTML = '';
+    state.container.appendChild(state.renderer.domElement);
+
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x334455, 2.6);
+    hemi.position.set(0, 500, 0);
+    state.scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 1.9);
+    dir.position.set(180, 360, 120);
+    state.scene.add(dir);
+
+    const fill = new THREE.DirectionalLight(0x88aaff, 1.1);
+    fill.position.set(-180, 220, -60);
+    state.scene.add(fill);
+
+    state.loader = new LoaderClass();
+
+    state.player.rootGroup = new THREE.Group();
+    state.scene.add(state.player.rootGroup);
+
+    const shadowGeo = new THREE.CircleGeometry(cfg.shadowSize || 24, 32);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+    });
+    const shadow = new THREE.Mesh(shadowGeo, shadowMat);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = -1;
+    state.player.shadow = shadow;
+    state.player.rootGroup.add(shadow);
+
+    const debugGeo = new THREE.BoxGeometry(24, 80, 24);
+    const debugMat = new THREE.MeshBasicMaterial({
+      color: 0xff00ff,
+      transparent: true,
+      opacity: 0.22,
+    });
+    state.debugBox = new THREE.Mesh(debugGeo, debugMat);
+    state.debugBox.position.set(0, 40, 0);
+    state.player.rootGroup.add(state.debugBox);
+
+    window.addEventListener('resize', onResize);
+
+    log('Three.js arena scene initialized');
+  }
+
+  function initPreviewScene() {
+    const canvas2d = document.getElementById('previewCanvas');
+    if (!canvas2d || typeof THREE === 'undefined') return;
+
+    state.preview.canvas2d = canvas2d;
+    state.preview.host = canvas2d.parentElement;
+    if (!state.preview.host) return;
+
+    const hostStyle = window.getComputedStyle(state.preview.host);
+    if (hostStyle.position === 'static') {
+      state.preview.host.style.position = 'relative';
+    }
+
+    const canvas3d = document.createElement('canvas');
+    canvas3d.id = 'previewCanvas3d';
+    canvas3d.setAttribute('aria-hidden', 'true');
+    canvas3d.style.position = 'absolute';
+    canvas3d.style.left = `${canvas2d.offsetLeft}px`;
+    canvas3d.style.top = `${canvas2d.offsetTop}px`;
+    canvas3d.style.width = `${canvas2d.clientWidth}px`;
+    canvas3d.style.height = `${canvas2d.clientHeight}px`;
+    canvas3d.style.pointerEvents = 'auto';
+    canvas3d.style.background = 'transparent';
+    canvas3d.style.borderRadius = '14px';
+    canvas3d.style.zIndex = '2';
+
+    state.preview.host.appendChild(canvas3d);
+    state.preview.canvas3d = canvas3d;
+
+    state.preview.scene = new THREE.Scene();
+
+    state.preview.camera = new THREE.PerspectiveCamera(
+      32,
+      Math.max(1, canvas2d.clientWidth) / Math.max(1, canvas2d.clientHeight),
+      0.1,
+      1000
+    );
+    state.preview.camera.position.set(0, 56, 210);
+    state.preview.camera.lookAt(0, 52, 0);
+
+    state.preview.renderer = new THREE.WebGLRenderer({
+      canvas: canvas3d,
+      antialias: true,
+      alpha: true,
+    });
+    state.preview.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    state.preview.renderer.setSize(canvas2d.clientWidth || canvas2d.width, canvas2d.clientHeight || canvas2d.height, false);
+    state.preview.renderer.setClearColor(0x000000, 0);
+
+    const ambient = new THREE.AmbientLight(0xffffff, 1.7);
+    state.preview.scene.add(ambient);
+
+    const key = new THREE.DirectionalLight(0xffffff, 1.6);
+    key.position.set(90, 140, 120);
+    state.preview.scene.add(key);
+
+    const fill = new THREE.DirectionalLight(0xa8c4ff, 0.9);
+    fill.position.set(-80, 70, 110);
+    state.preview.scene.add(fill);
+
+    const rim = new THREE.DirectionalLight(0xffffff, 0.85);
+    rim.position.set(-70, 110, -120);
+    state.preview.scene.add(rim);
+
+    state.preview.rootGroup = new THREE.Group();
+    state.preview.scene.add(state.preview.rootGroup);
+
+    const shadowGeo = new THREE.CircleGeometry(34, 40);
+    const shadowMat = new THREE.MeshBasicMaterial({
+      color: 0x000000,
+      transparent: true,
+      opacity: 0.24,
+      depthWrite: false,
+    });
+    state.preview.shadow = new THREE.Mesh(shadowGeo, shadowMat);
+    state.preview.shadow.rotation.x = -Math.PI / 2;
+    state.preview.shadow.position.y = 0;
+    state.preview.shadow.scale.set(1.45, 0.72, 1);
+    state.preview.rootGroup.add(state.preview.shadow);
+
+    bindPreviewInput();
+    log('Lobby preview scene initialized');
+  }
+
+  function bindPreviewInput() {
+    const canvas = state.preview.canvas3d;
+    if (!canvas) return;
+
+    function getClientX(e) {
+      if (e.touches && e.touches[0]) return e.touches[0].clientX;
+      return e.clientX;
+    }
+
+    function down(e) {
+      state.preview.dragging = true;
+      state.preview.lastX = getClientX(e);
+    }
+
+    function move(e) {
+      if (!state.preview.dragging) return;
+      const x = getClientX(e);
+      const dx = x - state.preview.lastX;
+      state.preview.lastX = x;
+      state.preview.targetRotationY += dx * 0.012;
+    }
+
+    function up() {
+      state.preview.dragging = false;
+    }
+
+    canvas.addEventListener('mousedown', down);
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+
+    canvas.addEventListener('touchstart', down, { passive: true });
+    window.addEventListener('touchmove', move, { passive: true });
+    window.addEventListener('touchend', up, { passive: true });
+    window.addEventListener('touchcancel', up, { passive: true });
+  }
+
+  function onResize() {
+    if (state.camera && state.renderer) {
+      const width = window.innerWidth;
+      const height = window.innerHeight;
+      const aspect = width / height;
+      const frustumSize = height;
+
+      state.camera.left = (-frustumSize * aspect) / 2;
+      state.camera.right = (frustumSize * aspect) / 2;
+      state.camera.top = frustumSize / 2;
+      state.camera.bottom = -frustumSize / 2;
+      state.camera.updateProjectionMatrix();
+
+      state.renderer.setSize(width, height);
+    }
+
+    if (state.preview.camera && state.preview.renderer && state.preview.canvas2d && state.preview.canvas3d) {
+      const width = state.preview.canvas2d.clientWidth || state.preview.canvas2d.width || 320;
+      const height = state.preview.canvas2d.clientHeight || state.preview.canvas2d.height || 240;
+
+      state.preview.canvas3d.style.left = `${state.preview.canvas2d.offsetLeft}px`;
+      state.preview.canvas3d.style.top = `${state.preview.canvas2d.offsetTop}px`;
+      state.preview.canvas3d.style.width = `${width}px`;
+      state.preview.canvas3d.style.height = `${height}px`;
+
+      state.preview.camera.aspect = width / Math.max(1, height);
+      state.preview.camera.updateProjectionMatrix();
+      state.preview.renderer.setSize(width, height, false);
     }
   }
-  const hat = profile.equipped.hat;
-  if (hat === 'wizardHat') {
-    drawCtx.fillStyle = '#3f2a7d';
-    drawCtx.beginPath();
-    drawCtx.moveTo(x - 24 * scale, y - 18 * scale);
-    drawCtx.lineTo(x,              y - 72 * scale);
-    drawCtx.lineTo(x + 24 * scale, y - 18 * scale);
-    drawCtx.closePath();
-    drawCtx.fill();
-    drawCtx.fillRect(x - 28 * scale, y - 20 * scale, 56 * scale, 8 * scale);
-  } else if (hat === 'beanie') {
-    drawCtx.fillStyle = '#2f7b5b';
-    drawCtx.beginPath();
-    drawCtx.arc(x, y - 24 * scale, 24 * scale, Math.PI, 0);
-    drawCtx.fill();
-    drawCtx.fillRect(x - 24 * scale, y - 24 * scale, 48 * scale, 10 * scale);
-  } else if (hat === 'crown') {
-    drawCtx.fillStyle = '#d8b11e';
-    drawCtx.beginPath();
-    drawCtx.moveTo(x - 24 * scale, y - 18 * scale);
-    drawCtx.lineTo(x - 16 * scale, y - 36 * scale);
-    drawCtx.lineTo(x -  4 * scale, y - 18 * scale);
-    drawCtx.lineTo(x,              y - 40 * scale);
-    drawCtx.lineTo(x +  4 * scale, y - 18 * scale);
-    drawCtx.lineTo(x + 16 * scale, y - 36 * scale);
-    drawCtx.lineTo(x + 24 * scale, y - 18 * scale);
-    drawCtx.closePath();
-    drawCtx.fill();
-  } else if (hat === 'strawHat') {
-    drawCtx.fillStyle = '#cba25f';
-    drawCtx.beginPath();
-    drawCtx.ellipse(x, y - 26 * scale, 34 * scale, 8 * scale, 0, 0, Math.PI * 2);
-    drawCtx.fill();
-    drawCtx.fillRect(x - 18 * scale, y - 46 * scale, 36 * scale, 20 * scale);
-  }
-}
 
-// ── Lobby Preview ─────────────────────────────────────────────
-function drawLobbyPreview() {
-  previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-  previewCtx.fillStyle = '#242630';
-  previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+  function loadCharacterStates() {
+    const paths = cfg.playerCharacter || {};
+    const entries = Object.entries(paths);
 
-  previewCtx.fillStyle = 'rgba(255,120,30,0.22)';
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 2, 130, 34, 0, 0, Math.PI * 2);
-  previewCtx.fill();
+    if (!entries.length) {
+      state.failed = true;
+      console.error('[Warlock3D] No GLB paths configured.');
+      return;
+    }
 
-  previewCtx.fillStyle = '#3a4047';
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 18, 96, 26, 0, 0, Math.PI * 2);
-  previewCtx.fill();
+    let remaining = entries.length;
 
-  previewCtx.strokeStyle = '#8a939e';
-  previewCtx.lineWidth = 4;
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 18, 96, 26, 0, 0, Math.PI * 2);
-  previewCtx.stroke();
+    entries.forEach(([name, url]) => {
+      state.loader.load(
+        url,
+        (gltf) => {
+          try {
+            const arenaRoot = gltf.scene;
+            prepareModel(arenaRoot, name, state.player.rootGroup);
 
-  previewCtx.fillStyle = 'rgba(255,255,255,0.95)';
-  previewCtx.font = 'bold 18px Arial';
-  previewCtx.textAlign = 'center';
-  previewCtx.fillText(player.name || 'Player', previewCanvas.width / 2, 34);
+            const arenaMixer = gltf.animations && gltf.animations.length
+              ? new THREE.AnimationMixer(arenaRoot)
+              : null;
 
-  previewCtx.font = '13px Arial';
-  previewCtx.fillStyle = 'rgba(255,255,255,0.72)';
-  previewCtx.fillText('Drag to rotate', previewCanvas.width / 2, previewCanvas.height - 16);
-  previewCtx.textAlign = 'left';
+            const arenaAction = arenaMixer && gltf.animations[0]
+              ? arenaMixer.clipAction(gltf.animations[0])
+              : null;
 
-  if (
-    window.warlockThree &&
-    typeof window.warlockThree.renderLobbyPreview === 'function'
-  ) {
-    window.warlockThree.renderLobbyPreview();
-  } else {
-    // fallback if 3D preview has not loaded yet
-    const x = previewCanvas.width / 2;
-    const y = previewCanvas.height / 2 + 18;
+            if (arenaAction) {
+              arenaAction.enabled = true;
+              arenaAction.clampWhenFinished = false;
+              arenaAction.setLoop(THREE.LoopRepeat, Infinity);
+              arenaAction.play();
+            }
 
-    previewCtx.fillStyle = 'rgba(0,0,0,0.25)';
-    previewCtx.beginPath();
-    previewCtx.ellipse(x, y + 42, 32, 12, 0, 0, Math.PI * 2);
-    previewCtx.fill();
+            state.player.states.set(name, {
+              root: arenaRoot,
+              mixer: arenaMixer,
+              action: arenaAction,
+            });
 
-    previewCtx.fillStyle = player.bodyColor;
-    previewCtx.beginPath();
-    previewCtx.arc(x, y, 32, 0, Math.PI * 2);
-    previewCtx.fill();
+            if (state.preview.rootGroup) {
+              const previewRoot = gltf.scene.clone(true);
+              prepareModel(previewRoot, name, state.preview.rootGroup);
 
-    drawCosmetics(previewCtx, x, y, 1);
+              const previewMixer = gltf.animations && gltf.animations.length
+                ? new THREE.AnimationMixer(previewRoot)
+                : null;
 
-    previewCtx.fillStyle = player.wandColor;
-    previewCtx.save();
-    previewCtx.translate(x, y);
-    previewCtx.rotate(-0.3);
-    previewCtx.fillRect(2, -5, 34, 10);
-    previewCtx.restore();
-  }
-}
+              const previewAction = previewMixer && gltf.animations[0]
+                ? previewMixer.clipAction(gltf.animations[0])
+                : null;
 
-// ── Arena ─────────────────────────────────────────────────────
-function drawArena() {
-  ctx.fillStyle = '#23140f';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+              if (previewAction) {
+                previewAction.enabled = true;
+                previewAction.clampWhenFinished = false;
+                previewAction.setLoop(THREE.LoopRepeat, Infinity);
+                previewAction.play();
+              }
 
-  for (let i = 0; i < 55; i++) {
-    const angle = (i / 55) * Math.PI * 2 + performance.now() * 0.0002;
-    const r = arena.radius + 55 + Math.sin(i + performance.now() * 0.003) * 20;
-    const x = arena.cx + Math.cos(angle) * r;
-    const y = arena.cy + Math.sin(angle) * r;
-    ctx.fillStyle = 'rgba(255,120,30,0.14)';
-    ctx.beginPath();
-    ctx.arc(x, y, 18, 0, Math.PI * 2);
-    ctx.fill();
+              state.preview.states.set(name, {
+                root: previewRoot,
+                mixer: previewMixer,
+                action: previewAction,
+              });
+            }
+          } catch (e) {
+            console.error('[Warlock3D] Error preparing state', name, e);
+          }
+
+          remaining -= 1;
+
+          if (remaining === 0) {
+            if (state.player.states.size === 0) {
+              state.failed = true;
+              console.error('[Warlock3D] No states loaded.');
+              return;
+            }
+
+            state.ready = true;
+            state.preview.ready = state.preview.states.size > 0;
+            state.player.lastHp = typeof player !== 'undefined' ? player.hp : 100;
+
+            if (state.debugBox) state.debugBox.visible = false;
+
+            const firstArena = state.player.states.has('idle')
+              ? 'idle'
+              : Array.from(state.player.states.keys())[0];
+
+            const firstPreview = state.preview.states.has('idle')
+              ? 'idle'
+              : Array.from(state.preview.states.keys())[0];
+
+            setArenaPlayerState(firstArena, true);
+            setPreviewState(firstPreview, true);
+
+            log('3D player ready');
+          }
+        },
+        undefined,
+        (error) => {
+          remaining -= 1;
+          console.error('[Warlock3D] Failed to load', url, error);
+
+          if (remaining === 0 && state.player.states.size === 0) {
+            state.failed = true;
+          }
+        }
+      );
+    });
   }
 
-  ctx.fillStyle = '#ff5f1f';
-  ctx.beginPath();
-  ctx.arc(arena.cx, arena.cy, arena.radius + 170, 0, Math.PI * 2);
-  ctx.fill();
+  function getWorldPosition(actor) {
+    const worldScale = cfg.worldScale || 1;
 
-  ctx.fillStyle = '#ffaa40';
-  for (let i = 0; i < 46; i++) {
-    const angle = (i / 46) * Math.PI * 2 + performance.now() * 0.00035;
-    const r = arena.radius + 110 + Math.sin(i * 1.7 + performance.now() * 0.004) * 12;
-    const x = arena.cx + Math.cos(angle) * r;
-    const y = arena.cy + Math.sin(angle) * r;
-    ctx.beginPath();
-    ctx.arc(x, y, 10, 0, Math.PI * 2);
-    ctx.fill();
+    const centerX = canvas.width * 0.5;
+    const centerY = canvas.height * 0.5;
+
+    return {
+      x: (actor.x - centerX) * worldScale,
+      z: (actor.y - centerY) * worldScale,
+    };
   }
 
-  ctx.fillStyle = '#3a4047';
-  ctx.beginPath();
-  ctx.arc(arena.cx, arena.cy, arena.radius, 0, Math.PI * 2);
-  ctx.fill();
+  function setArenaPlayerState(name, force = false) {
+    if (!state.ready) return;
+    if (!force && state.player.currentState === name) return;
 
-  ctx.strokeStyle = '#8a939e';
-  ctx.lineWidth = 8;
-  ctx.beginPath();
-  ctx.arc(arena.cx, arena.cy, arena.radius, 0, Math.PI * 2);
-  ctx.stroke();
-}
+    state.player.currentState = name;
 
-// ── Obstacles ─────────────────────────────────────────────────
-function drawObstacles() {
-  for (const obstacle of obstacles) {
-    ctx.fillStyle = '#59616c';
-    ctx.beginPath();
-    ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
-    ctx.fill();
+    state.player.states.forEach((entry, entryName) => {
+      const visible = entryName === name;
+      entry.root.visible = visible;
 
-    ctx.strokeStyle = '#98a2ad';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(obstacle.x, obstacle.y, obstacle.r, 0, Math.PI * 2);
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.beginPath();
-    ctx.arc(obstacle.x + 4, obstacle.y + 5, obstacle.r * 0.6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-// ── Potions ───────────────────────────────────────────────────
-function drawPotions() {
-  for (const potion of potions) {
-    ctx.fillStyle = '#45e37b';
-    ctx.beginPath();
-    ctx.arc(potion.x, potion.y, potion.r, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(230,255,235,0.9)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    ctx.fillRect(potion.x - 2, potion.y - 6, 4, 12);
-    ctx.fillRect(potion.x - 6, potion.y - 2, 12, 4);
-  }
-}
-
-// ── Actors ────────────────────────────────────────────────────
-function drawHealthBar(actor, color) {
-  const width = 56, height = 8;
-  const x = actor.x - width / 2;
-  const y = actor.y - actor.r - 22;
-  const ratio = Math.max(0, actor.hp / actor.maxHp);
-
-  ctx.fillStyle = 'rgba(0,0,0,0.55)';
-  ctx.fillRect(x, y, width, height);
-
-  ctx.fillStyle = color;
-  ctx.fillRect(x + 1, y + 1, (width - 2) * ratio, height - 2);
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, width, height);
-}
-
-function drawNameTag(actor) {
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 14px Arial';
-  ctx.fillStyle = 'rgba(255,255,255,0.95)';
-  ctx.fillText(actor.name, actor.x, actor.y - actor.r - 30);
-  ctx.textAlign = 'left';
-}
-
-function drawActor(actor, bodyColor, wandColor, aimAngle = 0, healthColor = '#6cff74', cosmetics = false) {
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.beginPath();
-  ctx.ellipse(actor.x, actor.y + actor.r + 8, actor.r, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  drawHealthBar(actor, healthColor);
-  drawNameTag(actor);
-
-  ctx.save();
-  ctx.translate(actor.x, actor.y);
-  ctx.rotate(aimAngle);
-  ctx.fillStyle = bodyColor;
-  ctx.beginPath();
-  ctx.arc(0, 0, actor.r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = wandColor;
-  ctx.fillRect(0, -4, 18, 8);
-  ctx.restore();
-
-  if (cosmetics) drawCosmetics(ctx, actor.x, actor.y, actor.r / 32);
-}
-
-function drawPlayer() {
-  if (window.warlockThree && window.warlockThree.isPlayerRenderedIn3D && window.warlockThree.isPlayerRenderedIn3D()) {
-    return;
-  }
-  const angle = Math.atan2(player.aimY, player.aimX);
-  drawActor(player, player.alive ? player.bodyColor : '#777', player.wandColor, angle, '#62f36d', true);
-
-  const now = performance.now() / 1000;
-  if (now < player.shieldUntil) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(120,190,255,0.85)';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r + 10, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 0.14;
-    ctx.fillStyle = 'rgba(120,190,255,1)';
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r + 10, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
+      if (visible && entry.action) {
+        entry.action.reset();
+        entry.action.play();
+      }
+    });
   }
 
-  if (player.chargeActive) {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(196,150,255,0.95)';
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r + 14, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.globalAlpha = 0.16;
-    ctx.fillStyle = 'rgba(196,150,255,1)';
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r + 14, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-}
+  function setPreviewState(name, force = false) {
+    if (!state.preview.ready) return;
+    if (!force && state.preview.currentState === name) return;
 
-function drawDummy() {
-  const angle = Math.atan2(player.y - dummy.y, player.x - dummy.x);
-  drawActor(dummy, dummy.alive ? '#ffd8b8' : '#666', '#ff7a1a', angle, '#ff8c5a', false);
-}
+    state.preview.currentState = name;
 
-// ── Projectiles ───────────────────────────────────────────────
-function drawProjectiles() {
-  for (const p of projectiles) {
-    ctx.fillStyle = p.owner === 'player' ? '#ff8a2b' : '#6fd8ff';
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fill();
+    state.preview.states.forEach((entry, entryName) => {
+      const visible = entryName === name;
+      entry.root.visible = visible;
 
-    ctx.strokeStyle = p.owner === 'player' ? 'rgba(255,200,80,0.6)' : 'rgba(160,230,255,0.65)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.r + 4, 0, Math.PI * 2);
-    ctx.stroke();
-  }
-}
-
-// ── Hooks ─────────────────────────────────────────────────────
-function drawHooks() {
-  for (const h of hooks) {
-    const caster = h.owner === 'player' ? player : dummy;
-    if (h.owner === 'dummy' && !dummyEnabled) continue;
-
-    ctx.strokeStyle = h.owner === 'player' ? 'rgba(200,220,255,0.95)' : 'rgba(255,220,200,0.95)';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.moveTo(caster.x, caster.y);
-    ctx.lineTo(h.x, h.y);
-    ctx.stroke();
-
-    ctx.fillStyle = h.owner === 'player' ? '#bfe4ff' : '#ffd4b4';
-    ctx.beginPath();
-    ctx.arc(h.x, h.y, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-// ── Particles ─────────────────────────────────────────────────
-function drawParticles() {
-  for (const p of particles) {
-    ctx.globalAlpha = Math.max(0, Math.min(1, p.life / 0.45));
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
-}
-
-// ── Skill Aim Preview ─────────────────────────────────────────
-function drawSkillAimPreview() {
-  if (!skillAimPreview.active || gameState === 'lobby' || !player.alive) return;
-  const dir = normalized(skillAimPreview.dx, skillAimPreview.dy);
-
-  ctx.save();
-  ctx.lineWidth = 2;
-  ctx.setLineDash([6, 8]);
-
-  if (skillAimPreview.type === 'shield') {
-    ctx.setLineDash([]);
-    ctx.strokeStyle = 'rgba(120,190,255,0.7)';
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, player.r + 12, 0, Math.PI * 2);
-    ctx.stroke();
-
-  } else if (skillAimPreview.type === 'fire' || skillAimPreview.type === 'hook') {
-    const len  = skillAimPreview.type === 'fire' ? 140 : 180;
-    const endX = player.x + dir.x * len;
-    const endY = player.y + dir.y * len;
-
-    ctx.strokeStyle = skillAimPreview.type === 'fire'
-      ? 'rgba(255,160,70,0.28)'
-      : 'rgba(190,230,255,0.28)';
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(player.x, player.y, 24, 0, Math.PI * 2);
-    ctx.strokeStyle = skillAimPreview.type === 'fire'
-      ? 'rgba(255,140,60,0.14)'
-      : 'rgba(180,220,255,0.14)';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(endX, endY, skillAimPreview.type === 'fire' ? 8 : 10, 0, Math.PI * 2);
-    ctx.strokeStyle = skillAimPreview.type === 'fire'
-      ? 'rgba(255,200,120,0.75)'
-      : 'rgba(220,245,255,0.75)';
-    ctx.stroke();
-
-  } else if (skillAimPreview.type === 'blink') {
-    const target = getBlinkTargetPreview();
-
-    ctx.strokeStyle = target.blocked ? 'rgba(255,110,110,0.24)' : 'rgba(170,140,255,0.24)';
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    ctx.lineTo(target.x, target.y);
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.arc(target.x, target.y, player.r + 8, 0, Math.PI * 2);
-    ctx.strokeStyle = target.blocked ? 'rgba(255,120,120,0.8)' : 'rgba(186,166,255,0.82)';
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(target.x, target.y, player.r - 2, 0, Math.PI * 2);
-    ctx.globalAlpha = 0.12;
-    ctx.fillStyle = target.blocked ? 'rgba(255,90,90,1)' : 'rgba(170,140,255,1)';
-    ctx.fill();
-
-  } else if (skillAimPreview.type === 'charge') {
-    const len = 165;
-    const endX = player.x + dir.x * len;
-    const endY = player.y + dir.y * len;
-
-    ctx.strokeStyle = 'rgba(200,150,255,0.30)';
-    ctx.lineWidth = 10;
-    ctx.beginPath();
-    ctx.moveTo(player.x, player.y);
-    ctx.lineTo(endX, endY);
-    ctx.stroke();
-
-    ctx.setLineDash([]);
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(endX, endY, player.r + 6, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(225,190,255,0.80)';
-    ctx.stroke();
-
-    ctx.globalAlpha = 0.13;
-    ctx.fillStyle = 'rgba(190,145,255,1)';
-    ctx.beginPath();
-    ctx.arc(endX, endY, player.r + 2, 0, Math.PI * 2);
-    ctx.fill();
+      if (visible && entry.action) {
+        entry.action.reset();
+        entry.action.play();
+      }
+    });
   }
 
-  ctx.restore();
-}
+  function chooseState(dt) {
+    const p = player;
+    if (!p) return 'idle';
 
-// ── Damage Texts ──────────────────────────────────────────────
-function drawDamageTexts() {
-  ctx.textAlign = 'center';
-  ctx.font = 'bold 20px Arial';
-  for (const d of damageTexts) {
-    ctx.globalAlpha = Math.max(0, d.life / 0.75);
-    ctx.fillStyle = d.color || '#ffd36b';
-    ctx.fillText(d.value, d.x, d.y);
+    if (!p.alive) return state.player.states.has('hit') ? 'hit' : 'idle';
+
+    const hpDrop = state.player.lastHp !== null && p.hp < state.player.lastHp - 0.01;
+    state.player.lastHp = p.hp;
+
+    if (hpDrop) state.player.hitTimer = cfg.hitHoldTime || 0.28;
+    if (p.chargeActive) state.player.dashTimer = cfg.dashHoldTime || 0.30;
+
+    state.player.castTimer = Math.max(0, state.player.castTimer - dt);
+    state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
+    state.player.dashTimer = Math.max(0, state.player.dashTimer - dt);
+
+    if (state.player.hitTimer > 0 && state.player.states.has('hit')) return 'hit';
+    if (state.player.dashTimer > 0 && state.player.states.has('dash')) return 'dash';
+    if (state.player.castTimer > 0 && state.player.states.has('cast')) return 'cast';
+
+    const moving =
+      Math.hypot(p.vx || 0, p.vy || 0) > 20 ||
+      moveStick.active ||
+      keys[keybinds.left] ||
+      keys[keybinds.right] ||
+      keys[keybinds.up] ||
+      keys[keybinds.down];
+
+    return moving && state.player.states.has('run') ? 'run' : 'idle';
   }
-  ctx.globalAlpha = 1;
-  ctx.textAlign = 'left';
-}
 
-// ── Crosshair ─────────────────────────────────────────────────
-function drawCrosshair() {
-  if (gameState === 'lobby' || isTouchDevice) return;
-  ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.arc(mouse.x, mouse.y, 10, 0, Math.PI * 2);
-  ctx.moveTo(mouse.x - 14, mouse.y);
-  ctx.lineTo(mouse.x + 14, mouse.y);
-  ctx.moveTo(mouse.x, mouse.y - 14);
-  ctx.lineTo(mouse.x, mouse.y + 14);
-  ctx.stroke();
-}
-
-// ── Result Overlay ────────────────────────────────────────────
-function drawResultOverlay() {
-  if (gameState !== 'result') return;
-  ctx.fillStyle = 'rgba(0,0,0,0.35)';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 40px Arial';
-  ctx.textAlign = 'center';
-  ctx.fillText(winnerText, canvas.width / 2, canvas.height / 2 - 10);
-  ctx.font = '18px Arial';
-  ctx.fillText('Returning to lobby...', canvas.width / 2, canvas.height / 2 + 28);
-  ctx.textAlign = 'left';
-}
-
-// ── Main Render ───────────────────────────────────────────────
-function render() {
-  drawArena();
-  drawObstacles();
-  drawPotions();
-  drawParticles();
-  drawHooks();
-  drawProjectiles();
-  if (dummyEnabled && dummy.alive) drawDummy();
-  drawPlayer();
-  drawSkillAimPreview();
-  drawDamageTexts();
-  drawCrosshair();
-  drawResultOverlay();
-
-  if (window.warlockThree && window.warlockThree.render) {
-    window.warlockThree.render();
+  function tintAllLoadedModels() {
+    state.player.states.forEach((entry) => tintModel(entry.root, player.bodyColor, player.wandColor));
+    state.preview.states.forEach((entry) => tintModel(entry.root, player.bodyColor, player.wandColor));
   }
-}
+
+  function updateArenaPlayerPose(dt) {
+    if (!state.ready) return;
+
+    const p = player;
+    if (!p) return;
+
+    const pos = getWorldPosition(p);
+    const stateName = chooseState(dt);
+
+    const baseYOffset = isTouchDevice
+      ? (cfg.modelYOffsetMobile || 0)
+      : (cfg.modelYOffset || 0);
+
+    state.player.rootGroup.visible = gameState !== 'lobby';
+    state.player.rootGroup.position.set(pos.x, baseYOffset, pos.z);
+
+    const aimAngle = Math.atan2(p.aimY, p.aimX);
+    state.player.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
+
+    setArenaPlayerState(stateName);
+
+    const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
+    state.player.rootGroup.position.y = baseYOffset + bob;
+
+    if (state.player.shadow) {
+      state.player.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
+      state.player.shadow.material.opacity = p.alive ? 0.22 : 0.12;
+    }
+
+    tintAllLoadedModels();
+  }
+
+  function updatePreviewPose() {
+    if (!state.preview.ready || !state.preview.rootGroup) return;
+
+    state.preview.rootGroup.visible = gameState === 'lobby';
+    if (!state.preview.rootGroup.visible) return;
+
+    state.preview.targetRotationY += state.preview.dragging ? 0 : 0.0025;
+    state.preview.currentRotationY += (state.preview.targetRotationY - state.preview.currentRotationY) * 0.14;
+    state.preview.rootGroup.rotation.y = state.preview.currentRotationY;
+
+    state.preview.rootGroup.position.set(0, 6, 0);
+    setPreviewState('idle');
+
+    tintAllLoadedModels();
+  }
+
+  function updateMixers(dt) {
+    if (!state.ready) return;
+
+    state.player.states.forEach((entry) => {
+      if (entry.mixer) entry.mixer.update(dt);
+    });
+
+    state.preview.states.forEach((entry) => {
+      if (entry.mixer) entry.mixer.update(dt);
+    });
+  }
+
+  window.warlockThree = {
+    init() {
+      if (!cfg.enabled) return;
+      initScene();
+      initPreviewScene();
+      if (!state.failed) loadCharacterStates();
+    },
+
+    update(dt) {
+      if (!state.ready) return;
+      updateArenaPlayerPose(dt);
+      updatePreviewPose();
+      updateMixers(dt);
+    },
+
+    render() {
+      if (!state.renderer || !state.scene || !state.camera) return;
+      state.renderer.render(state.scene, state.camera);
+    },
+
+    renderLobbyPreview() {
+      if (!state.preview.renderer || !state.preview.scene || !state.preview.camera) return;
+      state.preview.renderer.render(state.preview.scene, state.preview.camera);
+    },
+
+    isPlayerRenderedIn3D() {
+      return !!state.ready;
+    },
+
+    triggerCast() {
+      if (!state.ready || !state.player.states.has('cast')) return;
+      state.player.castTimer = cfg.castHoldTime || 0.22;
+      setArenaPlayerState('cast', true);
+    },
+
+    triggerDash() {
+      if (!state.ready || !state.player.states.has('dash')) return;
+      state.player.dashTimer = cfg.dashHoldTime || 0.30;
+      setArenaPlayerState('dash', true);
+    },
+
+    triggerHit() {
+      if (!state.ready || !state.player.states.has('hit')) return;
+      state.player.hitTimer = cfg.hitHoldTime || 0.28;
+      setArenaPlayerState('hit', true);
+    },
+  };
+})();
