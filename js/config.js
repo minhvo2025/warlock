@@ -103,7 +103,7 @@ const skillAimPreview = { active: false, type: null, dx: 1, dy: 0 };
 
 
 // ── 3D Character Layer ───────────────────────────────────────
-window.WARLOCK_3D_CONFIG = {
+window.OUTRA_3D_CONFIG = {
   enabled: true,
   playerCharacter: {
     idle: 'docs/art/character/idle.glb',
