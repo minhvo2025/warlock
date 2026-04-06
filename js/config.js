@@ -211,11 +211,13 @@ const obstacles   = [];
 const walls       = [];
 const hooks       = [];
 const potions     = [];
+const rewindHistory = [];
 
 // ── Misc Timers ───────────────────────────────────────────────
 let lastTime         = performance.now();
 let lavaTick         = 0;
 let potionSpawnTimer = 6;
+let rewindLastSampleAt = 0;
 
 // ── DOM References ────────────────────────────────────────────
 const canvas        = document.getElementById('game');
