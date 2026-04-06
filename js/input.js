@@ -233,6 +233,12 @@ window.addEventListener('keydown', (e) => {
     startMusicIfNeeded();
     castPlayerSpell('gust');
   }
+
+  if (gameState === 'playing' && norm === keybinds.wall) {
+    startMusicIfNeeded();
+    castPlayerSpell('wall');
+  }
+
   if (gameState !== 'lobby' && norm === keybinds.reset) resetRound();
 
   if (norm === keybinds.menu) {
@@ -351,6 +357,7 @@ bindPullCastButton(mobileShieldBtn,   () => castPlayerSpell('shield'), 'shield')
 bindPullCastButton(mobileChargeBtn,   () => castPlayerSpell('charge'), 'charge');
 bindPullCastButton(mobileShockBtn, () => castPlayerSpell('shock'), 'shock');
 bindPullCastButton(mobileGustBtn,  () => castPlayerSpell('gust'),  'gust');
+bindPullCastButton(mobileWallBtn,  () => castPlayerSpell('wall'),  'wall');
 
 // ── Window Resize ─────────────────────────────────────────────
 window.addEventListener('resize', () => {
