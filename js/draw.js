@@ -180,6 +180,43 @@ function drawObstacles() {
   }
 }
 
+function drawWalls() {
+  for (const wall of walls) {
+    const alpha = Math.max(0.3, Math.min(1, wall.life / wall.maxLife));
+    const start = wall.segments[0];
+    const end = wall.segments[wall.segments.length - 1];
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(145, 195, 255, ${0.92 * alpha})`;
+    ctx.lineWidth = 22;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+
+    ctx.strokeStyle = `rgba(235, 245, 255, ${0.65 * alpha})`;
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
+    ctx.stroke();
+
+    for (const seg of wall.segments) {
+      ctx.fillStyle = `rgba(110, 165, 235, ${0.18 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(seg.x, seg.y, seg.r + 6, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = `rgba(158, 204, 255, ${0.92 * alpha})`;
+      ctx.beginPath();
+      ctx.arc(seg.x, seg.y, seg.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
 // ── Potions ───────────────────────────────────────────────────
 function drawPotions() {
   for (const potion of potions) {
@@ -450,6 +487,27 @@ function drawSkillAimPreview() {
     ctx.beginPath();
     ctx.arc(endX, endY, player.r + 2, 0, Math.PI * 2);
     ctx.fill();
+  } else if (skillAimPreview.type === 'wall') {
+    const centerDistance = player.r + 42;
+    const centerX = player.x + dir.x * centerDistance;
+    const centerY = player.y + dir.y * centerDistance;
+    const perp = { x: -dir.y, y: dir.x };
+    const halfLen = 75;
+
+    ctx.setLineDash([]);
+    ctx.strokeStyle = 'rgba(170,210,255,0.82)';
+    ctx.lineWidth = 14;
+    ctx.beginPath();
+    ctx.moveTo(centerX - perp.x * halfLen, centerY - perp.y * halfLen);
+    ctx.lineTo(centerX + perp.x * halfLen, centerY + perp.y * halfLen);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(235,245,255,0.52)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX - perp.x * halfLen, centerY - perp.y * halfLen);
+    ctx.lineTo(centerX + perp.x * halfLen, centerY + perp.y * halfLen);
+    ctx.stroke();
   }
 
   ctx.restore();
@@ -500,6 +558,7 @@ function drawResultOverlay() {
 function render() {
   drawArena();
   drawObstacles();
+  drawWalls();
   drawPotions();
   drawParticles();
   drawHooks();

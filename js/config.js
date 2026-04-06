@@ -46,6 +46,12 @@ const SPELL_DEFS = {
     icon: '🌪️',
     cooldownKey: 'gustReadyAt',
   },
+  wall: {
+    id: 'wall',
+    name: 'Wall',
+    icon: '🧱',
+    cooldownKey: 'wallReadyAt',
+  },
   hook: {
     id: 'hook',
     name: 'Hook',
@@ -88,11 +94,11 @@ const storeItems = [
 // ── Keybinds ──────────────────────────────────────────────────
 const defaultBinds = {
   up: 'w', down: 's', left: 'a', right: 'd',
-  hook: 'space', teleport: '', shield: 'q', charge: 'f', gust: 'x', reset: 'r', menu: 'escape', shock: 'c',
+  hook: 'space', teleport: '', shield: 'q', charge: 'f', shock: 'c', gust: 'x', wall: 'v', reset: 'r', menu: 'escape',
 };
 const bindLabels = {
   up: 'Move Up', down: 'Move Down', left: 'Move Left', right: 'Move Right',
-  hook: 'Hook', teleport: 'Teleport', shield: 'Shield', charge: 'Arcane Charge', gust: 'Gust', reset: 'Reset Round', menu: 'Menu', shock: 'Shock'
+  hook: 'Hook', teleport: 'Teleport', shield: 'Shield', charge: 'Arcane Charge', shock: 'Shock', gust: 'Gust', wall: 'Wall', reset: 'Reset Round', menu: 'Menu'
 };
 
 let keybinds = { ...defaultBinds };
@@ -113,6 +119,7 @@ let dummyBehavior = 'active'; // 'active' | 'standing'
 let hudVisible = false;
 
 const skillAimPreview = { active: false, type: null, dx: 1, dy: 0 };
+let wallAimHeld = false;
 
 
 // ── 3D Character Layer ───────────────────────────────────────
@@ -165,8 +172,8 @@ const dummySpawn  = { x: 0, y: 0 };
 // ── Player ────────────────────────────────────────────────────
 const player = {
   name: 'Player', x: 0, y: 0, vx: 0, vy: 0, r: 18, speed: 280, hp: 100, maxHp: 100,
-  fireCooldown: 0.45, hookCooldown: 1.8, teleportCooldown: 2.5, shieldCooldown: 4.5, chargeCooldown: 5.5, shockCooldown: 3.2, gustCooldown: 6.0,
-  fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0,
+  fireCooldown: 0.45, hookCooldown: 1.8, teleportCooldown: 2.5, shieldCooldown: 4.5, chargeCooldown: 5.5, shockCooldown: 3.2, gustCooldown: 6.0, wallCooldown: 8.0,
+  fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0, wallReadyAt: 0,
   teleportDistance: 150, shieldUntil: 0,
   chargeActive: false, chargeDirX: 0, chargeDirY: 0, chargeTimer: 0, chargeHit: false,
   alive: true, deadReason: '', score: 0,
@@ -175,7 +182,7 @@ const player = {
 };
 
 // ── Active Spell Loadout (order = slots) ─────────────────────
-let activeSpellLoadout = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust'];
+let activeSpellLoadout = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall'];
 
 // ── Dummy ─────────────────────────────────────────────────────
 const dummy = {
@@ -190,6 +197,7 @@ const projectiles = [];
 const particles   = [];
 const damageTexts = [];
 const obstacles   = [];
+const walls       = [];
 const hooks       = [];
 const potions     = [];
 
@@ -221,6 +229,7 @@ const mobileShieldBtn   = document.getElementById('mobileShieldBtn');
 const mobileChargeBtn   = document.getElementById('mobileChargeBtn');
 const mobileShockBtn    = document.getElementById('mobileShockBtn');
 const mobileGustBtn     = document.getElementById('mobileGustBtn');
+const mobileWallBtn     = document.getElementById('mobileWallBtn');
 
 const skillButtons = {
   fire:   mobileFireBtn,
@@ -230,6 +239,7 @@ const skillButtons = {
   charge: mobileChargeBtn,
   shock:  mobileShockBtn,
   gust:   mobileGustBtn,
+  wall:   mobileWallBtn,
 };
 
 const resumeBtn         = document.getElementById('resumeBtn');

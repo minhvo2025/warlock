@@ -426,6 +426,7 @@ input[type="text"] {
 #mobileChargeBtn   { left: 8px; top: 118px; }
 #mobileShockBtn    { left: 55px; top: 140px; }
 #mobileGustBtn     { left: 134px; top: 55px; }
+#mobileWallBtn     { left: -2px; top: 55px; }
 
 .mobileBtn.aiming {
   background: rgba(255,120,60,0.95);
@@ -660,6 +661,8 @@ input[type="text"] {
   #mobileShieldBtn   { left: 4px; top: 4px; }
   #mobileChargeBtn   { left: 4px; top: 108px; }
   #mobileShockBtn    { left: 48px; top: 128px; }
+  #mobileGustBtn     { left: 112px; top: 48px; }
+  #mobileWallBtn     { left: 0px; top: 48px; }
 
   .mobileBtn.big { width: 64px; height: 64px; }
   .mobileBtn.mainSkill { width: 78px; height: 78px; }

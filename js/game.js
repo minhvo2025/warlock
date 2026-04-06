@@ -111,8 +111,16 @@ function normalized(dx, dy) { const len = Math.hypot(dx, dy) || 1; return { x: d
 function insidePlatform(x, y, padding = 0) { return distance(x, y, arena.cx, arena.cy) <= arena.radius - padding; }
 
 // ── Collision ─────────────────────────────────────────────────
+function getBlockingCircles() {
+  const circles = [...obstacles];
+  for (const wall of walls) {
+    for (const seg of wall.segments) circles.push(seg);
+  }
+  return circles;
+}
+
 function circleHitsObstacle(x, y, r) {
-  for (const obstacle of obstacles)
+  for (const obstacle of getBlockingCircles())
     if (distance(x, y, obstacle.x, obstacle.y) < r + obstacle.r) return obstacle;
   return null;
 }
@@ -130,14 +138,14 @@ function lineCircleIntersect(x1, y1, x2, y2, cx, cy, cr) {
 }
 
 function hasObstacleBetween(x1, y1, x2, y2, ignoreRadius = 0) {
-  for (const obstacle of obstacles)
+  for (const obstacle of getBlockingCircles())
     if (lineCircleIntersect(x1, y1, x2, y2, obstacle.x, obstacle.y, obstacle.r + ignoreRadius)) return true;
   return false;
 }
 
 function pushActorOutOfObstacle(actor) {
   const skin = 1.5;
-  for (const obstacle of obstacles) {
+  for (const obstacle of getBlockingCircles()) {
     const dx = actor.x - obstacle.x, dy = actor.y - obstacle.y;
     const dist = Math.hypot(dx, dy) || 1;
     const minDist = actor.r + obstacle.r + skin;
@@ -339,6 +347,9 @@ function castPlayerSpell(spellId) {
       break;
     case 'gust':
       castGust();
+      break;
+    case 'wall':
+      castWall();
       break;
   }
 }
@@ -568,6 +579,65 @@ function castGust() {
         dummy.targetY = dummy.y + dir.y * 120;
       }
     }
+  }
+}
+
+function castWall() {
+  const now = performance.now() / 1000;
+
+  if (
+    gameState !== 'playing' ||
+    !player.alive ||
+    now < player.wallReadyAt
+  ) return;
+
+  const dir = getPlayerAim();
+  const perp = { x: -dir.y, y: dir.x };
+  const wallLength = 150;
+  const segmentRadius = 12;
+  const segmentCount = 7;
+  const centerDistance = player.r + 42;
+  const duration = 3.5;
+
+  const centerX = player.x + dir.x * centerDistance;
+  const centerY = player.y + dir.y * centerDistance;
+  const segments = [];
+
+  for (let i = 0; i < segmentCount; i++) {
+    const t = segmentCount === 1 ? 0 : (i / (segmentCount - 1)) - 0.5;
+    const offset = t * wallLength;
+    const sx = centerX + perp.x * offset;
+    const sy = centerY + perp.y * offset;
+
+    if (!insidePlatform(sx, sy, segmentRadius + 4)) return;
+    if (circleHitsObstacle(sx, sy, segmentRadius)) return;
+    if (distance(sx, sy, player.x, player.y) < player.r + segmentRadius + 8) return;
+
+    segments.push({ x: sx, y: sy, r: segmentRadius });
+  }
+
+  player.wallReadyAt = now + player.wallCooldown;
+
+  if (window.outraThree && window.outraThree.triggerCast) {
+    window.outraThree.triggerCast();
+  }
+
+  soundWall();
+
+  walls.push({
+    x: centerX,
+    y: centerY,
+    dirX: dir.x,
+    dirY: dir.y,
+    perpX: perp.x,
+    perpY: perp.y,
+    life: duration,
+    maxLife: duration,
+    segments,
+  });
+
+  for (const seg of segments) {
+    spawnBurst(seg.x, seg.y, 'rgba(165, 210, 255, 0.88)', 6, 90);
   }
 }
 
@@ -819,7 +889,7 @@ function resetRound() {
   arena.shrinkTimer    = arena.shrinkInterval;
   buildObstacles();
   player.hookCooldown  = getHookCooldown();
-  activeSpellLoadout   = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust'];
+  activeSpellLoadout   = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall'];
 
   const p = findValidSpawnNear(playerSpawn.x, playerSpawn.y, 0);
   const d = findValidSpawnNear(dummySpawn.x,  dummySpawn.y,  0);
@@ -827,7 +897,7 @@ function resetRound() {
   Object.assign(player, {
     x: p.x, y: p.y, vx: 0, vy: 0,
     hp: player.maxHp, alive: true, deadReason: '',
-    fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0, shieldUntil: 0,
+    fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0, wallReadyAt: 0, shieldUntil: 0,
     chargeActive: false, chargeDirX: 0, chargeDirY: 0, chargeTimer: 0, chargeHit: false,
     aimX: 1, aimY: 0
   });
@@ -843,6 +913,7 @@ function resetRound() {
   particles.length    = 0;
   damageTexts.length  = 0;
   hooks.length        = 0;
+  walls.length        = 0;
   potions.length      = 0;
   lavaTick            = 0;
   potionSpawnTimer    = 5 + Math.random() * 3;
@@ -852,6 +923,7 @@ function resetRound() {
   resetMoveStick();
   skillAimPreview.active = false;
   skillAimPreview.type   = null;
+  wallAimHeld = false;
   mouse.x = player.x + 120;
   mouse.y = player.y;
 }
@@ -878,6 +950,8 @@ function enterLobby() {
   setMenuTab(activeMenuTab);
   player.score = getPlayerPoints(player.name);
   updateAimSensitivityUI();
+  wallAimHeld = false;
+  wallAimHeld = false;
   updateHud();
   refreshMobileControls();
 }
@@ -1037,6 +1111,18 @@ function update(dt) {
       }
       if (circleHitsObstacle(targetActor.x, targetActor.y, targetActor.r) || !targetActor.alive || !caster.alive)
         hooks.splice(i, 1);
+    }
+  }
+
+  // Walls
+  for (let i = walls.length - 1; i >= 0; i--) {
+    const wall = walls[i];
+    wall.life -= dt;
+    if (wall.life <= 0) {
+      for (const seg of wall.segments) {
+        spawnBurst(seg.x, seg.y, 'rgba(140, 190, 255, 0.45)', 3, 55);
+      }
+      walls.splice(i, 1);
     }
   }
 
