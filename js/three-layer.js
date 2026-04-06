@@ -159,28 +159,26 @@
   }
 
   function tintModel(root, bodyColorHex, wandColorHex) {
-    const body = new THREE.Color(bodyColorHex || '#d9d9ff');
-    const wand = new THREE.Color(wandColorHex || '#7c4dff');
+  const wand = new THREE.Color(wandColorHex || '#7c4dff');
 
-    let meshIndex = 0;
-    traverseMeshes(root, (obj) => {
-      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-      mats.forEach((mat) => {
-        if (!mat || !('color' in mat)) return;
+  let meshIndex = 0;
+  traverseMeshes(root, (obj) => {
+    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
 
-        if (meshIndex === 0) {
-          mat.color.copy(body);
-        } else if (meshIndex === 1) {
-          mat.color.copy(wand);
-        } else {
-          mat.color.lerp(body, 0.65);
-        }
+    mats.forEach((mat) => {
+      if (!mat || !('color' in mat)) return;
 
+      // Keep the original Meshy material colors/textures on the body.
+      // Only tint the second mesh (likely wand / accent) if it exists.
+      if (meshIndex === 1) {
+        mat.color.copy(wand);
         mat.needsUpdate = true;
-      });
-      meshIndex++;
+      }
     });
-  }
+
+    meshIndex++;
+  });
+}
 
   function centerAndScaleModel(root, targetHeightOverride) {
     traverseMeshes(root, (obj) => {
