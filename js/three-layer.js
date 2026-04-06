@@ -159,25 +159,7 @@
   }
 
   function tintModel(root, bodyColorHex, wandColorHex) {
-  const wand = new THREE.Color(wandColorHex || '#7c4dff');
-
-  let meshIndex = 0;
-  traverseMeshes(root, (obj) => {
-    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-
-    mats.forEach((mat) => {
-      if (!mat || !('color' in mat)) return;
-
-      // Keep the original Meshy material colors/textures on the body.
-      // Only tint the second mesh (likely wand / accent) if it exists.
-      if (meshIndex === 1) {
-        mat.color.copy(wand);
-        mat.needsUpdate = true;
-      }
-    });
-
-    meshIndex++;
-  });
+  // Preserve original imported colors/textures completely.
 }
 
   function centerAndScaleModel(root, targetHeightOverride) {
