@@ -285,13 +285,30 @@ function drawActor(actor, bodyColor, wandColor, aimAngle = 0, healthColor = '#6c
 }
 
 function drawPlayer() {
-    if (window.outraThree && window.outraThree.isPlayerRenderedIn3D && window.outraThree.isPlayerRenderedIn3D()) {
-    return;
+  const is3DPlayer =
+    window.outraThree &&
+    window.outraThree.isPlayerRenderedIn3D &&
+    window.outraThree.isPlayerRenderedIn3D();
+
+  // Always draw HP bar + name, even when model is rendered in 3D
+  drawHealthBar(player, '#62f36d');
+  drawNameTag(player);
+
+  // Only draw the 2D body when 3D player is NOT active
+  if (!is3DPlayer) {
+    const angle = Math.atan2(player.aimY, player.aimX);
+    drawActor(
+      player,
+      player.alive ? player.bodyColor : '#777',
+      player.wandColor,
+      angle,
+      '#62f36d',
+      true
+    );
   }
-  const angle = Math.atan2(player.aimY, player.aimX);
-  drawActor(player, player.alive ? player.bodyColor : '#777', player.wandColor, angle, '#62f36d', true);
 
   const now = performance.now() / 1000;
+
   if (now < player.shieldUntil) {
     ctx.save();
     ctx.strokeStyle = 'rgba(120,190,255,0.85)';
