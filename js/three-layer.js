@@ -11,6 +11,7 @@
     ready: false,
     failed: false,
     debugBox: null,
+    lastTintKey: '',
     preview: {
       host: null,
       canvas2d: null,
@@ -51,43 +52,43 @@
   }
 
   function getPreviewSettings() {
-  const previewCfg = cfg.previewCharacter || {};
-  const mobile = isTouchDevice;
+    const previewCfg = cfg.previewCharacter || {};
+    const mobile = isTouchDevice;
 
-  return {
-    targetHeight: mobile
-      ? (previewCfg.targetHeightMobile || 70)
-      : (previewCfg.targetHeightDesktop || 98),
+    return {
+      targetHeight: mobile
+        ? (previewCfg.targetHeightMobile || 70)
+        : (previewCfg.targetHeightDesktop || 98),
 
-    cameraFov: mobile
-      ? (previewCfg.cameraFovMobile || 40)
-      : (previewCfg.cameraFovDesktop || 36),
+      cameraFov: mobile
+        ? (previewCfg.cameraFovMobile || 40)
+        : (previewCfg.cameraFovDesktop || 36),
 
-    cameraY: mobile
-      ? (previewCfg.cameraYMobile || 52)
-      : (previewCfg.cameraYDesktop || 80),
+      cameraY: mobile
+        ? (previewCfg.cameraYMobile || 52)
+        : (previewCfg.cameraYDesktop || 80),
 
-    cameraZ: mobile
-      ? (previewCfg.cameraZMobile || 420)
-      : (previewCfg.cameraZDesktop || 380),
+      cameraZ: mobile
+        ? (previewCfg.cameraZMobile || 420)
+        : (previewCfg.cameraZDesktop || 380),
 
-    lookAtY: mobile
-      ? (previewCfg.lookAtYMobile || 42)
-      : (previewCfg.lookAtYDesktop || 64),
+      lookAtY: mobile
+        ? (previewCfg.lookAtYMobile || 42)
+        : (previewCfg.lookAtYDesktop || 64),
 
-    modelYOffset: mobile
-      ? (previewCfg.modelYOffsetMobile || -8)
-      : (previewCfg.modelYOffsetDesktop || -14),
+      modelYOffset: mobile
+        ? (previewCfg.modelYOffsetMobile || -8)
+        : (previewCfg.modelYOffsetDesktop || -14),
 
-    shadowScaleX: mobile
-      ? (previewCfg.shadowScaleXMobile || 1.45)
-      : (previewCfg.shadowScaleXDesktop || 1.7),
+      shadowScaleX: mobile
+        ? (previewCfg.shadowScaleXMobile || 1.45)
+        : (previewCfg.shadowScaleXDesktop || 1.7),
 
-    shadowScaleY: mobile
-      ? (previewCfg.shadowScaleYMobile || 0.72)
-      : (previewCfg.shadowScaleYDesktop || 0.8),
-  };
-}
+      shadowScaleY: mobile
+        ? (previewCfg.shadowScaleYMobile || 0.72)
+        : (previewCfg.shadowScaleYDesktop || 0.8),
+    };
+  }
 
   function cloneMaterial(mat) {
     if (!mat) return mat;
@@ -106,6 +107,57 @@
     return new THREE.Box3().setFromObject(root);
   }
 
+  function applyStylizedMaterial(mat) {
+    if (!mat) return;
+
+    // Kill the shiny / glassy Meshy feel
+    if ('metalness' in mat) mat.metalness = 0.0;
+    if ('roughness' in mat) mat.roughness = Math.max(mat.roughness ?? 0, 0.86);
+    if ('envMapIntensity' in mat) mat.envMapIntensity = 0.0;
+
+    // Remove extra glossy PBR traits if they exist
+    if ('clearcoat' in mat) mat.clearcoat = 0.0;
+    if ('clearcoatRoughness' in mat) mat.clearcoatRoughness = 1.0;
+    if ('sheen' in mat) mat.sheen = 0.0;
+    if ('sheenRoughness' in mat) mat.sheenRoughness = 1.0;
+    if ('transmission' in mat) mat.transmission = 0.0;
+    if ('thickness' in mat) mat.thickness = 0.0;
+    if ('ior' in mat) mat.ior = 1.0;
+    if ('specularIntensity' in mat) mat.specularIntensity = 0.18;
+    if ('specularColor' in mat && mat.specularColor) {
+      mat.specularColor.setRGB(0.25, 0.25, 0.25);
+    }
+
+    // Keep alpha only if the material is actually using transparency meaningfully
+    if ('transparent' in mat && mat.opacity >= 0.999) {
+      mat.transparent = false;
+    }
+
+    // Prevent over-bright fake self-glow unless explicitly authored
+    if ('emissiveIntensity' in mat) {
+      mat.emissiveIntensity = Math.min(mat.emissiveIntensity ?? 1, 0.75);
+    }
+
+    // Slightly flatter, more game-like shading
+    if ('flatShading' in mat) {
+      mat.flatShading = false;
+    }
+
+    // Improve texture filtering a bit for cleaner stylized read
+    if (mat.map) {
+      mat.map.anisotropy = 4;
+    }
+
+    mat.needsUpdate = true;
+  }
+
+  function stylizeModel(root) {
+    traverseMeshes(root, (obj) => {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach(applyStylizedMaterial);
+    });
+  }
+
   function tintModel(root, bodyColorHex, wandColorHex) {
     const body = new THREE.Color(bodyColorHex || '#d9d9ff');
     const wand = new THREE.Color(wandColorHex || '#7c4dff');
@@ -115,6 +167,7 @@
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       mats.forEach((mat) => {
         if (!mat || !('color' in mat)) return;
+
         if (meshIndex === 0) {
           mat.color.copy(body);
         } else if (meshIndex === 1) {
@@ -122,6 +175,8 @@
         } else {
           mat.color.lerp(body, 0.65);
         }
+
+        mat.needsUpdate = true;
       });
       meshIndex++;
     });
@@ -139,6 +194,8 @@
         obj.material = cloneMaterial(obj.material);
       }
     });
+
+    stylizeModel(root);
 
     let box = computeBox(root);
     let center = new THREE.Vector3();
@@ -247,18 +304,27 @@
     state.renderer.setSize(width, height);
     state.renderer.setClearColor(0x000000, 0);
 
+    if ('outputColorSpace' in state.renderer && THREE.SRGBColorSpace) {
+      state.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    } else if ('outputEncoding' in state.renderer && THREE.sRGBEncoding) {
+      state.renderer.outputEncoding = THREE.sRGBEncoding;
+    }
+
+    state.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    state.renderer.toneMappingExposure = 1.0;
+
     state.container.innerHTML = '';
     state.container.appendChild(state.renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x334455, 2.6);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x405060, 2.2);
     hemi.position.set(0, 500, 0);
     state.scene.add(hemi);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 1.9);
+    const dir = new THREE.DirectionalLight(0xffffff, 1.35);
     dir.position.set(180, 360, 120);
     state.scene.add(dir);
 
-    const fill = new THREE.DirectionalLight(0x88aaff, 1.1);
+    const fill = new THREE.DirectionalLight(0x9ab7ff, 0.65);
     fill.position.set(-180, 220, -60);
     state.scene.add(fill);
 
@@ -349,18 +415,27 @@
     state.preview.renderer.setSize(canvas2d.clientWidth || canvas2d.width, canvas2d.clientHeight || canvas2d.height, false);
     state.preview.renderer.setClearColor(0x000000, 0);
 
-    const ambient = new THREE.AmbientLight(0xffffff, 1.75);
+    if ('outputColorSpace' in state.preview.renderer && THREE.SRGBColorSpace) {
+      state.preview.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    } else if ('outputEncoding' in state.preview.renderer && THREE.sRGBEncoding) {
+      state.preview.renderer.outputEncoding = THREE.sRGBEncoding;
+    }
+
+    state.preview.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    state.preview.renderer.toneMappingExposure = 1.0;
+
+    const ambient = new THREE.AmbientLight(0xffffff, 1.45);
     state.preview.scene.add(ambient);
 
-    const key = new THREE.DirectionalLight(0xffffff, 1.8);
+    const key = new THREE.DirectionalLight(0xffffff, 1.15);
     key.position.set(120, 160, 160);
     state.preview.scene.add(key);
 
-    const fill = new THREE.DirectionalLight(0xa8c4ff, 1.0);
+    const fill = new THREE.DirectionalLight(0xb8ccff, 0.55);
     fill.position.set(-110, 80, 120);
     state.preview.scene.add(fill);
 
-    const rim = new THREE.DirectionalLight(0xffffff, 0.95);
+    const rim = new THREE.DirectionalLight(0xffffff, 0.35);
     rim.position.set(-90, 120, -150);
     state.preview.scene.add(rim);
 
@@ -675,9 +750,16 @@
     return moving && state.player.states.has('run') ? 'run' : 'idle';
   }
 
-  function tintAllLoadedModels() {
-    state.player.states.forEach((entry) => tintModel(entry.root, player.bodyColor, player.wandColor));
-    state.preview.states.forEach((entry) => tintModel(entry.root, player.bodyColor, player.wandColor));
+  function tintAllLoadedModelsIfNeeded() {
+    const body = player?.bodyColor || '#d9d9ff';
+    const wand = player?.wandColor || '#7c4dff';
+    const tintKey = `${body}|${wand}`;
+
+    if (tintKey === state.lastTintKey) return;
+    state.lastTintKey = tintKey;
+
+    state.player.states.forEach((entry) => tintModel(entry.root, body, wand));
+    state.preview.states.forEach((entry) => tintModel(entry.root, body, wand));
   }
 
   function updateArenaPlayerPose(dt) {
@@ -686,10 +768,10 @@
     const p = player;
     if (!p) return;
 
-        const pos = getWorldPosition(p);
+    const pos = getWorldPosition(p);
     const stateName = chooseState(dt);
 
-        const baseHeightOffset = cfg.modelYOffset || 0;
+    const baseHeightOffset = cfg.modelYOffset || 0;
     const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
 
     const mobileBaseScreenOffsetZ = 40;
@@ -720,7 +802,7 @@
       state.player.shadow.material.opacity = p.alive ? 0.22 : 0.12;
     }
 
-    tintAllLoadedModels();
+    tintAllLoadedModelsIfNeeded();
   }
 
   function updatePreviewPose() {
@@ -736,7 +818,7 @@
     state.preview.rootGroup.position.set(0, previewSettings.modelYOffset, 0);
 
     setPreviewState('idle');
-    tintAllLoadedModels();
+    tintAllLoadedModelsIfNeeded();
   }
 
   function updateMixers(dt) {
@@ -766,22 +848,22 @@
       updateMixers(dt);
     },
 
-render() {
-  if (gameState === 'lobby') {
-    if (
-      state.preview.renderer &&
-      state.preview.scene &&
-      state.preview.camera
-    ) {
-      state.preview.renderer.render(state.preview.scene, state.preview.camera);
-    }
-    return;
-  }
+    render() {
+      if (gameState === 'lobby') {
+        if (
+          state.preview.renderer &&
+          state.preview.scene &&
+          state.preview.camera
+        ) {
+          state.preview.renderer.render(state.preview.scene, state.preview.camera);
+        }
+        return;
+      }
 
-  if (state.renderer && state.scene && state.camera) {
-    state.renderer.render(state.scene, state.camera);
-  }
-},
+      if (state.renderer && state.scene && state.camera) {
+        state.renderer.render(state.scene, state.camera);
+      }
+    },
 
     renderLobbyPreview() {
       if (!state.preview.renderer || !state.preview.scene || !state.preview.camera) return;
