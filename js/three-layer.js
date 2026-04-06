@@ -26,10 +26,14 @@
       targetRotationY: Math.PI * 0.9,
       dragging: false,
       lastX: 0,
+      root: null,
+      mixer: null,
       states: new Map(),
       currentState: 'idle',
     },
     player: {
+      root: null,
+      mixer: null,
       states: new Map(),
       currentState: 'idle',
       castTimer: 0,
@@ -49,6 +53,20 @@
     if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader !== 'undefined') return THREE.GLTFLoader;
     if (typeof GLTFLoader !== 'undefined') return GLTFLoader;
     return null;
+  }
+
+  function getCharacterConfig() {
+    const charCfg = cfg.playerCharacter || {};
+    return {
+      glb: charCfg.glb || charCfg.path || '',
+      animations: {
+        idle: charCfg.animations?.idle || 'Idle_4',
+        run: charCfg.animations?.run || 'Running',
+        cast: charCfg.animations?.cast || 'mage_soell_cast_4',
+        dash: charCfg.animations?.dash || 'Shield_Push_Left',
+        hit: charCfg.animations?.hit || 'Hit_Reaction_1',
+      },
+    };
   }
 
   function getPreviewSettings() {
@@ -110,12 +128,10 @@
   function applyStylizedMaterial(mat) {
     if (!mat) return;
 
-    // Kill the shiny / glassy Meshy feel
     if ('metalness' in mat) mat.metalness = 0.0;
     if ('roughness' in mat) mat.roughness = Math.max(mat.roughness ?? 0, 0.86);
     if ('envMapIntensity' in mat) mat.envMapIntensity = 0.0;
 
-    // Remove extra glossy PBR traits if they exist
     if ('clearcoat' in mat) mat.clearcoat = 0.0;
     if ('clearcoatRoughness' in mat) mat.clearcoatRoughness = 1.0;
     if ('sheen' in mat) mat.sheen = 0.0;
@@ -128,22 +144,18 @@
       mat.specularColor.setRGB(0.25, 0.25, 0.25);
     }
 
-    // Keep alpha only if the material is actually using transparency meaningfully
     if ('transparent' in mat && mat.opacity >= 0.999) {
       mat.transparent = false;
     }
 
-    // Prevent over-bright fake self-glow unless explicitly authored
     if ('emissiveIntensity' in mat) {
       mat.emissiveIntensity = Math.min(mat.emissiveIntensity ?? 1, 0.75);
     }
 
-    // Slightly flatter, more game-like shading
     if ('flatShading' in mat) {
       mat.flatShading = false;
     }
 
-    // Improve texture filtering a bit for cleaner stylized read
     if (mat.map) {
       mat.map.anisotropy = 4;
     }
@@ -159,8 +171,8 @@
   }
 
   function tintModel(root, bodyColorHex, wandColorHex) {
-  // Preserve original imported colors/textures completely.
-}
+    // Preserve original imported colors/textures completely.
+  }
 
   function centerAndScaleModel(root, targetHeightOverride) {
     traverseMeshes(root, (obj) => {
@@ -217,21 +229,21 @@
     });
   }
 
-  function prepareArenaModel(root, stateName, parentGroup) {
+  function prepareArenaModel(root, parentGroup) {
     centerAndScaleModel(root, cfg.actorHeight || 95);
     tintModel(root, player.bodyColor, player.wandColor);
-    root.visible = false;
+    root.visible = true;
     parentGroup.add(root);
-    log('Prepared state:', stateName);
+    log('Prepared arena model');
   }
 
-  function preparePreviewModel(root, stateName, parentGroup) {
+  function preparePreviewModel(root, parentGroup) {
     const previewSettings = getPreviewSettings();
     centerAndScaleModel(root, previewSettings.targetHeight);
     tintModel(root, player.bodyColor, player.wandColor);
-    root.visible = false;
+    root.visible = true;
     parentGroup.add(root);
-    log('Prepared preview state:', stateName);
+    log('Prepared preview model');
   }
 
   function initScene() {
@@ -526,131 +538,153 @@
     }
   }
 
-  function loadCharacterStates() {
-    const paths = cfg.playerCharacter || {};
-    const entries = Object.entries(paths);
+  function buildAnimationStateMap(animations, mixer) {
+    const charCfg = getCharacterConfig();
+    const result = new Map();
 
-    if (!entries.length) {
+    const wantedStates = {
+      idle: charCfg.animations.idle,
+      run: charCfg.animations.run,
+      cast: charCfg.animations.cast,
+      dash: charCfg.animations.dash,
+      hit: charCfg.animations.hit,
+    };
+
+    Object.entries(wantedStates).forEach(([stateName, clipName]) => {
+      if (!clipName || !mixer) return;
+      const clip = THREE.AnimationClip.findByName(animations, clipName);
+      if (!clip) {
+        console.warn(`[Outra3D] Missing animation clip "${clipName}" for state "${stateName}"`);
+        return;
+      }
+
+      const action = mixer.clipAction(clip);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopRepeat, Infinity);
+
+      result.set(stateName, {
+        clipName,
+        clip,
+        action,
+      });
+    });
+
+    if (!result.size && animations.length && mixer) {
+      const fallback = animations[0];
+      const action = mixer.clipAction(fallback);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopRepeat, Infinity);
+      result.set('idle', {
+        clipName: fallback.name,
+        clip: fallback,
+        action,
+      });
+    }
+
+    return result;
+  }
+
+  function loadCharacterStates() {
+    const charCfg = getCharacterConfig();
+    const glbUrl = charCfg.glb;
+
+    if (!glbUrl) {
       state.failed = true;
-      console.error('[Outra3D] No GLB paths configured.');
+      console.error('[Outra3D] No GLB path configured.');
       return;
     }
 
-    let remaining = entries.length;
+    let arenaLoaded = false;
+    let previewLoaded = false;
 
-    entries.forEach(([name, url]) => {
-      state.loader.load(
-        url,
-        (gltf) => {
-          try {
-            const arenaRoot = gltf.scene;
-            prepareArenaModel(arenaRoot, name, state.player.rootGroup);
+    function finalizeIfReady() {
+      if (!arenaLoaded || !previewLoaded) return;
 
-            const arenaMixer = gltf.animations && gltf.animations.length
-              ? new THREE.AnimationMixer(arenaRoot)
-              : null;
+      if (!state.player.root || !state.player.states.size) {
+        state.failed = true;
+        console.error('[Outra3D] Arena model failed to load correctly.');
+        return;
+      }
 
-            const arenaAction = arenaMixer && gltf.animations[0]
-              ? arenaMixer.clipAction(gltf.animations[0])
-              : null;
+      state.ready = true;
+      state.preview.ready = !!state.preview.root && !!state.preview.states.size;
+      state.player.lastHp = typeof player !== 'undefined' ? player.hp : 100;
 
-            if (arenaAction) {
-              arenaAction.enabled = true;
-              arenaAction.clampWhenFinished = false;
-              arenaAction.setLoop(THREE.LoopRepeat, Infinity);
-              arenaAction.play();
-            }
+      if (state.debugBox) state.debugBox.visible = false;
 
-            state.player.states.set(name, {
-              root: arenaRoot,
-              mixer: arenaMixer,
-              action: arenaAction,
-            });
+      const firstArena = state.player.states.has('idle')
+        ? 'idle'
+        : Array.from(state.player.states.keys())[0];
 
-            if (state.preview.rootGroup) {
-              state.loader.load(
-                url,
-                (previewGltf) => {
-                  try {
-                    const previewRoot = previewGltf.scene;
-                    preparePreviewModel(previewRoot, name, state.preview.rootGroup);
+      setArenaPlayerState(firstArena, true);
 
-                    const previewMixer = previewGltf.animations && previewGltf.animations.length
-                      ? new THREE.AnimationMixer(previewRoot)
-                      : null;
+      if (state.preview.ready) {
+        const firstPreview = state.preview.states.has('idle')
+          ? 'idle'
+          : Array.from(state.preview.states.keys())[0];
+        setPreviewState(firstPreview, true);
+      }
 
-                    const previewAction = previewMixer && previewGltf.animations[0]
-                      ? previewMixer.clipAction(previewGltf.animations[0])
-                      : null;
+      log('3D player ready');
+    }
 
-                    if (previewAction) {
-                      previewAction.enabled = true;
-                      previewAction.clampWhenFinished = false;
-                      previewAction.setLoop(THREE.LoopRepeat, Infinity);
-                      previewAction.play();
-                    }
+    state.loader.load(
+      glbUrl,
+      (gltf) => {
+        try {
+          const arenaRoot = gltf.scene;
+          prepareArenaModel(arenaRoot, state.player.rootGroup);
 
-                    state.preview.states.set(name, {
-                      root: previewRoot,
-                      mixer: previewMixer,
-                      action: previewAction,
-                    });
+          state.player.root = arenaRoot;
+          state.player.mixer = gltf.animations && gltf.animations.length
+            ? new THREE.AnimationMixer(arenaRoot)
+            : null;
+          state.player.states = buildAnimationStateMap(gltf.animations || [], state.player.mixer);
 
-                    if (!state.preview.ready && state.preview.states.size > 0) {
-                      state.preview.ready = true;
-                      const firstPreview = state.preview.states.has('idle')
-                        ? 'idle'
-                        : Array.from(state.preview.states.keys())[0];
-                      setPreviewState(firstPreview, true);
-                    }
-                  } catch (e) {
-                    console.error('[Outra3D] Error preparing preview state', name, e);
-                  }
-                },
-                undefined,
-                (error) => {
-                  console.error('[Outra3D] Failed to load preview state', url, error);
-                }
-              );
-            }
-          } catch (e) {
-            console.error('[Outra3D] Error preparing state', name, e);
-          }
-
-          remaining -= 1;
-
-          if (remaining === 0) {
-            if (state.player.states.size === 0) {
-              state.failed = true;
-              console.error('[Outra3D] No states loaded.');
-              return;
-            }
-
-            state.ready = true;
-            state.player.lastHp = typeof player !== 'undefined' ? player.hp : 100;
-
-            if (state.debugBox) state.debugBox.visible = false;
-
-            const firstArena = state.player.states.has('idle')
-              ? 'idle'
-              : Array.from(state.player.states.keys())[0];
-
-            setArenaPlayerState(firstArena, true);
-
-            log('3D player ready');
-          }
-        },
-        undefined,
-        (error) => {
-          remaining -= 1;
-          console.error('[Outra3D] Failed to load', url, error);
-
-          if (remaining === 0 && state.player.states.size === 0) {
-            state.failed = true;
-          }
+          arenaLoaded = true;
+          finalizeIfReady();
+        } catch (e) {
+          console.error('[Outra3D] Error preparing arena model', e);
+          state.failed = true;
         }
-      );
-    });
+      },
+      undefined,
+      (error) => {
+        console.error('[Outra3D] Failed to load arena GLB', glbUrl, error);
+        state.failed = true;
+      }
+    );
+
+    state.loader.load(
+      glbUrl,
+      (gltf) => {
+        try {
+          const previewRoot = gltf.scene;
+          preparePreviewModel(previewRoot, state.preview.rootGroup);
+
+          state.preview.root = previewRoot;
+          state.preview.mixer = gltf.animations && gltf.animations.length
+            ? new THREE.AnimationMixer(previewRoot)
+            : null;
+          state.preview.states = buildAnimationStateMap(gltf.animations || [], state.preview.mixer);
+
+          previewLoaded = true;
+          finalizeIfReady();
+        } catch (e) {
+          console.error('[Outra3D] Error preparing preview model', e);
+          previewLoaded = true;
+          finalizeIfReady();
+        }
+      },
+      undefined,
+      (error) => {
+        console.error('[Outra3D] Failed to load preview GLB', glbUrl, error);
+        previewLoaded = true;
+        finalizeIfReady();
+      }
+    );
   }
 
   function getWorldPosition(actor) {
@@ -665,38 +699,59 @@
     };
   }
 
+  function playStateAction(map, stateName, force = false) {
+    if (!map || !map.size) return null;
+
+    let resolvedState = stateName;
+    if (!map.has(resolvedState)) {
+      resolvedState = map.has('idle') ? 'idle' : Array.from(map.keys())[0];
+    }
+
+    const entry = map.get(resolvedState);
+    if (!entry || !entry.action) return resolvedState;
+
+    map.forEach((other, otherName) => {
+      if (!other.action) return;
+      if (otherName === resolvedState) return;
+      other.action.stop();
+    });
+
+    if (force) {
+      entry.action.reset();
+    }
+
+    if (!entry.action.isRunning()) {
+      entry.action.reset();
+      entry.action.play();
+    } else if (force) {
+      entry.action.play();
+    }
+
+    return resolvedState;
+  }
+
   function setArenaPlayerState(name, force = false) {
-    if (!state.ready) return;
+    if (!state.player.states.size) return;
     if (!force && state.player.currentState === name) return;
 
-    state.player.currentState = name;
+    const resolved = playStateAction(state.player.states, name, force);
+    if (resolved) state.player.currentState = resolved;
 
-    state.player.states.forEach((entry, entryName) => {
-      const visible = entryName === name;
-      entry.root.visible = visible;
-
-      if (visible && entry.action) {
-        entry.action.reset();
-        entry.action.play();
-      }
-    });
+    if (state.player.root) {
+      state.player.root.visible = true;
+    }
   }
 
   function setPreviewState(name, force = false) {
     if (!state.preview.states.size) return;
     if (!force && state.preview.currentState === name) return;
 
-    state.preview.currentState = name;
+    const resolved = playStateAction(state.preview.states, name, force);
+    if (resolved) state.preview.currentState = resolved;
 
-    state.preview.states.forEach((entry, entryName) => {
-      const visible = entryName === name;
-      entry.root.visible = visible;
-
-      if (visible && entry.action) {
-        entry.action.reset();
-        entry.action.play();
-      }
-    });
+    if (state.preview.root) {
+      state.preview.root.visible = true;
+    }
   }
 
   function chooseState(dt) {
@@ -738,12 +793,12 @@
     if (tintKey === state.lastTintKey) return;
     state.lastTintKey = tintKey;
 
-    state.player.states.forEach((entry) => tintModel(entry.root, body, wand));
-    state.preview.states.forEach((entry) => tintModel(entry.root, body, wand));
+    if (state.player.root) tintModel(state.player.root, body, wand);
+    if (state.preview.root) tintModel(state.preview.root, body, wand);
   }
 
   function updateArenaPlayerPose(dt) {
-    if (!state.ready) return;
+    if (!state.ready || !state.player.rootGroup) return;
 
     const p = player;
     if (!p) return;
@@ -786,7 +841,7 @@
   }
 
   function updatePreviewPose() {
-    if (!state.preview.states.size || !state.preview.rootGroup) return;
+    if (!state.preview.rootGroup || !state.preview.root) return;
 
     state.preview.rootGroup.visible = gameState === 'lobby';
     if (!state.preview.rootGroup.visible) return;
@@ -804,13 +859,13 @@
   function updateMixers(dt) {
     if (!state.ready) return;
 
-    state.player.states.forEach((entry) => {
-      if (entry.mixer) entry.mixer.update(dt);
-    });
+    if (state.player.mixer) {
+      state.player.mixer.update(dt);
+    }
 
-    state.preview.states.forEach((entry) => {
-      if (entry.mixer) entry.mixer.update(dt);
-    });
+    if (state.preview.mixer) {
+      state.preview.mixer.update(dt);
+    }
   }
 
   window.outraThree = {
