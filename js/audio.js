@@ -96,3 +96,5 @@ const soundChargeHit = () => {
   playTone('square', 210, 0.09, 0.050, 120);
   playTone('triangle', 320, 0.12, 0.032, 720);
 };
+
+const soundRewind  = () => playTone('triangle', 220, 0.16, 0.045, 120);

@@ -267,6 +267,92 @@ function spawnDamageText(x, y, amount, color = '#ffd36b', prefix = '-') {
   damageTexts.push({ x, y: y - 12, value: `${prefix}${Math.round(amount)}`, life: 0.75, vy: -34, color });
 }
 
+
+function clearRewindHistory() {
+  rewindHistory.length = 0;
+  rewindLastSampleAt = 0;
+}
+
+function seedRewindHistory() {
+  const now = performance.now() / 1000;
+  rewindHistory.length = 0;
+  rewindHistory.push({ x: player.x, y: player.y, t: now });
+  rewindLastSampleAt = now;
+}
+
+function recordRewindHistory(force = false) {
+  if (!player.alive) return;
+  const now = performance.now() / 1000;
+  const last = rewindHistory[rewindHistory.length - 1];
+  const movedEnough = !last || distance(player.x, player.y, last.x, last.y) >= 3;
+  const timeEnough = !last || (now - rewindLastSampleAt) >= 0.03;
+  if (force || movedEnough || timeEnough) {
+    rewindHistory.push({ x: player.x, y: player.y, t: now });
+    rewindLastSampleAt = now;
+  }
+  const keepAfter = now - Math.max(1.35, (player.rewindSeconds || 1.0) + 0.35);
+  while (rewindHistory.length > 1 && rewindHistory[0].t < keepAfter) rewindHistory.shift();
+}
+
+function getRewindTarget(secondsBack = 1.0) {
+  if (!rewindHistory.length) return null;
+  const now = performance.now() / 1000;
+  const targetTime = now - secondsBack;
+  let best = rewindHistory[0];
+  let bestDiff = Math.abs(best.t - targetTime);
+  for (let i = 1; i < rewindHistory.length; i++) {
+    const snap = rewindHistory[i];
+    const diff = Math.abs(snap.t - targetTime);
+    if (diff < bestDiff) {
+      best = snap;
+      bestDiff = diff;
+    }
+  }
+  return best;
+}
+
+function getSafeRewindTarget(baseTarget) {
+  if (baseTarget && !circleHitsObstacle(baseTarget.x, baseTarget.y, player.r) && insidePlatform(baseTarget.x, baseTarget.y, player.r)) {
+    return baseTarget;
+  }
+  for (let i = rewindHistory.length - 1; i >= 0; i--) {
+    const snap = rewindHistory[i];
+    if (!circleHitsObstacle(snap.x, snap.y, player.r) && insidePlatform(snap.x, snap.y, player.r)) {
+      return snap;
+    }
+  }
+  return null;
+}
+
+function getWallPlacementData() {
+  const dir = getPlayerAim();
+  const perp = { x: -dir.y, y: dir.x };
+  const wallLength = 150;
+  const segmentRadius = 12;
+  const segmentCount = 7;
+  const centerDistance = player.r + 42;
+  const duration = 3.5;
+  const centerX = player.x + dir.x * centerDistance;
+  const centerY = player.y + dir.y * centerDistance;
+  const segments = [];
+
+  for (let i = 0; i < segmentCount; i++) {
+    const t = segmentCount === 1 ? 0 : (i / (segmentCount - 1)) - 0.5;
+    const offset = t * wallLength;
+    const sx = centerX + perp.x * offset;
+    const sy = centerY + perp.y * offset;
+
+    if (!insidePlatform(sx, sy, segmentRadius + 4)) return null;
+    if (circleHitsObstacle(sx, sy, segmentRadius)) return null;
+    if (distance(sx, sy, player.x, player.y) < player.r + segmentRadius + 8) return null;
+
+    segments.push({ x: sx, y: sy, r: segmentRadius });
+  }
+
+  return { dir, perp, centerX, centerY, duration, segments };
+}
+
+
 // ── Player Colors ─────────────────────────────────────────────
 function applyPlayerColors() {
   const choice = colorChoices[selectedColorIndex] || colorChoices[0];
@@ -350,6 +436,9 @@ function castPlayerSpell(spellId) {
       break;
     case 'wall':
       castWall();
+      break;
+    case 'rewind':
+      castRewind();
       break;
   }
 }
@@ -585,36 +674,10 @@ function castGust() {
 function castWall() {
   const now = performance.now() / 1000;
 
-  if (
-    gameState !== 'playing' ||
-    !player.alive ||
-    now < player.wallReadyAt
-  ) return;
+  if (gameState !== 'playing' || !player.alive || now < player.wallReadyAt) return;
 
-  const dir = getPlayerAim();
-  const perp = { x: -dir.y, y: dir.x };
-  const wallLength = 150;
-  const segmentRadius = 12;
-  const segmentCount = 7;
-  const centerDistance = player.r + 42;
-  const duration = 3.5;
-
-  const centerX = player.x + dir.x * centerDistance;
-  const centerY = player.y + dir.y * centerDistance;
-  const segments = [];
-
-  for (let i = 0; i < segmentCount; i++) {
-    const t = segmentCount === 1 ? 0 : (i / (segmentCount - 1)) - 0.5;
-    const offset = t * wallLength;
-    const sx = centerX + perp.x * offset;
-    const sy = centerY + perp.y * offset;
-
-    if (!insidePlatform(sx, sy, segmentRadius + 4)) return;
-    if (circleHitsObstacle(sx, sy, segmentRadius)) return;
-    if (distance(sx, sy, player.x, player.y) < player.r + segmentRadius + 8) return;
-
-    segments.push({ x: sx, y: sy, r: segmentRadius });
-  }
+  const placement = getWallPlacementData();
+  if (!placement) return;
 
   player.wallReadyAt = now + player.wallCooldown;
 
@@ -625,20 +688,63 @@ function castWall() {
   soundWall();
 
   walls.push({
-    x: centerX,
-    y: centerY,
-    dirX: dir.x,
-    dirY: dir.y,
-    perpX: perp.x,
-    perpY: perp.y,
-    life: duration,
-    maxLife: duration,
-    segments,
+    x: placement.centerX,
+    y: placement.centerY,
+    dirX: placement.dir.x,
+    dirY: placement.dir.y,
+    perpX: placement.perp.x,
+    perpY: placement.perp.y,
+    life: placement.duration,
+    maxLife: placement.duration,
+    segments: placement.segments,
   });
 
-  for (const seg of segments) {
+  for (const seg of placement.segments) {
     spawnBurst(seg.x, seg.y, 'rgba(165, 210, 255, 0.88)', 6, 90);
   }
+}
+
+function castRewind() {
+  const now = performance.now() / 1000;
+  if (gameState !== 'playing' || !player.alive || now < player.rewindReadyAt) return;
+
+  const target = getSafeRewindTarget(getRewindTarget(player.rewindSeconds || 1.0));
+  if (!target) return;
+
+  player.rewindReadyAt = now + player.rewindCooldown;
+  stopArcaneCharge(false);
+  player.vx = 0;
+  player.vy = 0;
+
+  if (window.outraThree && window.outraThree.triggerCast) {
+    window.outraThree.triggerCast();
+  }
+
+  soundRewind();
+
+  const fromX = player.x;
+  const fromY = player.y;
+  const dx = target.x - fromX;
+  const dy = target.y - fromY;
+
+  for (let i = 0; i < 14; i++) {
+    const p = i / 13;
+    particles.push({
+      x: fromX + dx * p + (Math.random() - 0.5) * 8,
+      y: fromY + dy * p + (Math.random() - 0.5) * 8,
+      vx: (Math.random() - 0.5) * 30,
+      vy: (Math.random() - 0.5) * 30,
+      life: 0.20 + Math.random() * 0.10,
+      size: 3 + Math.random() * 3,
+      color: 'rgba(180,120,255,0.88)'
+    });
+  }
+
+  spawnBurst(fromX, fromY, 'rgba(170,120,255,0.92)', 16, 170);
+  player.x = target.x;
+  player.y = target.y;
+  spawnBurst(player.x, player.y, 'rgba(220,180,255,0.96)', 18, 190);
+  recordRewindHistory(true);
 }
 
 function updateArcaneCharge(dt) {
@@ -721,6 +827,7 @@ function tryTeleport() {
   player.x = target.x;
   player.y = target.y;
   spawnBurst(player.x, player.y, 'rgba(160,120,255,0.9)', 18, 220);
+  recordRewindHistory(true);
 }
 
 // ── AI ────────────────────────────────────────────────────────
@@ -889,7 +996,7 @@ function resetRound() {
   arena.shrinkTimer    = arena.shrinkInterval;
   buildObstacles();
   player.hookCooldown  = getHookCooldown();
-  activeSpellLoadout   = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall'];
+  activeSpellLoadout   = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall', 'rewind'];
 
   const p = findValidSpawnNear(playerSpawn.x, playerSpawn.y, 0);
   const d = findValidSpawnNear(dummySpawn.x,  dummySpawn.y,  0);
@@ -897,7 +1004,7 @@ function resetRound() {
   Object.assign(player, {
     x: p.x, y: p.y, vx: 0, vy: 0,
     hp: player.maxHp, alive: true, deadReason: '',
-    fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0, wallReadyAt: 0, shieldUntil: 0,
+    fireReadyAt: 0, hookReadyAt: 0, teleportReadyAt: 0, shieldReadyAt: 0, chargeReadyAt: 0, shockReadyAt: 0, gustReadyAt: 0, wallReadyAt: 0, rewindReadyAt: 0, shieldUntil: 0,
     chargeActive: false, chargeDirX: 0, chargeDirY: 0, chargeTimer: 0, chargeHit: false,
     aimX: 1, aimY: 0
   });
@@ -923,9 +1030,10 @@ function resetRound() {
   resetMoveStick();
   skillAimPreview.active = false;
   skillAimPreview.type   = null;
-  wallAimHeld = false;
   mouse.x = player.x + 120;
   mouse.y = player.y;
+  clearRewindHistory();
+  seedRewindHistory();
 }
 
 function enterLobby() {
@@ -950,8 +1058,6 @@ function enterLobby() {
   setMenuTab(activeMenuTab);
   player.score = getPlayerPoints(player.name);
   updateAimSensitivityUI();
-  wallAimHeld = false;
-  wallAimHeld = false;
   updateHud();
   refreshMobileControls();
 }
@@ -1008,6 +1114,7 @@ function update(dt) {
       if ((moveX || moveY) && gameState === 'playing') moveActorWithSlide(player, moveX, moveY, dt);
       updateActorPhysics(player, dt);
     }
+    recordRewindHistory();
   }
 
   if (dummyEnabled && (gameState === 'playing' || gameState === 'result') && dummy.alive) {
