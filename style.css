@@ -428,6 +428,49 @@ input[type="text"] {
   border: 1px solid rgba(255,220,180,0.28);
 }
 
+/* ── Spell Icon Layering Fix ───────────────────────────────── */
+.deskSpell {
+  position: relative;
+}
+
+.deskSpell .spellIcon {
+  z-index: 1;
+}
+
+.deskSpellIcon,
+.deskSpellLabel,
+.deskSpellKey {
+  position: relative;
+  z-index: 2;
+}
+
+.deskSpellCooldown {
+  z-index: 3;
+}
+
+.mobileBtn {
+  position: absolute;
+}
+
+.mobileBtn .spellIcon {
+  z-index: 1;
+}
+
+.mobileBtnIcon,
+.mobileBtnText {
+  position: relative;
+  z-index: 2;
+}
+
+.mobileBtnCooldown {
+  z-index: 3;
+}
+
+.mobileDragArrow {
+  z-index: 4;
+}
+
+
 .mobileBtn.subSkill { background: rgba(26,28,36,0.88); }
 
 #mobileFireBtn     { left: 55px; top: 55px; }
@@ -537,6 +580,11 @@ input[type="text"] {
 .deskSpell.readyFlash,
 .mobileBtn.readyFlash {
   animation: cooldownReadyFlash 0.42s ease;
+}
+
+.deskSpellIcon,
+.mobileBtnIcon {
+  opacity: 0;
 }
 
 @keyframes cooldownReadyFlash {
