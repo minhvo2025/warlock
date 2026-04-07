@@ -6,16 +6,16 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
-} 
+}
 
 function normalizeKey(key) { return key === ' ' ? 'space' : String(key).toLowerCase(); }
 
 function prettyKey(key) {
   if (key === ' ' || key === 'space') return 'Space';
-  if (key === 'escape')     return 'Esc';
-  if (key === 'arrowup')    return 'Arrow Up';
-  if (key === 'arrowdown')  return 'Arrow Down';
-  if (key === 'arrowleft')  return 'Arrow Left';
+  if (key === 'escape') return 'Esc';
+  if (key === 'arrowup') return 'Arrow Up';
+  if (key === 'arrowdown') return 'Arrow Down';
+  if (key === 'arrowleft') return 'Arrow Left';
   if (key === 'arrowright') return 'Arrow Right';
   return key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1);
 }
@@ -70,8 +70,10 @@ function buildKeybindsUI() {
   Object.keys(bindLabels).forEach(action => {
     const row = document.createElement('div');
     row.className = 'bindRow';
+
     const label = document.createElement('div');
     label.textContent = bindLabels[action];
+
     const btn = document.createElement('button');
     btn.className = 'secondary bindBtn' + (waitingForBind === action ? ' waiting' : '');
     btn.textContent = waitingForBind === action ? 'Press a key...' : prettyKey(keybinds[action]);
@@ -79,6 +81,7 @@ function buildKeybindsUI() {
       waitingForBind = action;
       buildKeybindsUI();
     });
+
     row.appendChild(label);
     row.appendChild(btn);
     bindList.appendChild(row);
@@ -92,6 +95,7 @@ function renderLeaderboard() {
     leaderboardList.innerHTML = '<div class="subtle">No entries yet. Win a match to get 3 points.</div>';
     return;
   }
+
   leaderboardList.innerHTML = entries
     .map((entry, i) =>
       `<div class="lbRow"><div>#${i + 1}</div><div>${escapeHtml(entry.name)}</div><div>${entry.points} pts</div></div>`
@@ -103,9 +107,11 @@ function renderLeaderboard() {
 function equipItem(id) {
   const item = storeItems.find(x => x.id === id);
   if (!item || !profile.store[id]) return;
-  if (item.type === 'hat')      profile.equipped.hat = id;
-  if (item.type === 'sweater')  profile.equipped.sweater = true;
-  if (item.type === 'boots')    profile.equipped.boots = true;
+
+  if (item.type === 'hat') profile.equipped.hat = id;
+  if (item.type === 'sweater') profile.equipped.sweater = true;
+  if (item.type === 'boots') profile.equipped.boots = true;
+
   saveProfile();
   renderStore();
   renderInventory();
@@ -115,9 +121,11 @@ function equipItem(id) {
 function unwearItem(id) {
   const item = storeItems.find(x => x.id === id);
   if (!item) return;
+
   if (item.type === 'hat' && profile.equipped.hat === id) profile.equipped.hat = null;
   if (item.type === 'sweater') profile.equipped.sweater = false;
-  if (item.type === 'boots')   profile.equipped.boots = false;
+  if (item.type === 'boots') profile.equipped.boots = false;
+
   saveProfile();
   renderStore();
   renderInventory();
@@ -125,8 +133,10 @@ function unwearItem(id) {
 }
 
 function renderInventory() {
-  const ownedHats      = storeItems.filter(item => item.type === 'hat' && profile.store[item.id]);
-  const ownedWearables = storeItems.filter(item => (item.type === 'sweater' || item.type === 'boots') && profile.store[item.id]);
+  const ownedHats = storeItems.filter(item => item.type === 'hat' && profile.store[item.id]);
+  const ownedWearables = storeItems.filter(item =>
+    (item.type === 'sweater' || item.type === 'boots') && profile.store[item.id]
+  );
 
   const hatRows = ownedHats.length
     ? ownedHats.map(item => {
@@ -154,7 +164,7 @@ function renderInventory() {
 
   inventoryList.innerHTML =
     `<div class="inventoryCard"><div class="inventoryTitle">${BRAND.name} Hats</div>${hatRows}</div>` +
-`<div class="inventoryCard"><div class="inventoryTitle">${BRAND.name} Outfit</div>${outfitRows}</div>`;
+    `<div class="inventoryCard"><div class="inventoryTitle">${BRAND.name} Outfit</div>${outfitRows}</div>`;
 
   inventoryList.querySelectorAll('[data-inv-wear]').forEach(btn =>
     btn.addEventListener('click', () => equipItem(btn.getAttribute('data-inv-wear')))
@@ -169,7 +179,7 @@ function renderStore() {
   wlkLobbyEl.textContent = `WLK Points: ${profile.wlk}`;
 
   storeList.innerHTML = storeItems.map(item => {
-    const owned  = !!profile.store[item.id];
+    const owned = !!profile.store[item.id];
     const canBuy = profile.wlk >= item.cost && !owned;
     let actionHtml = '';
 
@@ -208,9 +218,10 @@ function renderStore() {
 
   storeList.querySelectorAll('[data-store-id]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const id   = btn.getAttribute('data-store-id');
+      const id = btn.getAttribute('data-store-id');
       const item = storeItems.find(x => x.id === id);
       if (!item || profile.wlk < item.cost || profile.store[id]) return;
+
       profile.wlk -= item.cost;
       item.apply(profile);
       saveProfile();
@@ -230,11 +241,37 @@ function renderStore() {
   );
 }
 
+// ── Spell Icons ───────────────────────────────────────────────
+function applySpellIconsDesktop() {
+  Object.entries(SPELL_ICONS).forEach(([key, path]) => {
+    const cell = document.getElementById(`dspell-${key}`);
+    if (!cell) return;
+
+    let img = cell.querySelector('img.spellIcon');
+    if (!img) {
+      img = document.createElement('img');
+      img.className = 'spellIcon';
+      img.alt = '';
+      img.style.position = 'absolute';
+      img.style.inset = '0';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      img.style.borderRadius = '16px';
+      img.style.pointerEvents = 'none';
+      img.style.zIndex = '0';
+      cell.appendChild(img);
+    }
+
+    img.src = path;
+  });
+}
+
 // ── HUD ───────────────────────────────────────────────────────
 function triggerReadyFlash(el) {
   if (!el) return;
   el.classList.remove('readyFlash');
-  void el.offsetWidth; // restart animation
+  void el.offsetWidth;
   el.classList.add('readyFlash');
 }
 
@@ -253,29 +290,6 @@ function updateSkillCooldownButtons() {
     }
   });
 
-  function applySpellIconsDesktop() {
-  Object.entries(SPELL_ICONS).forEach(([key, path]) => {
-    const cell = document.getElementById(`dspell-${key}`);
-    if (!cell) return;
-
-    let img = cell.querySelector('img.spellIcon');
-    if (!img) {
-      img = document.createElement('img');
-      img.className = 'spellIcon';
-      img.style.position = 'absolute';
-      img.style.inset = '0';
-      img.style.width = '100%';
-      img.style.height = '100%';
-      img.style.objectFit = 'cover';
-      img.style.borderRadius = '10px';
-      img.style.pointerEvents = 'none';
-      cell.appendChild(img);
-    }
-
-    img.src = path;
-  });
-}
-  
   // Mobile buttons
   Object.entries(skillButtons).forEach(([key, btn]) => {
     if (!btn) return;
@@ -324,9 +338,28 @@ function updateSkillCooldownButtons() {
     }
   });
 
-  // Keep keybind labels in sync with current bindings
-  const keyMap  = { hook: 'dkey-hook', blink: 'dkey-blink', shield: 'dkey-shield', charge: 'dkey-charge', shock: 'dkey-shock', gust: 'dkey-gust', wall: 'dkey-wall', rewind: 'dkey-rewind' };
-  const bindMap = { hook: keybinds.hook, blink: keybinds.teleport, shield: keybinds.shield, charge: keybinds.charge, shock: keybinds.shock, gust: keybinds.gust, wall: keybinds.wall, rewind: keybinds.rewind };
+  // Keep keybind labels in sync
+  const keyMap = {
+    hook: 'dkey-hook',
+    blink: 'dkey-blink',
+    shield: 'dkey-shield',
+    charge: 'dkey-charge',
+    shock: 'dkey-shock',
+    gust: 'dkey-gust',
+    wall: 'dkey-wall',
+    rewind: 'dkey-rewind'
+  };
+
+  const bindMap = {
+    hook: keybinds.hook,
+    blink: keybinds.teleport,
+    shield: keybinds.shield,
+    charge: keybinds.charge,
+    shock: keybinds.shock,
+    gust: keybinds.gust,
+    wall: keybinds.wall,
+    rewind: keybinds.rewind
+  };
 
   Object.entries(keyMap).forEach(([skill, elId]) => {
     const el = document.getElementById(elId);
@@ -335,6 +368,8 @@ function updateSkillCooldownButtons() {
 }
 
 function updateHud() {
+  applySpellIconsDesktop();
+
   hpEl.textContent = `HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
 
   dummyHpEl.textContent = !dummyEnabled
@@ -358,19 +393,20 @@ function updateHud() {
   if (removeDummyBtn) {
     removeDummyBtn.textContent = dummyEnabled ? 'Remove Dummy' : 'No Dummy';
   }
-applySpellIconsDesktop();
-  hudToggleBtn.textContent    = hudVisible ? 'Hide Info' : 'Show Info';
+
+  hudToggleBtn.textContent = hudVisible ? 'Hide Info' : 'Show Info';
   playerNameHudEl.textContent = `Name: ${player.name}`;
-  scoreHudEl.textContent      = `Score: ${player.score}`;
-  wlkHudEl.textContent        = `WLK: ${profile.wlk}`;
+  scoreHudEl.textContent = `Score: ${player.score}`;
+  wlkHudEl.textContent = `WLK: ${profile.wlk}`;
   roundTimerHudEl.textContent = `Shrink In: ${Math.ceil(arena.shrinkTimer)}s`;
-  controlsHudEl.textContent   = isTouchDevice
+
+  controlsHudEl.textContent = isTouchDevice
     ? 'Touch: Move stick | Pull skill and release to cast | Top-right Menu'
     : `Fire: Mouse1 | Hook: ${prettyKey(keybinds.hook)} | Teleport: ${prettyKey(keybinds.teleport)} | Shield: ${prettyKey(keybinds.shield)} | Charge: ${prettyKey(keybinds.charge)} | Shock: ${prettyKey(keybinds.shock)} | Gust: ${prettyKey(keybinds.gust)} | Wall: hold ${prettyKey(keybinds.wall)} and release | Rewind: ${prettyKey(keybinds.rewind)} | Menu: ${prettyKey(keybinds.menu)}`;
 
   musicToggleBtn.textContent = `Music: ${musicMuted ? 'Off' : 'On'}`;
-  musicToggleBtn.className   = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
-  hud.style.display          = (gameState !== 'lobby' && hudVisible) ? 'block' : 'none';
+  musicToggleBtn.className = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
+  hud.style.display = (gameState !== 'lobby' && hudVisible) ? 'block' : 'block';
 
   const spellBar = document.getElementById('desktopSpellBar');
   if (spellBar) spellBar.style.display = (gameState !== 'lobby' && !isTouchDevice) ? 'flex' : 'none';
@@ -382,6 +418,12 @@ applySpellIconsDesktop();
 function updateAimSensitivityUI() {
   const value = Math.min(1.4, Math.max(0.35, Number(profile.aimSensitivity) || 0.7));
   profile.aimSensitivity = value;
-  if (aimSensitivitySlider) aimSensitivitySlider.value = String(value);
-  if (aimSensitivityValue)  aimSensitivityValue.textContent = `${value.toFixed(2)}x`;
+
+  if (aimSensitivitySlider) {
+    aimSensitivitySlider.value = value.toFixed(2);
+  }
+
+  if (aimSensitivityValue) {
+    aimSensitivityValue.textContent = `${value.toFixed(2)}x`;
+  }
 }
