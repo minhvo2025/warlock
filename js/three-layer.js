@@ -84,6 +84,7 @@
       glb: floorCfg.glb || '',
       yOffset: typeof floorCfg.yOffset === 'number' ? floorCfg.yOffset : -6,
       opacity: typeof floorCfg.opacity === 'number' ? floorCfg.opacity : 1,
+      brightness: typeof floorCfg.brightness === 'number' ? floorCfg.brightness : 0.2,
       lockRotationX: typeof floorCfg.lockRotationX === 'number' ? floorCfg.lockRotationX : 0,
       lockRotationY: typeof floorCfg.lockRotationY === 'number' ? floorCfg.lockRotationY : 0,
       lockRotationZ: typeof floorCfg.lockRotationZ === 'number' ? floorCfg.lockRotationZ : 0,
@@ -267,121 +268,112 @@
     log('Prepared preview model');
   }
 
-function prepareArenaFloorModel(root, parentGroup) {
-  const floorCfg = getArenaFloorConfig();
+  function prepareArenaFloorModel(root, parentGroup) {
+    const floorCfg = getArenaFloorConfig();
 
-  traverseMeshes(root, (obj) => {
-    obj.castShadow = false;
-    obj.receiveShadow = false;
-    obj.frustumCulled = false;
+    traverseMeshes(root, (obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      obj.frustumCulled = false;
 
-    if (Array.isArray(obj.material)) {
-      obj.material = obj.material.map(cloneMaterial);
-    } else if (obj.material) {
-      obj.material = cloneMaterial(obj.material);
+      if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map(cloneMaterial);
+      } else if (obj.material) {
+        obj.material = cloneMaterial(obj.material);
+      }
+
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      mats.forEach((mat) => {
+        applyStylizedMaterial(mat);
+
+        if (mat.color) {
+          mat.color.multiplyScalar(floorCfg.brightness ?? 0.2);
+        }
+
+        mat.side = THREE.DoubleSide;
+        mat.transparent = false;
+        mat.opacity = 1;
+        mat.depthWrite = true;
+        mat.needsUpdate = true;
+      });
+    });
+
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
+
+    const candidates = [
+      { x: 0, y: 0, z: 0, name: 'none' },
+      { x: Math.PI / 2, y: 0, z: 0, name: '+x90' },
+      { x: -Math.PI / 2, y: 0, z: 0, name: '-x90' },
+      { x: 0, y: 0, z: Math.PI / 2, name: '+z90' },
+      { x: 0, y: 0, z: -Math.PI / 2, name: '-z90' },
+      { x: Math.PI, y: 0, z: 0, name: 'x180' },
+      { x: 0, y: 0, z: Math.PI, name: 'z180' },
+      { x: Math.PI / 2, y: 0, z: Math.PI / 2, name: '+x90+z90' },
+      { x: Math.PI / 2, y: 0, z: -Math.PI / 2, name: '+x90-z90' },
+      { x: -Math.PI / 2, y: 0, z: Math.PI / 2, name: '-x90+z90' },
+      { x: -Math.PI / 2, y: 0, z: -Math.PI / 2, name: '-x90-z90' },
+    ];
+
+    let best = null;
+
+    for (const c of candidates) {
+      root.rotation.set(c.x, c.y, c.z);
+
+      const box = computeBox(root);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+
+      const thickness = Math.max(size.y, 0.0001);
+      const footprint = Math.max(size.x * size.z, 0.0001);
+      const score = footprint / thickness;
+
+      if (!best || score > best.score) {
+        best = { ...c, score, size: size.clone() };
+      }
     }
 
-    const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-   mats.forEach((mat) => {
-  applyStylizedMaterial(mat);
+    root.rotation.set(
+      best.x + (floorCfg.lockRotationX || 0),
+      best.y + (floorCfg.lockRotationY || 0),
+      best.z + (floorCfg.lockRotationZ || 0)
+    );
 
-  // 👇 DARKEN FLOOR
-  if (mat.color) {
-    mat.color.multiplyScalar(floorCfg.brightness ?? 0.2);
-  }
-
-  mat.side = THREE.DoubleSide;
-  mat.transparent = false;
-  mat.opacity = 1;
-  mat.depthWrite = true;
-
-  mat.needsUpdate = true;
-});
-  });
-
-  // Reset transforms first
-  root.position.set(0, 0, 0);
-  root.rotation.set(0, 0, 0);
-  root.scale.set(1, 1, 1);
-
-  // Try multiple orientations and choose the one that makes the model
-  // flattest on Y (best candidate for a top-down floor)
-  const candidates = [
-    { x: 0, y: 0, z: 0, name: 'none' },
-    { x: Math.PI / 2, y: 0, z: 0, name: '+x90' },
-    { x: -Math.PI / 2, y: 0, z: 0, name: '-x90' },
-    { x: 0, y: 0, z: Math.PI / 2, name: '+z90' },
-    { x: 0, y: 0, z: -Math.PI / 2, name: '-z90' },
-    { x: Math.PI, y: 0, z: 0, name: 'x180' },
-    { x: 0, y: 0, z: Math.PI, name: 'z180' },
-    { x: Math.PI / 2, y: 0, z: Math.PI / 2, name: '+x90+z90' },
-    { x: Math.PI / 2, y: 0, z: -Math.PI / 2, name: '+x90-z90' },
-    { x: -Math.PI / 2, y: 0, z: Math.PI / 2, name: '-x90+z90' },
-    { x: -Math.PI / 2, y: 0, z: -Math.PI / 2, name: '-x90-z90' },
-  ];
-
-  let best = null;
-
-  for (const c of candidates) {
-    root.rotation.set(c.x, c.y, c.z);
-
-    const box = computeBox(root);
-    const size = new THREE.Vector3();
+    let box = computeBox(root);
+    let center = new THREE.Vector3();
+    let size = new THREE.Vector3();
+    box.getCenter(center);
     box.getSize(size);
 
-    // We want a floor: very small Y thickness, large X/Z footprint
-    const thickness = Math.max(size.y, 0.0001);
-    const footprint = Math.max(size.x * size.z, 0.0001);
-    const score = footprint / thickness;
+    root.position.sub(center);
 
-    if (!best || score > best.score) {
-      best = { ...c, score, size: size.clone() };
-    }
+    box = computeBox(root);
+    box.getCenter(center);
+    box.getSize(size);
+
+    const sourceDiameter = Math.max(size.x || 1, size.z || 1, 1);
+    const targetDiameter = Math.max((arena.baseRadius || arena.radius || 200) * 2, 1);
+    const scale = targetDiameter / sourceDiameter;
+
+    root.scale.setScalar(scale);
+    root.position.y += floorCfg.yOffset;
+
+    state.floor.baseScale = scale;
+    state.floor.sourceDiameter = sourceDiameter;
+    parentGroup.add(root);
+
+    log('Prepared arena floor', {
+      chosenRotation: best.name,
+      sourceSize: {
+        x: size.x.toFixed(2),
+        y: size.y.toFixed(2),
+        z: size.z.toFixed(2),
+      },
+      targetDiameter: targetDiameter.toFixed(2),
+      baseScale: scale.toFixed(3),
+    });
   }
-
-  // Apply best auto orientation + any user config offsets
-  root.rotation.set(
-    best.x + (floorCfg.lockRotationX || 0),
-    best.y + (floorCfg.lockRotationY || 0),
-    best.z + (floorCfg.lockRotationZ || 0)
-  );
-
-  // Center after final orientation
-  let box = computeBox(root);
-  let center = new THREE.Vector3();
-  let size = new THREE.Vector3();
-  box.getCenter(center);
-  box.getSize(size);
-
-  root.position.sub(center);
-
-  // Recompute after centering
-  box = computeBox(root);
-  box.getCenter(center);
-  box.getSize(size);
-
-  const sourceDiameter = Math.max(size.x || 1, size.z || 1, 1);
-  const targetDiameter = Math.max((arena.baseRadius || arena.radius || 200) * 2, 1);
-  const scale = targetDiameter / sourceDiameter;
-
-  root.scale.setScalar(scale);
-  root.position.y += floorCfg.yOffset;
-
-  state.floor.baseScale = scale;
-  state.floor.sourceDiameter = sourceDiameter;
-  parentGroup.add(root);
-
-  log('Prepared arena floor', {
-    chosenRotation: best.name,
-    sourceSize: {
-      x: size.x.toFixed(2),
-      y: size.y.toFixed(2),
-      z: size.z.toFixed(2),
-    },
-    targetDiameter: targetDiameter.toFixed(2),
-    baseScale: scale.toFixed(3),
-  });
-}
 
   function initScene() {
     state.container = document.getElementById('threeLayer');
@@ -678,7 +670,68 @@ function prepareArenaFloorModel(root, parentGroup) {
     }
   }
 
-  function buildAnimationStateMap(animations, mixer) {
+  function collectRootLikeNames(root, animations) {
+    const names = new Set();
+
+    // Top-level children are common animation targets in exported GLBs
+    root.children.forEach((child) => {
+      if (child && child.name) names.add(child.name);
+    });
+
+    // Typical root/armature names
+    root.traverse((obj) => {
+      if (!obj || !obj.name) return;
+      if (/armature|root|rig|hips|pelvis/i.test(obj.name)) {
+        names.add(obj.name);
+      }
+    });
+
+    // Also inspect track paths and grab the left-most node names
+    (animations || []).forEach((clip) => {
+      (clip.tracks || []).forEach((track) => {
+        const full = track.name || '';
+        const nodeName = full.split('.')[0];
+        if (nodeName && /armature|root|rig|hips|pelvis/i.test(nodeName)) {
+          names.add(nodeName);
+        }
+      });
+    });
+
+    return Array.from(names);
+  }
+
+  function sanitizeClipForArena(root, clip, stateName, rootLikeNames) {
+    if (!clip) return clip;
+    if (stateName === 'idle') return clip;
+
+    const cloned = clip.clone();
+    const blocked = new Set(rootLikeNames || []);
+
+    cloned.tracks = (cloned.tracks || []).filter((track) => {
+      const trackName = track.name || '';
+      const nodeName = trackName.split('.')[0];
+      const property = trackName.split('.').slice(1).join('.').toLowerCase();
+
+      if (!blocked.has(nodeName)) return true;
+
+      // Remove root motion / root rotation tracks from non-idle clips.
+      // This is the most likely source of bottom-up flips and floor sinking.
+      if (
+        property.includes('position') ||
+        property.includes('quaternion') ||
+        property.includes('rotation') ||
+        property.includes('scale')
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return cloned;
+  }
+
+  function buildAnimationStateMap(animations, mixer, root, isArena = false) {
     const charCfg = getCharacterConfig();
     const result = new Map();
 
@@ -691,13 +744,23 @@ function prepareArenaFloorModel(root, parentGroup) {
       hit: charCfg.animations.hit,
     };
 
+    const rootLikeNames = isArena ? collectRootLikeNames(root, animations) : [];
+
+    if (isArena && rootLikeNames.length) {
+      log('Sanitizing arena clips for root-like nodes:', rootLikeNames);
+    }
+
     Object.entries(wantedStates).forEach(([stateName, clipName]) => {
       if (!clipName || !mixer) return;
-      const clip = THREE.AnimationClip.findByName(animations, clipName);
-      if (!clip) {
+      const originalClip = THREE.AnimationClip.findByName(animations, clipName);
+      if (!originalClip) {
         console.warn(`[Outra3D] Missing animation clip "${clipName}" for state "${stateName}"`);
         return;
       }
+
+      const clip = isArena
+        ? sanitizeClipForArena(root, originalClip, stateName, rootLikeNames)
+        : originalClip;
 
       const action = mixer.clipAction(clip);
       action.enabled = true;
@@ -808,7 +871,12 @@ function prepareArenaFloorModel(root, parentGroup) {
           state.player.mixer = gltf.animations && gltf.animations.length
             ? new THREE.AnimationMixer(arenaRoot)
             : null;
-          state.player.states = buildAnimationStateMap(gltf.animations || [], state.player.mixer);
+          state.player.states = buildAnimationStateMap(
+            gltf.animations || [],
+            state.player.mixer,
+            arenaRoot,
+            true
+          );
 
           arenaLoaded = true;
           finalizeIfReady();
@@ -835,7 +903,12 @@ function prepareArenaFloorModel(root, parentGroup) {
           state.preview.mixer = gltf.animations && gltf.animations.length
             ? new THREE.AnimationMixer(previewRoot)
             : null;
-          state.preview.states = buildAnimationStateMap(gltf.animations || [], state.preview.mixer);
+          state.preview.states = buildAnimationStateMap(
+            gltf.animations || [],
+            state.preview.mixer,
+            previewRoot,
+            false
+          );
 
           previewLoaded = true;
           finalizeIfReady();
