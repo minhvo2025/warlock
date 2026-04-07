@@ -142,15 +142,15 @@ window.OUTRA_3D_CONFIG = {
     },
   },
 
-  arenaFloor: {
-    enabled: true,
-    glb: 'docs/Objects/floor.glb',
-    yOffset: -6,
-    opacity: 1,
-    lockRotationX: 0,
-    lockRotationY: 0,
-    lockRotationZ: 0,
-  },
+arenaFloor: {
+  enabled: true,
+  glb: 'docs/Objects/floor.glb',
+  yOffset: -6,
+  opacity: 0.42,
+  lockRotationX: 0,
+  lockRotationY: 0,
+  lockRotationZ: 0,
+},
 
   worldScale: 1,
   actorScale: 28,
