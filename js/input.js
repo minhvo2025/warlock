@@ -280,11 +280,10 @@ window.addEventListener('keydown', (e) => {
 
   if (gameState !== 'lobby' && norm === keybinds.reset) resetRound();
 
-  if (norm === keybinds.menu) {
-    menuOpen = !menuOpen;
-    menuPanel.style.display = menuOpen ? 'block' : 'none';
-    setMenuTab(activeMenuTab);
-  }
+if (norm === keybinds.menu) {
+  e.preventDefault();
+  toggleMenu();
+}
 });
 
 window.addEventListener('keyup', (e) => {
@@ -348,11 +347,36 @@ canvas.addEventListener('touchmove', (e) => {
   mouse.y    = t.clientY - rect.top;
 }, { passive: true });
 
+function openMenu() {
+  menuOpen = true;
+  menuPanel.style.display = 'block';
+  requestAnimationFrame(() => {
+    menuPanel.classList.add('open');
+    document.body.classList.add('menuVisible');
+  });
+  setMenuTab(activeMenuTab);
+}
+
+function closeMenu() {
+  menuOpen = false;
+  menuPanel.classList.remove('open');
+  document.body.classList.remove('menuVisible');
+
+  setTimeout(() => {
+    if (!menuOpen) menuPanel.style.display = 'none';
+  }, 180);
+}
+
+function toggleMenu() {
+  if (menuOpen) closeMenu();
+  else openMenu();
+}
+
 // ── UI Button Events ──────────────────────────────────────────
 hudToggleBtn.addEventListener('click', () => { hudVisible = !hudVisible; updateHud(); });
 
-menuBtn.addEventListener('click',       () => { menuOpen = !menuOpen; menuPanel.style.display = menuOpen ? 'block' : 'none'; setMenuTab(activeMenuTab); });
-lobbyMenuBtn.addEventListener('click',  () => { menuOpen = !menuOpen; menuPanel.style.display = menuOpen ? 'block' : 'none'; setMenuTab(activeMenuTab); });
+menuBtn.addEventListener('click', toggleMenu);
+lobbyMenuBtn.addEventListener('click', toggleMenu);
 
 document.querySelectorAll('[data-menu-tab]').forEach(btn =>
   btn.addEventListener('click', () => setMenuTab(btn.dataset.menuTab))
@@ -361,9 +385,19 @@ document.querySelectorAll('[data-lobby-tab]').forEach(btn =>
   btn.addEventListener('click', () => setLobbyTab(btn.dataset.lobbyTab))
 );
 
-resumeBtn.addEventListener('click',  () => { menuOpen = false; menuPanel.style.display = 'none'; });
-toLobbyBtn.addEventListener('click', () => enterLobby());
-resetBtn.addEventListener('click',   () => { resetRound(); menuOpen = false; menuPanel.style.display = 'none'; });
+resumeBtn.addEventListener('click', () => {
+  closeMenu();
+});
+
+toLobbyBtn.addEventListener('click', () => {
+  closeMenu();
+  enterLobby();
+});
+
+resetBtn.addEventListener('click', () => {
+  resetRound();
+  closeMenu();
+});
 
 musicToggleBtn.addEventListener('click', () => { startMusicIfNeeded(); setMusicMuted(!musicMuted); updateHud(); });
 
