@@ -102,6 +102,20 @@ html, body {
   padding: 18px;
   border-radius: 22px;
 
+#menuPanel .tabBtn {
+  position: relative;
+  overflow: hidden;
+}
+
+#menuPanel .tabBtn::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 220, 165, 0.08);
+  pointer-events: none;
+}
+  
   background:
     radial-gradient(circle at 50% 0%, rgba(255, 208, 120, 0.12), rgba(255, 208, 120, 0) 42%),
     linear-gradient(180deg, rgba(38, 29, 22, 0.97), rgba(15, 12, 14, 0.98) 52%, rgba(10, 9, 12, 0.99));
