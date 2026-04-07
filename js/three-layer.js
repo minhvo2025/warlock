@@ -58,24 +58,9 @@
     },
   };
 
-  const STATE_FIX_QUATS = {
-    idle: new THREE.Quaternion(),
-    walk: new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI, 0, 0, 'XYZ')
-    ),
-    run: new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI, 0, 0, 'XYZ')
-    ),
-    cast: new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI, 0, Math.PI, 'XYZ')
-    ),
-    dash: new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI, 0, Math.PI, 'XYZ')
-    ),
-    hit: new THREE.Quaternion().setFromEuler(
-      new THREE.Euler(Math.PI, 0, Math.PI, 'XYZ')
-    ),
-  };
+  const NON_IDLE_FIX_QUAT = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(Math.PI, 0, 0, 'XYZ')
+  );
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -1035,12 +1020,9 @@
 
   function applyRigOrientationFix(rigNode, currentState) {
     if (!rigNode) return;
-
-    const fixQuat = STATE_FIX_QUATS[currentState];
-    if (!fixQuat) return;
     if (currentState === 'idle') return;
 
-    rigNode.quaternion.multiply(fixQuat);
+    rigNode.quaternion.multiply(NON_IDLE_FIX_QUAT);
     rigNode.updateMatrixWorld(true);
   }
 
