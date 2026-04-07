@@ -284,6 +284,9 @@ function prepareArenaFloorModel(root, parentGroup) {
     const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
     mats.forEach((mat) => {
       applyStylizedMaterial(mat);
+
+      mat.side = THREE.DoubleSide;
+
       if ('transparent' in mat || floorCfg.opacity < 0.999) {
         mat.transparent = floorCfg.opacity < 0.999;
         mat.opacity = floorCfg.opacity;
@@ -292,17 +295,54 @@ function prepareArenaFloorModel(root, parentGroup) {
     });
   });
 
-  // Reset imported offsets/rotations
+  // Reset transforms first
   root.position.set(0, 0, 0);
   root.rotation.set(0, 0, 0);
+  root.scale.set(1, 1, 1);
 
-  // Keep the model in its native orientation
-  // Only use config rotations if needed
-  root.rotation.x += floorCfg.lockRotationX || 0;
-  root.rotation.y += floorCfg.lockRotationY || 0;
-  root.rotation.z += floorCfg.lockRotationZ || 0;
+  // Try multiple orientations and choose the one that makes the model
+  // flattest on Y (best candidate for a top-down floor)
+  const candidates = [
+    { x: 0, y: 0, z: 0, name: 'none' },
+    { x: Math.PI / 2, y: 0, z: 0, name: '+x90' },
+    { x: -Math.PI / 2, y: 0, z: 0, name: '-x90' },
+    { x: 0, y: 0, z: Math.PI / 2, name: '+z90' },
+    { x: 0, y: 0, z: -Math.PI / 2, name: '-z90' },
+    { x: Math.PI, y: 0, z: 0, name: 'x180' },
+    { x: 0, y: 0, z: Math.PI, name: 'z180' },
+    { x: Math.PI / 2, y: 0, z: Math.PI / 2, name: '+x90+z90' },
+    { x: Math.PI / 2, y: 0, z: -Math.PI / 2, name: '+x90-z90' },
+    { x: -Math.PI / 2, y: 0, z: Math.PI / 2, name: '-x90+z90' },
+    { x: -Math.PI / 2, y: 0, z: -Math.PI / 2, name: '-x90-z90' },
+  ];
 
-  // Center it
+  let best = null;
+
+  for (const c of candidates) {
+    root.rotation.set(c.x, c.y, c.z);
+
+    const box = computeBox(root);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+
+    // We want a floor: very small Y thickness, large X/Z footprint
+    const thickness = Math.max(size.y, 0.0001);
+    const footprint = Math.max(size.x * size.z, 0.0001);
+    const score = footprint / thickness;
+
+    if (!best || score > best.score) {
+      best = { ...c, score, size: size.clone() };
+    }
+  }
+
+  // Apply best auto orientation + any user config offsets
+  root.rotation.set(
+    best.x + (floorCfg.lockRotationX || 0),
+    best.y + (floorCfg.lockRotationY || 0),
+    best.z + (floorCfg.lockRotationZ || 0)
+  );
+
+  // Center after final orientation
   let box = computeBox(root);
   let center = new THREE.Vector3();
   let size = new THREE.Vector3();
@@ -316,7 +356,7 @@ function prepareArenaFloorModel(root, parentGroup) {
   box.getCenter(center);
   box.getSize(size);
 
-  const sourceDiameter = Math.max(size.x || 1, size.z || 1, size.y || 1, 1);
+  const sourceDiameter = Math.max(size.x || 1, size.z || 1, 1);
   const targetDiameter = Math.max((arena.baseRadius || arena.radius || 200) * 2, 1);
   const scale = targetDiameter / sourceDiameter;
 
@@ -328,7 +368,12 @@ function prepareArenaFloorModel(root, parentGroup) {
   parentGroup.add(root);
 
   log('Prepared arena floor', {
-    sourceDiameter: sourceDiameter.toFixed(2),
+    chosenRotation: best.name,
+    sourceSize: {
+      x: size.x.toFixed(2),
+      y: size.y.toFixed(2),
+      z: size.z.toFixed(2),
+    },
     targetDiameter: targetDiameter.toFixed(2),
     baseScale: scale.toFixed(3),
   });
