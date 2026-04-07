@@ -67,12 +67,12 @@
     return {
       glb: charCfg.glb || charCfg.path || '',
       animations: {
-        idle: charCfg.animations?.idle || 'Shield_Push_Left',
-        walk: charCfg.animations?.walk || 'Hit_Reaction_1',
-        run: charCfg.animations?.run || 'Walking',
-        cast: charCfg.animations?.cast || 'Idle_4',
-        dash: charCfg.animations?.dash || 'mage_soell_cast_4',
-        hit: charCfg.animations?.hit || 'Running',
+        idle: charCfg.animations?.idle || 'Idle_4',
+        walk: charCfg.animations?.walk || 'Walking',
+        run: charCfg.animations?.run || 'Running',
+        cast: charCfg.animations?.cast || 'mage_soell_cast_4',
+        dash: charCfg.animations?.dash || 'Shield_Push_Left',
+        hit: charCfg.animations?.hit || 'Hit_Reaction_1',
       },
     };
   }
