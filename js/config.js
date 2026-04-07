@@ -84,6 +84,19 @@ const SPELL_DEFS = {
   },
 };
 
+// ── Spell Icons ───────────────────────────────────────────────
+const SPELL_ICONS = {
+  fire:    'docs/art/spells/fireball.jpeg',
+  hook:    'docs/art/spells/hook.jpeg',
+  blink:   'docs/art/spells/blink.jpeg',
+  shield:  'docs/art/spells/shield.jpeg',
+  charge:  'docs/art/spells/charge.jpeg',
+  shock:   'docs/art/spells/shock.jpeg',
+  gust:    'docs/art/spells/gust.jpeg',
+  wall:    'docs/art/spells/wall.jpeg',
+  rewind:  'docs/art/spells/rewind.jpeg'
+};
+
 // ── Store Items ───────────────────────────────────────────────
 const storeItems = [
   { id: 'potionBoost',    type: 'upgrade', name: 'Potion Boost',     cost: 3, description: '+5 extra heal from potions',            apply: (p) => p.store.potionBoost = true },
