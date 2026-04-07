@@ -35,6 +35,7 @@
       mixer: null,
       states: new Map(),
       currentState: 'idle',
+      baseRotation: null,
     },
     floor: {
       root: null,
@@ -53,6 +54,7 @@
       lastHp: null,
       shadow: null,
       rootGroup: null,
+      baseRotation: null,
     },
   };
 
@@ -265,8 +267,38 @@
     centerAndScaleModel(root, cfg.actorHeight || 95);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
+    state.player.baseRotation = copyEuler(root.rotation);
+    applyRootPoseCorrection(root, state.player.baseRotation, 'idle');
     parentGroup.add(root);
     log('Prepared arena model');
+  }
+
+  function copyEuler(euler) {
+    return new THREE.Euler(euler.x, euler.y, euler.z, euler.order || 'XYZ');
+  }
+
+  function getStatePoseCorrection(stateName) {
+    if (!stateName || stateName === 'idle') {
+      return { x: 0, y: 0, z: 0 };
+    }
+
+    return {
+      x: Math.PI,
+      y: 0,
+      z: 0,
+    };
+  }
+
+  function applyRootPoseCorrection(root, baseRotation, stateName) {
+    if (!root || !baseRotation) return;
+
+    const correction = getStatePoseCorrection(stateName);
+    root.rotation.set(
+      baseRotation.x + correction.x,
+      baseRotation.y + correction.y,
+      baseRotation.z + correction.z,
+      baseRotation.order || root.rotation.order
+    );
   }
 
   function preparePreviewModel(root, parentGroup) {
@@ -274,6 +306,8 @@
     centerAndScaleModel(root, previewSettings.targetHeight);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
+    state.preview.baseRotation = copyEuler(root.rotation);
+    applyRootPoseCorrection(root, state.preview.baseRotation, 'idle');
     parentGroup.add(root);
     log('Prepared preview model');
   }
@@ -924,6 +958,7 @@
 
     if (state.player.root) {
       state.player.root.visible = true;
+      applyRootPoseCorrection(state.player.root, state.player.baseRotation, resolved || name);
     }
   }
 
@@ -936,6 +971,7 @@
 
     if (state.preview.root) {
       state.preview.root.visible = true;
+      applyRootPoseCorrection(state.preview.root, state.preview.baseRotation, resolved || name);
     }
   }
 
