@@ -21,6 +21,7 @@
       camera: null,
       renderer: null,
       rootGroup: null,
+      modelPivot: null,
       shadow: null,
       ready: false,
       currentRotationY: Math.PI * 0.9,
@@ -40,6 +41,7 @@
     },
     player: {
       root: null,
+      modelPivot: null,
       mixer: null,
       states: new Map(),
       currentState: 'idle',
@@ -216,12 +218,17 @@
     box.getCenter(center);
     box.getSize(size);
 
+    let correctiveRotationX = 0;
+
+    // Detect Z-up authored model, but do NOT leave this correction
+    // on the animated root itself. Clips can overwrite root rotation.
     if (size.y < size.z) {
-      root.rotation.x = -Math.PI / 2;
+      correctiveRotationX = -Math.PI / 2;
+      root.rotation.x = correctiveRotationX;
       box = computeBox(root);
       box.getCenter(center);
       box.getSize(size);
-      log('Auto-rotated model from Z-up to Y-up');
+      log('Detected Z-up model, using parent pivot correction');
     }
 
     root.position.sub(center);
@@ -242,28 +249,51 @@
 
     root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
 
+    // Reset animated root back to neutral.
+    // The persistent correction will live on a parent pivot group instead.
+    root.rotation.x = 0;
+
     log('Prepared model size:', {
       x: size.x.toFixed(2),
       y: size.y.toFixed(2),
       z: size.z.toFixed(2),
       scale: scale.toFixed(2),
+      correctiveRotationX: correctiveRotationX.toFixed(3),
     });
+
+    return {
+      correctiveRotationX,
+    };
   }
 
-  function prepareArenaModel(root, parentGroup) {
-    centerAndScaleModel(root, cfg.actorHeight || 95);
+    function prepareArenaModel(root, parentGroup) {
+    const prep = centerAndScaleModel(root, cfg.actorHeight || 95);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
-    parentGroup.add(root);
+
+    const pivot = new THREE.Group();
+    pivot.rotation.x = prep.correctiveRotationX || 0;
+    pivot.add(root);
+
+    parentGroup.add(pivot);
+    state.player.modelPivot = pivot;
+
     log('Prepared arena model');
   }
 
   function preparePreviewModel(root, parentGroup) {
     const previewSettings = getPreviewSettings();
-    centerAndScaleModel(root, previewSettings.targetHeight);
+    const prep = centerAndScaleModel(root, previewSettings.targetHeight);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
-    parentGroup.add(root);
+
+    const pivot = new THREE.Group();
+    pivot.rotation.x = prep.correctiveRotationX || 0;
+    pivot.add(root);
+
+    parentGroup.add(pivot);
+    state.preview.modelPivot = pivot;
+
     log('Prepared preview model');
   }
 
