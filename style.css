@@ -470,6 +470,30 @@ input[type="text"] {
   z-index: 4;
 }
 
+/* ── Spell Text Readability Boost ───────────────────────────── */
+
+.deskSpellLabel,
+.mobileBtnText {
+  color: white;
+  font-weight: 700;
+
+  /* 🔥 Outline */
+  text-shadow:
+    -1px -1px 0 #000,
+     1px -1px 0 #000,
+    -1px  1px 0 #000,
+     1px  1px 0 #000,
+     0px  0px 6px rgba(0,0,0,0.8);
+}
+
+/* Slight upscale for clarity */
+.deskSpellLabel {
+  font-size: 12px;
+}
+
+.mobileBtnText {
+  font-size: 11px;
+}
 
 .mobileBtn.subSkill { background: rgba(26,28,36,0.88); }
 
