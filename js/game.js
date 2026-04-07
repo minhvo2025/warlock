@@ -398,6 +398,11 @@ function damagePlayer(amount) {
 function damageDummy(amount) {
   if (!dummyEnabled || !dummy.alive) return;
   dummy.hp = Math.max(0, dummy.hp - amount);
+
+  if (window.outraThree && window.outraThree.triggerDummyHit) {
+    window.outraThree.triggerDummyHit();
+  }
+
   spawnDamageText(dummy.x, dummy.y - dummy.r, amount);
   soundHit();
   if (dummy.hp <= 0) killDummy('HP reached 0');
@@ -471,6 +476,10 @@ function shootFireFromDummy() {
   const dir = normalized(player.x - dummy.x, player.y - dummy.y);
   dummy.fireReadyAt = now + dummy.fireCooldown;
   soundFire();
+    if (window.outraThree && window.outraThree.triggerDummyCast) {
+    window.outraThree.triggerDummyCast();
+  }
+  
   projectiles.push({
     owner: 'dummy',
     x: dummy.x + dir.x * (dummy.r + 10),
@@ -503,6 +512,11 @@ function castHookFromDummy() {
   if (dist > 260 || hasObstacleBetween(dummy.x, dummy.y, player.x, player.y, 0)) return;
   dummy.hookReadyAt = now + dummy.hookCooldown;
   soundHook();
+  
+    if (window.outraThree && window.outraThree.triggerDummyCast) {
+    window.outraThree.triggerDummyCast();
+  }
+  
   hooks.push({
     owner: 'dummy', state: 'flying',
     x: dummy.x, y: dummy.y, sx: dummy.x, sy: dummy.y,
