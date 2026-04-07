@@ -119,15 +119,42 @@
       <button class="secondary tabBtn" data-menu-tab="settings">Settings</button>
     </div>
     <div id="menuMain" class="menuPage active">
-      <div class="row" style="flex-direction: column; align-items: stretch;">
-        <button id="resumeBtn">Resume</button>
-       <button id="musicToggleBtn" class="secondary">Music: On</button>
-      <button id="standingDummyBtn" class="secondary">Start Standing Dummy</button>
-      <button id="activeDummyBtn" class="secondary">Start Active Dummy</button>
-      <button id="removeDummyBtn" class="secondary">Remove Dummy</button>
-      <button id="toLobbyBtn" class="secondary">Go to Lobby</button>
-      <button id="resetBtn" class="secondary">Reset Round</button>
-      </div>
+   <div class="row menuActionList" style="flex-direction: column; align-items: stretch;">
+  <button id="resumeBtn" class="menuActionBtn">
+    <span class="menuBtnBadge">✦</span>
+    <span class="menuBtnLabel">Resume</span>
+  </button>
+
+  <button id="musicToggleBtn" class="secondary menuActionBtn">
+    <span class="menuBtnBadge">♫</span>
+    <span class="menuBtnLabel">Music: On</span>
+  </button>
+
+  <button id="standingDummyBtn" class="secondary menuActionBtn">
+    <span class="menuBtnBadge">◈</span>
+    <span class="menuBtnLabel">Start Standing Dummy</span>
+  </button>
+
+  <button id="activeDummyBtn" class="secondary menuActionBtn">
+    <span class="menuBtnBadge">✹</span>
+    <span class="menuBtnLabel">Start Active Dummy</span>
+  </button>
+
+  <button id="removeDummyBtn" class="secondary menuActionBtn">
+    <span class="menuBtnBadge">✕</span>
+    <span class="menuBtnLabel">Remove Dummy</span>
+  </button>
+
+  <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
+    <span class="menuBtnBadge">⛧</span>
+    <span class="menuBtnLabel">Go to Lobby</span>
+  </button>
+
+  <button id="resetBtn" class="secondary menuActionBtn dangerBtn">
+    <span class="menuBtnBadge">☠</span>
+    <span class="menuBtnLabel">Reset Round</span>
+  </button>
+</div>
     </div>
     <div id="menuKeybinds" class="menuPage">
       <div id="menuBindList"></div>
