@@ -202,6 +202,69 @@
     mat.needsUpdate = true;
   }
 
+  function applyFloorEnergyMaterial(mat) {
+    if (!mat || !mat.map || cfg.floorEnergyEnabled === false) return mat;
+
+    const animatedMat = mat.clone();
+    animatedMat.userData.floorTime = { value: 0 };
+    animatedMat.userData.floorShader = null;
+
+    animatedMat.onBeforeCompile = (shader) => {
+      shader.uniforms.uFloorTime = animatedMat.userData.floorTime;
+      shader.uniforms.uFloorSpeedX = { value: cfg.floorEnergySpeedX ?? 0.0035 };
+      shader.uniforms.uFloorSpeedY = { value: cfg.floorEnergySpeedY ?? 0.0055 };
+      shader.uniforms.uFloorStrength = { value: cfg.floorEnergyStrength ?? 1.0 };
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <common>',
+        `
+        #include <common>
+        varying vec2 vFloorUv;
+        `
+      );
+
+      shader.vertexShader = shader.vertexShader.replace(
+        '#include <uv_vertex>',
+        `
+        #include <uv_vertex>
+        vFloorUv = uv;
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <common>',
+        `
+        #include <common>
+        varying vec2 vFloorUv;
+        uniform float uFloorTime;
+        uniform float uFloorSpeedX;
+        uniform float uFloorSpeedY;
+        uniform float uFloorStrength;
+        `
+      );
+
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `
+        #ifdef USE_MAP
+          vec2 animatedUv = vFloorUv;
+          animatedUv.x += uFloorTime * uFloorSpeedX;
+          animatedUv.y += uFloorTime * uFloorSpeedY;
+
+          vec4 sampledDiffuseColor = texture2D(map, animatedUv);
+          sampledDiffuseColor = mapTexelToLinear(sampledDiffuseColor);
+          diffuseColor *= sampledDiffuseColor * uFloorStrength;
+        #endif
+        `
+      );
+
+      animatedMat.userData.floorShader = shader;
+    };
+
+    animatedMat.needsUpdate = true;
+    return animatedMat;
+  }
+  
   function stylizeModel(root) {
     traverseMeshes(root, (obj) => {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
@@ -330,10 +393,10 @@
       obj.receiveShadow = false;
       obj.frustumCulled = false;
 
-      if (Array.isArray(obj.material)) {
-        obj.material = obj.material.map(cloneMaterial);
+       if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map((mat) => applyFloorEnergyMaterial(cloneMaterial(mat)));
       } else if (obj.material) {
-        obj.material = cloneMaterial(obj.material);
+        obj.material = applyFloorEnergyMaterial(cloneMaterial(obj.material));
       }
 
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
