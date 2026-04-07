@@ -35,6 +35,7 @@
       mixer: null,
       states: new Map(),
       currentState: 'idle',
+      rigFixNode: null,
     },
     floor: {
       root: null,
@@ -53,8 +54,13 @@
       lastHp: null,
       shadow: null,
       rootGroup: null,
+      rigFixNode: null,
     },
   };
+
+  const NON_IDLE_FIX_QUAT = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(Math.PI, 0, 0, 'XYZ')
+  );
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -261,11 +267,47 @@
     });
   }
 
+  function findRigFixNode(root) {
+    if (!root) return null;
+
+    let firstSkinnedMesh = null;
+    root.traverse((obj) => {
+      if (!firstSkinnedMesh && obj.isSkinnedMesh) {
+        firstSkinnedMesh = obj;
+      }
+    });
+
+    if (firstSkinnedMesh && firstSkinnedMesh.skeleton && firstSkinnedMesh.skeleton.bones.length) {
+      let bone = firstSkinnedMesh.skeleton.bones[0];
+      while (bone.parent && bone.parent.isBone) {
+        bone = bone.parent;
+      }
+      return bone;
+    }
+
+    let namedRig = null;
+    root.traverse((obj) => {
+      if (namedRig) return;
+      const n = String(obj.name || '').toLowerCase();
+      if (
+        n.includes('armature') ||
+        n === 'root' ||
+        n.includes('rig') ||
+        n.includes('skeleton')
+      ) {
+        namedRig = obj;
+      }
+    });
+
+    return namedRig || root;
+  }
+
   function prepareArenaModel(root, parentGroup) {
     centerAndScaleModel(root, cfg.actorHeight || 95);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
     parentGroup.add(root);
+    state.player.rigFixNode = findRigFixNode(root);
     log('Prepared arena model');
   }
 
@@ -275,6 +317,7 @@
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
     parentGroup.add(root);
+    state.preview.rigFixNode = findRigFixNode(root);
     log('Prepared preview model');
   }
 
@@ -680,52 +723,6 @@
     }
   }
 
-  function shouldStripRootTrack(trackName) {
-    const name = String(trackName || '').toLowerCase();
-
-    const rootNodePrefixes = [
-      'armature.',
-      'root.',
-      'scene.',
-      'character.',
-      'aldrion.',
-      'rig.',
-      'skeletonroot.',
-      'grp_',
-    ];
-
-    const isRootNodeTrack = rootNodePrefixes.some((prefix) => name.startsWith(prefix));
-
-    if (!isRootNodeTrack) return false;
-
-    return (
-      name.endsWith('.position') ||
-      name.endsWith('.quaternion') ||
-      name.endsWith('.rotation') ||
-      name.endsWith('.scale')
-    );
-  }
-
-  function sanitizeClipForState(clip, stateName) {
-    if (!clip) return clip;
-    if (stateName === 'idle') return clip;
-
-    const filteredTracks = (clip.tracks || []).filter((track) => !shouldStripRootTrack(track.name));
-
-    if (filteredTracks.length === (clip.tracks || []).length) {
-      return clip;
-    }
-
-    const sanitized = new THREE.AnimationClip(
-      clip.name,
-      clip.duration,
-      filteredTracks
-    );
-    sanitized.optimize();
-    log(`Sanitized clip "${clip.name}" for state "${stateName}" by removing root motion tracks`);
-    return sanitized;
-  }
-
   function buildAnimationStateMap(animations, mixer) {
     const charCfg = getCharacterConfig();
     const result = new Map();
@@ -741,16 +738,13 @@
 
     Object.entries(wantedStates).forEach(([stateName, clipName]) => {
       if (!clipName || !mixer) return;
-
-      const originalClip = THREE.AnimationClip.findByName(animations, clipName);
-      if (!originalClip) {
+      const clip = THREE.AnimationClip.findByName(animations, clipName);
+      if (!clip) {
         console.warn(`[Outra3D] Missing animation clip "${clipName}" for state "${stateName}"`);
         return;
       }
 
-      const clip = sanitizeClipForState(originalClip, stateName);
       const action = mixer.clipAction(clip);
-
       action.enabled = true;
       action.clampWhenFinished = false;
       action.setLoop(THREE.LoopRepeat, Infinity);
@@ -1024,6 +1018,14 @@
     return 'idle';
   }
 
+  function applyRigOrientationFix(rigNode, currentState) {
+    if (!rigNode) return;
+    if (currentState === 'idle') return;
+
+    rigNode.quaternion.multiply(NON_IDLE_FIX_QUAT);
+    rigNode.updateMatrixWorld(true);
+  }
+
   function tintAllLoadedModelsIfNeeded() {
     const body = player?.bodyColor || '#d9d9ff';
     const wand = player?.wandColor || '#7c4dff';
@@ -1123,6 +1125,8 @@
     if (state.preview.mixer) {
       state.preview.mixer.update(dt);
     }
+
+    applyRigOrientationFix(state.player.rigFixNode, state.player.currentState);
 
     if (state.debugAnim.timer > 0) {
       state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
