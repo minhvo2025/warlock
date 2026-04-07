@@ -152,7 +152,12 @@ window.OUTRA_3D_CONFIG = {
     lockRotationY: 0,
     lockRotationZ: 0,
   },
-
+  
+  floorEnergyEnabled: true,
+  floorEnergySpeedX: 0.0035,
+  floorEnergySpeedY: 0.0055,
+  floorEnergyStrength: 1.0,
+  
   worldScale: 1,
   actorScale: 28,
   hoverHeight: 0,
