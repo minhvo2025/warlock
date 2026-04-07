@@ -104,7 +104,8 @@ html, body {
   -webkit-backdrop-filter: blur(8px);
 }
 
-#menuTabs, #lobbyTabs {
+#menuTabs,
+#lobbyTabs {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
@@ -208,7 +209,10 @@ input[type="text"] {
   outline: none;
 }
 
-.leaderboard, .previewPanel, .inventoryPanel, .storePanel {
+.leaderboard,
+.previewPanel,
+.inventoryPanel,
+.storePanel {
   background: rgba(255,255,255,0.04);
   border: 1px solid rgba(255,255,255,0.08);
   border-radius: 16px;
@@ -217,7 +221,9 @@ input[type="text"] {
 
 .leaderboard { min-height: 160px; }
 
-.lbRow, .storeRow, .bindRow {
+.lbRow,
+.storeRow,
+.bindRow {
   display: grid;
   gap: 10px;
   padding: 10px 8px;
@@ -226,9 +232,13 @@ input[type="text"] {
 }
 
 .lbRow { grid-template-columns: 42px 1fr auto; }
-.storeRow, .bindRow { grid-template-columns: 1fr auto; padding: 8px 0; }
+.storeRow,
+.bindRow { grid-template-columns: 1fr auto; padding: 8px 0; }
 
-.lbRow:last-child, .storeRow:last-child, .bindRow:last-child, .inventoryItemRow:last-child {
+.lbRow:last-child,
+.storeRow:last-child,
+.bindRow:last-child,
+.inventoryItemRow:last-child {
   border-bottom: 0;
 }
 
@@ -291,7 +301,11 @@ input[type="text"] {
   padding: 10px;
 }
 
-.inventoryTitle { font-size: 13px; color: #cfcfcf; margin-bottom: 6px; }
+.inventoryTitle {
+  font-size: 13px;
+  color: #cfcfcf;
+  margin-bottom: 6px;
+}
 
 .inventoryItemRow {
   display: flex;
@@ -318,12 +332,13 @@ input[type="text"] {
 }
 
 .colorChoice:hover { transform: scale(1.06); }
+
 .colorChoice.selected {
   border-color: #fff;
   box-shadow: 0 0 0 4px rgba(255,255,255,0.12);
 }
 
-/* ── Mobile Controls ── */
+/* ── Mobile Controls ───────────────────────────────────────── */
 #mobileControls {
   position: fixed;
   left: 0;
@@ -391,6 +406,27 @@ input[type="text"] {
   pointer-events: auto;
 }
 
+/* ── Shared spell icon/image layer ─────────────────────────── */
+.spellIcon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+  filter: saturate(1.08) contrast(1.06);
+}
+
+/* Hide old emoji placeholders once icons are used */
+.deskSpellIcon,
+.mobileBtnIcon {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ── Mobile spell buttons AAA ──────────────────────────────── */
 .mobileBtn {
   width: 58px;
   height: 58px;
@@ -407,10 +443,41 @@ input[type="text"] {
   -webkit-backdrop-filter: blur(6px);
   padding: 0;
   position: absolute;
-  overflow: visible;
+  overflow: hidden;
+  isolation: isolate;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow:
+    0 10px 28px rgba(0,0,0,0.34),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.mobileBtn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255,255,255,0.18), rgba(255,255,255,0) 38%),
+    linear-gradient(to bottom, rgba(255,255,255,0.04), rgba(0,0,0,0.18));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.mobileBtn::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,0.08);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .mobileBtn.big {
@@ -424,78 +491,35 @@ input[type="text"] {
   height: 86px;
   border-radius: 999px;
   background: radial-gradient(circle at 35% 30%, rgba(255,170,80,0.98), rgba(255,95,35,0.96));
-  box-shadow: 0 0 22px rgba(255,120,50,0.24);
-  border: 1px solid rgba(255,220,180,0.28);
+  border: 1px solid rgba(255,220,180,0.34);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.06),
+    0 0 24px rgba(255,120,50,0.22),
+    0 12px 28px rgba(0,0,0,0.36);
 }
 
-/* ── Spell Icon Layering Fix ───────────────────────────────── */
-.deskSpell {
-  position: relative;
+.mobileBtn.subSkill {
+  background: linear-gradient(180deg, rgba(34,36,44,0.95), rgba(16,18,25,0.95));
+  border: 1px solid rgba(255,255,255,0.16);
 }
 
-.deskSpell .spellIcon {
-  z-index: 1;
+.mobileBtn:hover,
+.mobileBtn:active {
+  transform: translateY(-1px) scale(1.03);
 }
 
-.deskSpellIcon,
-.deskSpellLabel,
-.deskSpellKey {
-  position: relative;
-  z-index: 2;
-}
-
-.deskSpellCooldown {
-  z-index: 3;
-}
-
-.mobileBtn {
-  position: absolute;
+.mobileBtn.aiming {
+  transform: scale(1.08);
+  background: rgba(255,120,60,0.95);
+  box-shadow:
+    0 0 0 1px rgba(255,255,255,0.08),
+    0 0 22px rgba(255,140,70,0.35),
+    0 14px 30px rgba(0,0,0,0.40);
 }
 
 .mobileBtn .spellIcon {
   z-index: 1;
 }
-
-.mobileBtnIcon,
-.mobileBtnText {
-  position: relative;
-  z-index: 2;
-}
-
-.mobileBtnCooldown {
-  z-index: 3;
-}
-
-.mobileDragArrow {
-  z-index: 4;
-}
-
-/* ── Spell Text Readability Boost ───────────────────────────── */
-
-.deskSpellLabel,
-.mobileBtnText {
-  color: white;
-  font-weight: 700;
-
-  /* 🔥 Outline */
-  text-shadow:
-    -1px -1px 0 #000,
-     1px -1px 0 #000,
-    -1px  1px 0 #000,
-     1px  1px 0 #000,
-     0px  0px 6px rgba(0,0,0,0.8);
-}
-
-/* Slight upscale for clarity */
-.deskSpellLabel {
-  font-size: 12px;
-}
-
-.mobileBtnText {
-  font-size: 11px;
-}
-
-.mobileBtn.subSkill { background: rgba(26,28,36,0.88); }
 
 #mobileFireBtn     { left: 55px; top: 55px; }
 #mobileHookBtn     { left: 118px; top: 8px; }
@@ -506,11 +530,6 @@ input[type="text"] {
 #mobileGustBtn     { left: 134px; top: 55px; }
 #mobileWallBtn     { left: -2px; top: 55px; }
 #mobileRewindBtn   { left: 55px; top: -2px; }
-
-.mobileBtn.aiming {
-  background: rgba(255,120,60,0.95);
-  transform: scale(1.06);
-}
 
 .mobileDragArrow {
   position: absolute;
@@ -524,6 +543,7 @@ input[type="text"] {
   pointer-events: none;
   display: none;
   box-shadow: 0 0 10px rgba(255,170,100,0.45);
+  z-index: 6;
 }
 
 .mobileDragArrow::after {
@@ -542,24 +562,34 @@ input[type="text"] {
 .mobileBtnCooldown {
   position: absolute;
   inset: 0;
+  z-index: 5;
   display: none;
   align-items: center;
   justify-content: center;
   border-radius: inherit;
-  background: rgba(20,22,28,0.62);
-  color: rgba(255,255,255,0.96);
+  background:
+    linear-gradient(to bottom, rgba(10,12,16,0.62), rgba(8,10,14,0.82));
+  color: #fff;
   font-size: 24px;
-  font-weight: 800;
+  font-weight: 900;
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.95),
+     1px -1px 0 rgba(0,0,0,0.95),
+    -1px  1px 0 rgba(0,0,0,0.95),
+     1px  1px 0 rgba(0,0,0,0.95),
+     0 0 10px rgba(0,0,0,0.9);
   pointer-events: none;
 }
 
 .mobileBtn.onCooldown .mobileBtnCooldown { display: flex; }
-.mobileBtn.onCooldown { filter: grayscale(0.95) brightness(0.78); }
+
+.mobileBtn.onCooldown .spellIcon {
+  filter: grayscale(0.88) brightness(0.58) saturate(0.7);
+}
 
 .mobileBtnIcon {
   font-size: 28px;
   line-height: 1;
-  pointer-events: none;
   filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35));
 }
 
@@ -567,13 +597,22 @@ input[type="text"] {
 
 .mobileBtnText {
   position: absolute;
-  bottom: -18px;
   left: 50%;
+  bottom: -19px;
   transform: translateX(-50%);
+  z-index: 4;
   font-size: 11px;
-  color: rgba(255,255,255,0.78);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  color: #fff;
   white-space: nowrap;
   pointer-events: none;
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.98),
+     1px -1px 0 rgba(0,0,0,0.98),
+    -1px  1px 0 rgba(0,0,0,0.98),
+     1px  1px 0 rgba(0,0,0,0.98),
+     0 0 8px rgba(0,0,0,0.92);
 }
 
 .mobileLabel {
@@ -582,33 +621,31 @@ input[type="text"] {
   margin-top: -4px;
 }
 
-/* ── Desktop Spell Bar ───────────────────────────────────────── */
+/* ── Desktop spell bar AAA ─────────────────────────────────── */
 #desktopSpellBar {
   position: fixed;
   bottom: calc(var(--safe-bottom) + 18px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 20;
-
   display: flex;
-  gap: 10px;
+  gap: 12px;
   align-items: flex-end;
-
-  /* Optional: nicer feel */
-  padding: 8px 12px;
-  border-radius: 16px;
-  background: rgba(10, 10, 14, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  padding: 10px 14px;
+  border-radius: 20px;
+  background:
+    linear-gradient(180deg, rgba(22,24,32,0.72), rgba(10,12,18,0.62));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow:
+    0 12px 36px rgba(0,0,0,0.32),
+    inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
+
 .deskSpell.readyFlash,
 .mobileBtn.readyFlash {
   animation: cooldownReadyFlash 0.42s ease;
-}
-
-.deskSpellIcon,
-.mobileBtnIcon {
-  opacity: 0;
 }
 
 @keyframes cooldownReadyFlash {
@@ -628,70 +665,214 @@ input[type="text"] {
 
 .deskSpell {
   position: relative;
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  background: rgba(18, 18, 24, 0.82);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  overflow: hidden;
+  isolation: isolate;
+  background: linear-gradient(180deg, rgba(30,32,40,0.96), rgba(16,18,25,0.96));
+  border: 1px solid rgba(255,255,255,0.14);
+  box-shadow:
+    0 10px 24px rgba(0,0,0,0.28),
+    inset 0 1px 0 rgba(255,255,255,0.08);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  transition: filter 0.1s ease;
+  transition:
+    transform 0.12s ease,
+    filter 0.12s ease,
+    box-shadow 0.12s ease,
+    border-color 0.12s ease;
 }
 
-.deskSpell.onCooldown { filter: grayscale(0.85) brightness(0.65); }
+.deskSpell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 30% 22%, rgba(255,255,255,0.16), rgba(255,255,255,0) 34%),
+    linear-gradient(to bottom, rgba(255,255,255,0.03), rgba(0,0,0,0.16));
+  pointer-events: none;
+  z-index: 2;
+}
 
-.deskSpellIcon {
-  font-size: 26px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.4));
+.deskSpell::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  border-radius: inherit;
+  border: 1px solid rgba(255,255,255,0.06);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.deskSpell:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 14px 28px rgba(0,0,0,0.34),
+    inset 0 1px 0 rgba(255,255,255,0.10);
+}
+
+.deskSpell .spellIcon {
+  z-index: 1;
+  border-radius: 18px;
+}
+
+.deskSpell.onCooldown .spellIcon {
+  filter: grayscale(0.88) brightness(0.56) saturate(0.68);
 }
 
 .deskSpellCooldown {
   position: absolute;
   inset: 0;
+  z-index: 5;
   display: none;
   align-items: center;
   justify-content: center;
   border-radius: inherit;
-  background: rgba(10, 12, 18, 0.58);
+  background:
+    linear-gradient(to bottom, rgba(8,10,14,0.58), rgba(7,9,12,0.84));
   color: #fff;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: 24px;
+  font-weight: 900;
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.95),
+     1px -1px 0 rgba(0,0,0,0.95),
+    -1px  1px 0 rgba(0,0,0,0.95),
+     1px  1px 0 rgba(0,0,0,0.95),
+     0 0 10px rgba(0,0,0,0.9);
   pointer-events: none;
 }
 
 .deskSpell.onCooldown .deskSpellCooldown { display: flex; }
 
 .deskSpellLabel {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.6);
-  margin-top: 2px;
-  letter-spacing: 0.03em;
+  position: absolute;
+  left: 50%;
+  bottom: 6px;
+  transform: translateX(-50%);
+  z-index: 4;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow:
+    -1px -1px 0 rgba(0,0,0,0.98),
+     1px -1px 0 rgba(0,0,0,0.98),
+    -1px  1px 0 rgba(0,0,0,0.98),
+     1px  1px 0 rgba(0,0,0,0.98),
+     0 0 8px rgba(0,0,0,0.92);
+  pointer-events: none;
 }
 
 .deskSpellKey {
   position: absolute;
-  top: 4px;
+  top: 6px;
   right: 6px;
+  z-index: 4;
+  min-width: 18px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: rgba(0,0,0,0.46);
+  border: 1px solid rgba(255,255,255,0.12);
   font-size: 9px;
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.5);
-  letter-spacing: 0.02em;
+  font-weight: 900;
   line-height: 1;
+  color: rgba(255,255,255,0.94);
+  text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+  letter-spacing: 0.02em;
+  pointer-events: none;
 }
 
-/* ── Responsive ── */
+/* ── Per-spell color identity ──────────────────────────────── */
+#dspell-fire,
+#mobileFireBtn {
+  box-shadow:
+    0 0 0 1px rgba(255,180,110,0.08),
+    0 0 18px rgba(255,120,40,0.16),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-hook,
+#mobileHookBtn {
+  box-shadow:
+    0 0 0 1px rgba(230,240,255,0.08),
+    0 0 16px rgba(185,215,255,0.14),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-blink,
+#mobileTeleportBtn {
+  box-shadow:
+    0 0 0 1px rgba(255,120,245,0.08),
+    0 0 18px rgba(234,70,255,0.18),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-shield,
+#mobileShieldBtn {
+  box-shadow:
+    0 0 0 1px rgba(140,210,255,0.08),
+    0 0 18px rgba(90,180,255,0.16),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-charge,
+#mobileChargeBtn {
+  box-shadow:
+    0 0 0 1px rgba(190,145,255,0.08),
+    0 0 18px rgba(170,110,255,0.18),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-shock,
+#mobileShockBtn {
+  box-shadow:
+    0 0 0 1px rgba(255,205,120,0.08),
+    0 0 18px rgba(255,180,75,0.18),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-gust,
+#mobileGustBtn {
+  box-shadow:
+    0 0 0 1px rgba(130,240,255,0.08),
+    0 0 18px rgba(90,220,255,0.18),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-wall,
+#mobileWallBtn {
+  box-shadow:
+    0 0 0 1px rgba(130,180,255,0.08),
+    0 0 18px rgba(90,140,255,0.16),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+#dspell-rewind,
+#mobileRewindBtn {
+  box-shadow:
+    0 0 0 1px rgba(205,145,255,0.08),
+    0 0 18px rgba(185,110,255,0.18),
+    0 10px 24px rgba(0,0,0,0.28);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
 @media (max-width: 980px) {
-  .grid, .twoCol { grid-template-columns: 1fr; }
+  .grid,
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+
   .panel {
     padding: 18px;
     width: min(100vw - 20px - var(--safe-left) - var(--safe-right), 1120px);
   }
+
   .title { font-size: 28px; }
+
   #lobbyMenuBtn {
     position: static;
     margin-bottom: 12px;
@@ -749,10 +930,23 @@ input[type="text"] {
   #mobileWallBtn     { left: 0px; top: 48px; }
   #mobileRewindBtn   { left: 48px; top: 0px; }
 
-  .mobileBtn.big { width: 64px; height: 64px; }
-  .mobileBtn.mainSkill { width: 78px; height: 78px; }
-  .mobileBtnIcon { font-size: 24px; }
-  .mobileBtnIcon.small { font-size: 20px; }
+  .mobileBtn.big {
+    width: 64px;
+    height: 64px;
+  }
+
+  .mobileBtn.mainSkill {
+    width: 78px;
+    height: 78px;
+  }
+
+  .mobileBtnIcon {
+    font-size: 24px;
+  }
+
+  .mobileBtnIcon.small {
+    font-size: 20px;
+  }
 
   .mobileBtnText {
     font-size: 10px;
