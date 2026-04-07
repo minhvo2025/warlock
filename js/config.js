@@ -250,7 +250,12 @@ let potionSpawnTimer = 6;
 
 // ── DOM References ────────────────────────────────────────────
 const canvas        = document.getElementById('game');
-const ctx           = canvas.getContext('2d');
+let ctx             = canvas.getContext('2d');
+const bgCtx         = ctx;
+
+const fxCanvas      = document.getElementById('gameFx');
+const fxCtx         = fxCanvas.getContext('2d');
+
 const previewCanvas = document.getElementById('previewCanvas');
 const previewCtx    = previewCanvas.getContext('2d');
 
