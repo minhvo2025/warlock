@@ -267,7 +267,7 @@
     log('Prepared preview model');
   }
 
- function prepareArenaFloorModel(root, parentGroup) {
+function prepareArenaFloorModel(root, parentGroup) {
   const floorCfg = getArenaFloorConfig();
 
   traverseMeshes(root, (obj) => {
@@ -292,11 +292,15 @@
     });
   });
 
-  // Reset any imported rotation first
+  // Reset imported offsets/rotations
+  root.position.set(0, 0, 0);
   root.rotation.set(0, 0, 0);
 
-  // Force the floor to lie flat on the arena
-  root.rotation.x = -Math.PI / 2;
+  // Keep the model in its native orientation
+  // Only use config rotations if needed
+  root.rotation.x += floorCfg.lockRotationX || 0;
+  root.rotation.y += floorCfg.lockRotationY || 0;
+  root.rotation.z += floorCfg.lockRotationZ || 0;
 
   // Center it
   let box = computeBox(root);
@@ -312,15 +316,12 @@
   box.getCenter(center);
   box.getSize(size);
 
-  const sourceDiameter = Math.max(size.x || 1, size.z || 1, 1);
+  const sourceDiameter = Math.max(size.x || 1, size.z || 1, size.y || 1, 1);
   const targetDiameter = Math.max((arena.baseRadius || arena.radius || 200) * 2, 1);
   const scale = targetDiameter / sourceDiameter;
 
   root.scale.setScalar(scale);
-
-  root.position.y = floorCfg.yOffset;
-  root.rotation.y += floorCfg.lockRotationY || 0;
-  root.rotation.z += floorCfg.lockRotationZ || 0;
+  root.position.y += floorCfg.yOffset;
 
   state.floor.baseScale = scale;
   state.floor.sourceDiameter = sourceDiameter;
