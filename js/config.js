@@ -113,7 +113,7 @@ const storeItems = [
 // ── Keybinds ──────────────────────────────────────────────────
 const defaultBinds = {
   up: 'w', down: 's', left: 'a', right: 'd',
-  hook: 'space', teleport: '', shield: 'q', charge: 'f', shock: 'c', gust: 'x', wall: 'v', rewind: 'z', reset: 'r', menu: 'escape',
+  hook: 'e', teleport: 'space', shield: 'q', charge: 'f', shock: 'c', gust: 'x', wall: 'v', rewind: 'z', reset: 'r', menu: 'escape',
 };
 const bindLabels = {
   up: 'Move Up', down: 'Move Down', left: 'Move Left', right: 'Move Right',
@@ -174,7 +174,7 @@ window.OUTRA_3D_CONFIG = {
   },
 
   arenaFloor: {
-    enabled: true,
+    enabled: false,
     glb: 'docs/Objects/floor.glb',
     yOffset: -6,
     opacity: 1,
