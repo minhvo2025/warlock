@@ -43,32 +43,34 @@
       baseScale: 1,
       sourceDiameter: 1,
     },
-    player: {
-      root: null,
-      mixer: null,
-      states: new Map(),
-      currentState: 'idle',
-      castTimer: 0,
-      hitTimer: 0,
-      dashTimer: 0,
-      lastHp: null,
-      shadow: null,
-      rootGroup: null,
-      rigFixNode: null,
-    },
-    dummy: {
-      root: null,
-      mixer: null,
-      states: new Map(),
-      currentState: 'idle',
-      castTimer: 0,
-      hitTimer: 0,
-      dashTimer: 0,
-      lastHp: null,
-      shadow: null,
-      rootGroup: null,
-      rigFixNode: null,
-    },
+player: {
+  root: null,
+  mixer: null,
+  states: new Map(),
+  currentState: 'idle',
+  castTimer: 0,
+  hitTimer: 0,
+  dashTimer: 0,
+  lastHp: null,
+  shadow: null,
+  rootGroup: null,
+  rotatePivot: null,
+  rigFixNode: null,
+},
+dummy: {
+  root: null,
+  mixer: null,
+  states: new Map(),
+  currentState: 'idle',
+  castTimer: 0,
+  hitTimer: 0,
+  dashTimer: 0,
+  lastHp: null,
+  shadow: null,
+  rootGroup: null,
+  rotatePivot: null,
+  rigFixNode: null,
+},
   };
 
 const ARENA_MODEL_BASE_EULER = new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
@@ -710,11 +712,15 @@ function preparePreviewModel(root, parentGroup) {
     state.floor.rootGroup = new THREE.Group();
     state.scene.add(state.floor.rootGroup);
 
-    state.player.rootGroup = new THREE.Group();
-    state.scene.add(state.player.rootGroup);
+state.player.rootGroup = new THREE.Group();
+state.player.rotatePivot = new THREE.Group();
+state.player.rootGroup.add(state.player.rotatePivot);
+state.scene.add(state.player.rootGroup);
 
-    state.dummy.rootGroup = new THREE.Group();
-    state.scene.add(state.dummy.rootGroup);
+state.dummy.rootGroup = new THREE.Group();
+state.dummy.rotatePivot = new THREE.Group();
+state.dummy.rootGroup.add(state.dummy.rotatePivot);
+state.scene.add(state.dummy.rootGroup);
 
     const shadowGeo = new THREE.CircleGeometry(cfg.shadowSize || 24, 32);
     const shadowMat = new THREE.MeshBasicMaterial({
@@ -1086,7 +1092,7 @@ function preparePreviewModel(root, parentGroup) {
             'arena'
           );
 
-          prepareArenaModel(state.player.root, state.player.rootGroup);
+prepareArenaModel(state.player.root, state.player.rotatePivot);
           playStateAction(state.player.states, 'idle', true);
 
           arenaPlayerReady = true;
@@ -1112,7 +1118,7 @@ function preparePreviewModel(root, parentGroup) {
             'arena'
           );
 
-          prepareDummyModel(state.dummy.root, state.dummy.rootGroup);
+prepareDummyModel(state.dummy.root, state.dummy.rotatePivot);
           playStateAction(state.dummy.states, 'idle', true);
 
           arenaDummyReady = true;
@@ -1354,7 +1360,9 @@ function preparePreviewModel(root, parentGroup) {
     );
 
     const aimAngle = Math.atan2(p.aimY, p.aimX);
-    state.player.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
+if (state.player.rotatePivot) {
+  state.player.rotatePivot.rotation.y = -aimAngle + Math.PI / 2;
+}
 
     setArenaPlayerState(stateName);
 
@@ -1397,7 +1405,9 @@ function preparePreviewModel(root, parentGroup) {
     );
 
     const aimAngle = Math.atan2(player.y - dummy.y, player.x - dummy.x);
-    state.dummy.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
+if (state.dummy.rotatePivot) {
+  state.dummy.rotatePivot.rotation.y = -aimAngle + Math.PI / 2;
+}
 
     setDummyState(stateName);
 
