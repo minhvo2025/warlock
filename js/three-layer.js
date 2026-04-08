@@ -759,16 +759,6 @@
     state.dummy.shadow = dummyShadow;
     state.dummy.rootGroup.add(dummyShadow);
 
-    const debugGeo = new THREE.BoxGeometry(24, 80, 24);
-    const debugMat = new THREE.MeshBasicMaterial({
-      color: 0xff00ff,
-      transparent: true,
-      opacity: 0.22,
-    });
-    state.debugBox = new THREE.Mesh(debugGeo, debugMat);
-    state.debugBox.position.set(0, 40, 0);
-    state.player.rootGroup.add(state.debugBox);
-
     window.addEventListener('resize', onResize);
 
     log('Three.js arena scene initialized');
@@ -1092,33 +1082,97 @@
 
     if (!state.loader) return;
 
+    let arenaPlayerReady = false;
+    let arenaDummyReady = false;
+
+    function markArenaReady() {
+      if (arenaPlayerReady && arenaDummyReady) {
+        state.ready = true;
+      }
+    }
+
     if (arenaChar.glb) {
+      // Load player model
       state.loader.load(
         arenaChar.glb,
         (gltf) => {
           const root = gltf.scene || gltf.scenes?.[0];
-          if (!root || !state.player.rootGroup || !state.dummy.rootGroup) return;
+          if (!root || !state.player.rootGroup) return;
 
-          state.player.root = root.clone(true);
+          state.player.root = root;
           state.player.mixer = new THREE.AnimationMixer(state.player.root);
-          state.player.states = buildAnimationStateMap(gltf.animations || [], state.player.mixer, 'arena');
+          state.player.states = buildAnimationStateMap(
+            gltf.animations || [],
+            state.player.mixer,
+            'arena'
+          );
+
           prepareArenaModel(state.player.root, state.player.rootGroup);
           playStateAction(state.player.states, 'idle', true);
 
-          state.dummy.root = root.clone(true);
-          state.dummy.mixer = new THREE.AnimationMixer(state.dummy.root);
-          state.dummy.states = buildAnimationStateMap(gltf.animations || [], state.dummy.mixer, 'arena');
-          prepareDummyModel(state.dummy.root, state.dummy.rootGroup);
-          playStateAction(state.dummy.states, 'idle', true);
-
-          state.ready = true;
+          arenaPlayerReady = true;
+          markArenaReady();
         },
         undefined,
         (err) => {
-          console.error('[Outra3D] Failed to load arena character:', err);
+          console.error('[Outra3D] Failed to load arena player character:', err);
+        }
+      );
+
+      // Load dummy model separately
+      state.loader.load(
+        arenaChar.glb,
+        (gltf) => {
+          const root = gltf.scene || gltf.scenes?.[0];
+          if (!root || !state.dummy.rootGroup) return;
+
+          state.dummy.root = root;
+          state.dummy.mixer = new THREE.AnimationMixer(state.dummy.root);
+          state.dummy.states = buildAnimationStateMap(
+            gltf.animations || [],
+            state.dummy.mixer,
+            'arena'
+          );
+
+          prepareDummyModel(state.dummy.root, state.dummy.rootGroup);
+          playStateAction(state.dummy.states, 'idle', true);
+
+          arenaDummyReady = true;
+          markArenaReady();
+        },
+        undefined,
+        (err) => {
+          console.error('[Outra3D] Failed to load arena dummy character:', err);
         }
       );
     }
+
+    if (lobbyChar.glb) {
+      state.loader.load(
+        lobbyChar.glb,
+        (gltf) => {
+          const root = gltf.scene || gltf.scenes?.[0];
+          if (!root || !state.preview.rootGroup) return;
+
+          state.preview.root = root;
+          state.preview.mixer = new THREE.AnimationMixer(root);
+          state.preview.states = buildAnimationStateMap(
+            gltf.animations || [],
+            state.preview.mixer,
+            'preview'
+          );
+
+          preparePreviewModel(root, state.preview.rootGroup);
+          playStateAction(state.preview.states, 'idle', true);
+          state.preview.ready = true;
+        },
+        undefined,
+        (err) => {
+          console.error('[Outra3D] Failed to load lobby character:', err);
+        }
+      );
+    }
+  }
 
     if (lobbyChar.glb) {
       state.loader.load(
@@ -1244,9 +1298,8 @@
 
     rigNode.quaternion.copy(rigNode.userData.outraBaseQuaternion);
 
-    const needsNonIdleFlip = currentState && currentState !== 'idle';
-    if (needsNonIdleFlip) {
-      rigNode.quaternion.multiply(NON_IDLE_FIX_QUAT);
+    if (currentState && currentState !== 'idle') {
+      rigNode.quaternion.premultiply(NON_IDLE_FIX_QUAT);
     }
 
     rigNode.updateMatrixWorld(true);
