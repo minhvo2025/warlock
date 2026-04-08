@@ -453,87 +453,6 @@
     log('Prepared dummy model');
   }
 
-  function setDummyState(name, force = false) {
-    if (!state.dummy.states.size) return;
-    if (!force && state.dummy.currentState === name) return;
-
-    const resolved = playStateAction(state.dummy.states, name, force);
-    if (resolved) state.dummy.currentState = resolved;
-
-    if (state.dummy.root) {
-      state.dummy.root.visible = true;
-    }
-  }
-
-  function chooseDummyState(dt) {
-    if (!dummyEnabled || !dummy) return 'idle';
-
-    if (!dummy.alive) return state.dummy.states.has('hit') ? 'hit' : 'idle';
-
-    const hpDrop = state.dummy.lastHp !== null && dummy.hp < state.dummy.lastHp - 0.01;
-    state.dummy.lastHp = dummy.hp;
-
-    if (hpDrop) state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
-
-    state.dummy.castTimer = Math.max(0, state.dummy.castTimer - dt);
-    state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
-    state.dummy.dashTimer = Math.max(0, state.dummy.dashTimer - dt);
-
-    if (state.dummy.hitTimer > 0 && state.dummy.states.has('hit')) return 'hit';
-    if (state.dummy.dashTimer > 0 && state.dummy.states.has('dash')) return 'dash';
-    if (state.dummy.castTimer > 0 && state.dummy.states.has('cast')) return 'cast';
-
-    const moving = Math.hypot(dummy.vx || 0, dummy.vy || 0) > 20;
-
-    if (moving) {
-      if (state.dummy.states.has('run')) return 'run';
-      if (state.dummy.states.has('walk')) return 'walk';
-    }
-
-    return 'idle';
-  }
-
-  function updateDummyPose(dt) {
-    if (!state.ready || !state.dummy.rootGroup) return;
-
-    state.dummy.rootGroup.visible = gameState !== 'lobby' && dummyEnabled;
-
-    if (!dummyEnabled || !dummy) return;
-
-    const pos = getWorldPosition(dummy);
-    const stateName = chooseDummyState(dt);
-
-    const baseHeightOffset = cfg.modelYOffset || 0;
-    const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
-
-    const mobileBaseScreenOffsetZ = 40;
-    const mobileDriftStrength = 24;
-
-    const normalizedScreenY = ((dummy.y / canvas.height) - 0.5) * 2;
-    const mobileDynamicOffsetZ = isTouchDevice
-      ? mobileBaseScreenOffsetZ - (normalizedScreenY * mobileDriftStrength)
-      : 0;
-
-    state.dummy.rootGroup.position.set(
-      pos.x,
-      isTouchDevice ? mobileHeightOffset : baseHeightOffset,
-      pos.z + mobileDynamicOffsetZ
-    );
-
-    const aimAngle = Math.atan2(player.y - dummy.y, player.x - dummy.x);
-    state.dummy.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
-
-    setDummyState(stateName);
-
-    const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
-    state.dummy.rootGroup.position.y = (isTouchDevice ? mobileHeightOffset : baseHeightOffset) + bob;
-
-    if (state.dummy.shadow) {
-      state.dummy.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
-      state.dummy.shadow.material.opacity = dummy.alive ? 0.22 : 0.12;
-    }
-  }
-
   function preparePreviewModel(root, parentGroup) {
     const previewSettings = getPreviewSettings();
     centerAndScaleModel(root, previewSettings.targetHeight);
@@ -1092,7 +1011,6 @@
     }
 
     if (arenaChar.glb) {
-      // Load player model
       state.loader.load(
         arenaChar.glb,
         (gltf) => {
@@ -1119,7 +1037,6 @@
         }
       );
 
-      // Load dummy model separately
       state.loader.load(
         arenaChar.glb,
         (gltf) => {
@@ -1162,28 +1079,6 @@
             'preview'
           );
 
-          preparePreviewModel(root, state.preview.rootGroup);
-          playStateAction(state.preview.states, 'idle', true);
-          state.preview.ready = true;
-        },
-        undefined,
-        (err) => {
-          console.error('[Outra3D] Failed to load lobby character:', err);
-        }
-      );
-    }
-  }
-
-    if (lobbyChar.glb) {
-      state.loader.load(
-        lobbyChar.glb,
-        (gltf) => {
-          const root = gltf.scene || gltf.scenes?.[0];
-          if (!root || !state.preview.rootGroup) return;
-
-          state.preview.root = root;
-          state.preview.mixer = new THREE.AnimationMixer(root);
-          state.preview.states = buildAnimationStateMap(gltf.animations || [], state.preview.mixer, 'preview');
           preparePreviewModel(root, state.preview.rootGroup);
           playStateAction(state.preview.states, 'idle', true);
           state.preview.ready = true;
@@ -1241,6 +1136,18 @@
     }
   }
 
+  function setDummyState(name, force = false) {
+    if (!state.dummy.states.size) return;
+    if (!force && state.dummy.currentState === name) return;
+
+    const resolved = playStateAction(state.dummy.states, name, force);
+    if (resolved) state.dummy.currentState = resolved;
+
+    if (state.dummy.root) {
+      state.dummy.root.visible = true;
+    }
+  }
+
   function setPreviewState(name, force = false) {
     if (!state.preview.states.size) return;
     if (!force && state.preview.currentState === name) return;
@@ -1289,6 +1196,34 @@
     return 'idle';
   }
 
+  function chooseDummyState(dt) {
+    if (!dummyEnabled || !dummy) return 'idle';
+
+    if (!dummy.alive) return state.dummy.states.has('hit') ? 'hit' : 'idle';
+
+    const hpDrop = state.dummy.lastHp !== null && dummy.hp < state.dummy.lastHp - 0.01;
+    state.dummy.lastHp = dummy.hp;
+
+    if (hpDrop) state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
+
+    state.dummy.castTimer = Math.max(0, state.dummy.castTimer - dt);
+    state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
+    state.dummy.dashTimer = Math.max(0, state.dummy.dashTimer - dt);
+
+    if (state.dummy.hitTimer > 0 && state.dummy.states.has('hit')) return 'hit';
+    if (state.dummy.dashTimer > 0 && state.dummy.states.has('dash')) return 'dash';
+    if (state.dummy.castTimer > 0 && state.dummy.states.has('cast')) return 'cast';
+
+    const moving = Math.hypot(dummy.vx || 0, dummy.vy || 0) > 20;
+
+    if (moving) {
+      if (state.dummy.states.has('run')) return 'run';
+      if (state.dummy.states.has('walk')) return 'walk';
+    }
+
+    return 'idle';
+  }
+
   function applyRigOrientationFix(rigNode, currentState) {
     if (!rigNode) return;
 
@@ -1312,7 +1247,6 @@
 
     if (tintKey === state.lastTintKey) return;
     state.lastTintKey = tintKey;
-    console.log('[Outra3D] Applying tint key:', tintKey);
 
     if (state.player.root) tintModel(state.player.root, body, wand);
     if (state.preview.root) tintModel(state.preview.root, body, wand);
@@ -1379,6 +1313,47 @@
     tintAllLoadedModelsIfNeeded();
   }
 
+  function updateDummyPose(dt) {
+    if (!state.ready || !state.dummy.rootGroup) return;
+
+    state.dummy.rootGroup.visible = gameState !== 'lobby' && dummyEnabled;
+
+    if (!dummyEnabled || !dummy) return;
+
+    const pos = getWorldPosition(dummy);
+    const stateName = chooseDummyState(dt);
+
+    const baseHeightOffset = cfg.modelYOffset || 0;
+    const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
+
+    const mobileBaseScreenOffsetZ = 40;
+    const mobileDriftStrength = 24;
+
+    const normalizedScreenY = ((dummy.y / canvas.height) - 0.5) * 2;
+    const mobileDynamicOffsetZ = isTouchDevice
+      ? mobileBaseScreenOffsetZ - (normalizedScreenY * mobileDriftStrength)
+      : 0;
+
+    state.dummy.rootGroup.position.set(
+      pos.x,
+      isTouchDevice ? mobileHeightOffset : baseHeightOffset,
+      pos.z + mobileDynamicOffsetZ
+    );
+
+    const aimAngle = Math.atan2(player.y - dummy.y, player.x - dummy.x);
+    state.dummy.rootGroup.rotation.y = -aimAngle + Math.PI / 2;
+
+    setDummyState(stateName);
+
+    const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
+    state.dummy.rootGroup.position.y = (isTouchDevice ? mobileHeightOffset : baseHeightOffset) + bob;
+
+    if (state.dummy.shadow) {
+      state.dummy.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
+      state.dummy.shadow.material.opacity = dummy.alive ? 0.22 : 0.12;
+    }
+  }
+
   function updatePreviewPose() {
     if (!state.preview.rootGroup || !state.preview.root) return;
 
@@ -1396,8 +1371,6 @@
   }
 
   function updateMixers(dt) {
-    if (!state.ready) return;
-
     if (state.player.mixer) {
       state.player.mixer.update(dt);
     }
@@ -1469,14 +1442,11 @@
       if (state.ready) {
         updateArenaPlayerPose(dt);
         updateDummyPose(dt);
-        updatePreviewPose();
-        updateMixers(dt);
-      } else {
-        updatePreviewPose();
       }
 
-      // IMPORTANT:
-      // render preview while in lobby, render arena scene while in game
+      updatePreviewPose();
+      updateMixers(dt);
+
       if (gameState === 'lobby') {
         if (state.preview.renderer && state.preview.scene && state.preview.camera) {
           state.preview.renderer.render(state.preview.scene, state.preview.camera);
@@ -1489,9 +1459,7 @@
       }
     },
 
- render() {
-      // Rendering is handled inside update()
-    },
+    render() {},
 
     renderLobbyPreview() {
       if (!state.preview.renderer || !state.preview.scene || !state.preview.camera) return;
@@ -1502,7 +1470,7 @@
       return !!(state.ready && state.player.root && state.player.rootGroup && gameState !== 'lobby');
     },
 
-      isDummyRenderedIn3D() {
+    isDummyRenderedIn3D() {
       return !!(state.ready && dummyEnabled && state.dummy.root && state.dummy.rootGroup && gameState !== 'lobby');
     },
 
