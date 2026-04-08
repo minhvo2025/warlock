@@ -71,7 +71,7 @@
     },
   };
 
- const ARENA_MODEL_BASE_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
+const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI / 2, 0, 0, 'XYZ');
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -442,7 +442,11 @@ function centerAndScaleModel(root, targetHeightOverride, options = {}) {
 
 function applyArenaModelBaseRotation(root) {
   if (!root) return;
-  root.rotation.set(0, 0, 0);
+  root.rotation.set(
+    ARENA_MODEL_BASE_EULER.x,
+    ARENA_MODEL_BASE_EULER.y,
+    ARENA_MODEL_BASE_EULER.z
+  );
   root.updateMatrixWorld(true);
 }
 
