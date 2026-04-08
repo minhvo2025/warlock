@@ -71,9 +71,7 @@
     },
   };
 
-  const NON_IDLE_FIX_QUAT = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(Math.PI, 0, 0, 'XYZ')
-  );
+  const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI, 0, 0, 'XYZ');
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -435,8 +433,17 @@
     return namedRig || root;
   }
 
+  function applyArenaModelBaseRotation(root) {
+    if (!root) return;
+    root.rotation.x += ARENA_MODEL_BASE_EULER.x;
+    root.rotation.y += ARENA_MODEL_BASE_EULER.y;
+    root.rotation.z += ARENA_MODEL_BASE_EULER.z;
+    root.updateMatrixWorld(true);
+  }
+
   function prepareArenaModel(root, parentGroup) {
     centerAndScaleModel(root, cfg.actorHeight || 95);
+    applyArenaModelBaseRotation(root);
     tintModel(root, player.bodyColor, player.wandColor);
     root.visible = true;
     parentGroup.add(root);
@@ -446,6 +453,7 @@
 
   function prepareDummyModel(root, parentGroup) {
     centerAndScaleModel(root, cfg.actorHeight || 95);
+    applyArenaModelBaseRotation(root);
     tintModel(root, '#ffd8b8', '#ff7a1a');
     root.visible = true;
     parentGroup.add(root);
@@ -1224,7 +1232,7 @@
     return 'idle';
   }
 
-  function applyRigOrientationFix(rigNode, currentState) {
+  function applyRigOrientationFix(rigNode) {
     if (!rigNode) return;
 
     if (!rigNode.userData.outraBaseQuaternion) {
@@ -1232,11 +1240,6 @@
     }
 
     rigNode.quaternion.copy(rigNode.userData.outraBaseQuaternion);
-
-    if (currentState && currentState !== 'idle') {
-      rigNode.quaternion.premultiply(NON_IDLE_FIX_QUAT);
-    }
-
     rigNode.updateMatrixWorld(true);
   }
 
@@ -1383,8 +1386,8 @@
       state.preview.mixer.update(dt);
     }
 
-    applyRigOrientationFix(state.player.rigFixNode, state.player.currentState);
-    applyRigOrientationFix(state.dummy.rigFixNode, state.dummy.currentState);
+    applyRigOrientationFix(state.player.rigFixNode);
+    applyRigOrientationFix(state.dummy.rigFixNode);
 
     if (state.debugAnim.timer > 0) {
       state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
