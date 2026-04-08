@@ -75,7 +75,7 @@ dummy: {
 },
   };
 
-const ARENA_MODEL_BASE_EULER = new THREE.Euler(-Math.PI / 2, 0, 0, 'XYZ');
+const ARENA_MODEL_BASE_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -408,7 +408,54 @@ function centerAndScaleModel(root, targetHeightOverride, options = {}) {
     autoRotateZUpToYUp
   });
 }
+function prepareArenaModelTransform(root, targetHeightOverride) {
+  traverseMeshes(root, (obj) => {
+    obj.castShadow = false;
+    obj.receiveShadow = false;
+    obj.frustumCulled = false;
 
+    if (Array.isArray(obj.material)) {
+      obj.material = obj.material.map(cloneMaterial);
+    } else if (obj.material) {
+      obj.material = cloneMaterial(obj.material);
+    }
+  });
+
+  stylizeModel(root);
+
+  // IMPORTANT:
+  // For arena, keep the GLB pivot exactly as authored.
+  // Do NOT center on X/Z, otherwise the model can orbit when parent yaw rotates.
+  root.position.set(0, 0, 0);
+  root.rotation.set(0, 0, 0);
+  root.scale.set(1, 1, 1);
+  root.updateMatrixWorld(true);
+
+  let box = computeBox(root);
+  let size = new THREE.Vector3();
+  box.getSize(size);
+
+  const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
+  const sourceHeight = Math.max(size.y || 1, 1);
+  const scale = targetHeight / sourceHeight;
+
+  root.scale.setScalar(scale);
+  root.updateMatrixWorld(true);
+
+  box = computeBox(root);
+
+  // Only ground vertically. Leave X/Z untouched.
+  root.position.y -= box.min.y;
+  root.position.y += (cfg.hoverHeight || 0);
+  root.updateMatrixWorld(true);
+
+  log('Prepared arena model transform (keep GLB pivot)', {
+    sourceHeight: sourceHeight.toFixed(2),
+    scale: scale.toFixed(2),
+    minY: box.min.y.toFixed(2),
+  });
+}
+  
   function findRigFixNode(root) {
     if (!root) return null;
 
@@ -458,10 +505,7 @@ function applyArenaModelBaseRotation(mount) {
 }
 
 function prepareArenaModel(root, mountGroup) {
-  centerAndScaleModel(root, cfg.actorHeight || 95, {
-    autoRotateZUpToYUp: false
-  });
-
+  prepareArenaModelTransform(root, cfg.actorHeight || 95);
   tintModel(root, player.bodyColor, player.wandColor);
   root.visible = true;
   mountGroup.add(root);
@@ -472,10 +516,7 @@ function prepareArenaModel(root, mountGroup) {
 }
 
 function prepareDummyModel(root, mountGroup) {
-  centerAndScaleModel(root, cfg.actorHeight || 95, {
-    autoRotateZUpToYUp: false
-  });
-
+  prepareArenaModelTransform(root, cfg.actorHeight || 95);
   tintModel(root, '#ffd8b8', '#ff7a1a');
   root.visible = true;
   mountGroup.add(root);
