@@ -101,6 +101,24 @@ html, body {
   display: none;
   padding: 18px;
   border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255, 208, 120, 0.12), rgba(255, 208, 120, 0) 42%),
+    linear-gradient(180deg, rgba(38, 29, 22, 0.97), rgba(15, 12, 14, 0.98) 52%, rgba(10, 9, 12, 0.99));
+  border: 1px solid rgba(230, 192, 122, 0.34);
+  box-shadow:
+    0 30px 90px rgba(0, 0, 0, 0.62),
+    0 0 0 1px rgba(255, 224, 160, 0.06),
+    inset 0 1px 0 rgba(255, 241, 212, 0.14),
+    inset 0 0 0 1px rgba(110, 76, 34, 0.38);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease,
+    box-shadow 0.18s ease;
+}
 
 #menuPanel .tabBtn {
   position: relative;
@@ -116,29 +134,7 @@ html, body {
   pointer-events: none;
 }
   
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 208, 120, 0.12), rgba(255, 208, 120, 0) 42%),
-    linear-gradient(180deg, rgba(38, 29, 22, 0.97), rgba(15, 12, 14, 0.98) 52%, rgba(10, 9, 12, 0.99));
-
-  border: 1px solid rgba(230, 192, 122, 0.34);
-
-  box-shadow:
-    0 30px 90px rgba(0, 0, 0, 0.62),
-    0 0 0 1px rgba(255, 224, 160, 0.06),
-    inset 0 1px 0 rgba(255, 241, 212, 0.14),
-    inset 0 0 0 1px rgba(110, 76, 34, 0.38);
-
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
+  
 #menuPanel.open {
   display: block;
   opacity: 1;
@@ -505,7 +501,6 @@ body.menuVisible::before {
   box-shadow:
     inset 0 1px 0 rgba(255,255,255,0.03),
     inset 0 0 0 1px rgba(0,0,0,0.18);
-}rgin: 0 auto;
 }
 
 #lobbyMenuBtn {
@@ -1452,4 +1447,628 @@ input[type="text"] {
   font-weight: 700;
   color: #9fd0ff;
   letter-spacing: 0.02em;
+}
+
+/* ============================================================
+   AAA LOBBY OVERRIDE
+   ============================================================ */
+
+#overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  overflow: auto;
+  padding:
+    calc(var(--safe-top) + 18px)
+    calc(var(--safe-right) + 18px)
+    calc(var(--safe-bottom) + 18px)
+    calc(var(--safe-left) + 18px);
+  background:
+    radial-gradient(circle at center, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0.74)),
+    linear-gradient(180deg, rgba(10, 7, 8, 0.18), rgba(10, 7, 8, 0.56)),
+    url('docs/art/Lobby/BG.jpeg') center center / cover no-repeat;
+}
+
+.panel.lobbyShell {
+  width: min(1450px, calc(100vw - 36px - var(--safe-left) - var(--safe-right)));
+  min-height: calc(100dvh - 36px - var(--safe-top) - var(--safe-bottom));
+  margin: 0 auto;
+  padding: 18px 18px 22px;
+  border: 0;
+  border-radius: 28px;
+  background:
+    linear-gradient(180deg, rgba(14, 10, 10, 0.38), rgba(7, 7, 10, 0.52));
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.panel.lobbyShell::before {
+  display: none;
+}
+
+.lobbyTopBar {
+  display: grid;
+  grid-template-columns: 180px 1fr 220px;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.lobbyMenuBtn {
+  justify-self: start;
+  min-width: 112px;
+}
+
+.lobbyBrandWrap {
+  text-align: center;
+}
+
+.lobbyBrandEyebrow {
+  color: rgba(244, 219, 174, 0.68);
+  font-size: 12px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.lobbyBrand {
+  font-size: clamp(28px, 3vw, 52px);
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #f7e8c5;
+  text-shadow:
+    0 2px 0 rgba(0,0,0,0.72),
+    0 0 24px rgba(255, 176, 72, 0.16);
+}
+
+.lobbyTopRight {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.topCurrencyCard {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(28, 21, 18, 0.82), rgba(12, 10, 11, 0.92));
+  border: 1px solid rgba(235, 190, 113, 0.16);
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.24),
+    inset 0 1px 0 rgba(255, 245, 220, 0.06);
+  color: #f3e7cf;
+  font-weight: 800;
+  font-size: 16px;
+}
+
+.currencyIcon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
+
+.lobbyMainGrid {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(540px, 1fr) minmax(270px, 320px);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.lobbySide,
+.heroStage,
+.storePanel {
+  min-width: 0;
+}
+
+.framedPanel {
+  position: relative;
+  border: 64px solid transparent;
+  border-image-source: url('docs/art/Lobby/Frame.png');
+  border-image-slice: 64;
+  border-image-repeat: stretch;
+  background:
+    linear-gradient(180deg, rgba(13, 9, 10, 0.70), rgba(8, 8, 11, 0.82));
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    inset 0 0 36px rgba(255, 168, 66, 0.05);
+  min-height: 0;
+}
+
+.sidePanelInner {
+  margin: -28px;
+  padding: 6px 2px 2px;
+}
+
+.sectionTitle {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #f1dfb6;
+  text-transform: uppercase;
+  margin: 18px 0 10px;
+}
+
+.sectionCompact {
+  margin-top: 0;
+}
+
+#nameInput {
+  width: 100%;
+  max-width: none;
+  background:
+    linear-gradient(180deg, rgba(8, 10, 18, 0.88), rgba(5, 7, 12, 0.94));
+  color: #fff;
+  border: 1px solid rgba(255, 218, 158, 0.12);
+  border-radius: 14px;
+  padding: 14px 16px;
+  font-size: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 8px 18px rgba(0,0,0,0.18);
+}
+
+.colorRowAaa {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.colorChoice {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.18);
+  cursor: pointer;
+  transition:
+    transform 0.14s ease,
+    border-color 0.14s ease,
+    box-shadow 0.14s ease,
+    filter 0.14s ease;
+  box-shadow:
+    0 10px 18px rgba(0,0,0,0.28),
+    inset 0 2px 4px rgba(255,255,255,0.22);
+}
+
+.colorChoice::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.16);
+  pointer-events: none;
+}
+
+.colorChoice:hover {
+  transform: translateY(-2px) scale(1.06);
+  filter: brightness(1.06);
+}
+
+.colorChoice.selected {
+  border-color: rgba(255,255,255,0.95);
+  box-shadow:
+    0 0 0 4px rgba(255,255,255,0.12),
+    0 0 24px rgba(255, 188, 106, 0.18),
+    0 10px 18px rgba(0,0,0,0.28),
+    inset 0 2px 4px rgba(255,255,255,0.22);
+}
+
+.lobbyCenter {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.heroStage {
+  padding-bottom: 18px;
+}
+
+.heroStageHeader {
+  margin: -26px -28px 10px;
+  padding: 0 2px;
+}
+
+.heroOverline {
+  color: rgba(244, 221, 183, 0.62);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.22em;
+  margin-bottom: 4px;
+}
+
+.heroTitle {
+  color: #f8ebd2;
+  font-size: 34px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-shadow:
+    0 2px 0 rgba(0,0,0,0.72),
+    0 0 18px rgba(255, 176, 72, 0.12);
+}
+
+.heroViewport {
+  position: relative;
+  width: 100%;
+  height: 500px;
+  border-radius: 22px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 22%, rgba(95, 74, 51, 0.30), rgba(18, 15, 20, 0.94) 62%),
+    linear-gradient(180deg, rgba(26, 20, 22, 0.92), rgba(10, 10, 14, 0.98));
+  border: 1px solid rgba(255, 214, 148, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.05),
+    inset 0 -36px 50px rgba(0,0,0,0.26),
+    0 12px 30px rgba(0,0,0,0.22);
+}
+
+#previewCanvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: transparent;
+}
+
+#previewThreeLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: auto;
+}
+
+#previewThreeLayer canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.heroParticles {
+  position: absolute;
+  inset: -10%;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  opacity: 0.18;
+  z-index: 1;
+}
+
+.heroParticlesOrange {
+  background: url('docs/art/Lobby/Orange.png') center / 220px auto repeat;
+  animation: lobbyOrangeDrift 18s linear infinite;
+}
+
+.heroParticlesPurple {
+  background: url('docs/art/Lobby/Purple.png') center / 260px auto repeat;
+  animation: lobbyPurpleDrift 24s linear infinite;
+}
+
+.heroBottomGlow {
+  position: absolute;
+  left: 50%;
+  bottom: 20px;
+  width: 320px;
+  height: 64px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at center,
+      rgba(130, 88, 255, 0.20) 0%,
+      rgba(255, 149, 76, 0.16) 34%,
+      rgba(255, 149, 76, 0) 72%);
+  pointer-events: none;
+  z-index: 1;
+  filter: blur(10px);
+}
+
+.heroHint {
+  margin-top: 10px;
+  color: rgba(242, 227, 203, 0.72);
+  font-size: 13px;
+}
+
+.ctaWrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.enterArenaBtn {
+  position: relative;
+  width: min(420px, 100%);
+  height: 96px;
+  border: none;
+  border-radius: 0;
+  background: url('docs/art/Lobby/Button.png') center center / 100% 100% no-repeat;
+  box-shadow:
+    0 12px 30px rgba(0,0,0,0.28),
+    0 0 24px rgba(255, 157, 66, 0.12);
+  padding: 0;
+}
+
+.enterArenaBtn::after {
+  display: none;
+}
+
+.enterArenaBtn:hover {
+  transform: translateY(-1px) scale(1.015);
+  filter: brightness(1.05);
+}
+
+.enterArenaBtn:active {
+  transform: translateY(1px) scale(0.995);
+}
+
+.enterArenaText {
+  display: inline-block;
+  font-size: clamp(24px, 2vw, 34px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fbf1dc;
+  text-shadow:
+    0 2px 0 rgba(0,0,0,0.76),
+    0 0 14px rgba(255, 183, 84, 0.14);
+}
+
+.rewardRow {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.rewardRow .tag {
+  background: rgba(8, 10, 14, 0.56);
+  border: 1px solid rgba(255, 209, 122, 0.12);
+  color: #e7dac0;
+}
+
+.aaaTabs {
+  justify-content: center;
+}
+
+#lobbyTabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(140px, 180px));
+  gap: 10px;
+  margin: 2px auto 0;
+  justify-content: center;
+}
+
+#lobbyPlay {
+  display: none;
+}
+
+#lobbyStore.active {
+  display: block;
+}
+
+.storeCurrencyLine {
+  color: #f5e6c7;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.storeHint {
+  margin-bottom: 12px;
+}
+
+.leaderboardPanelAaa #leaderboardList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.aaaLbRow {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: 12px;
+  min-height: 68px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 214, 148, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)),
+    linear-gradient(180deg, rgba(36, 27, 24, 0.78), rgba(14, 12, 14, 0.86));
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.04),
+    0 8px 18px rgba(0,0,0,0.14);
+}
+
+.rankBadge {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  background-image: url('docs/art/Lobby/Ranks.png');
+  background-repeat: no-repeat;
+  background-size: 138px 46px;
+  filter: drop-shadow(0 4px 10px rgba(0,0,0,0.28));
+}
+
+.rankGold {
+  background-position: 0 0;
+}
+
+.rankSilver {
+  background-position: -46px 0;
+}
+
+.rankBronze {
+  background-position: -92px 0;
+}
+
+.rankDefault {
+  background:
+    linear-gradient(180deg, rgba(90, 70, 52, 0.92), rgba(46, 34, 26, 0.96));
+  border: 1px solid rgba(255,255,255,0.10);
+  position: relative;
+}
+
+.rankDefault::before {
+  content: attr(data-rank);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #f1dfb6;
+  font-weight: 900;
+  font-size: 16px;
+}
+
+.lbMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lbName {
+  color: #fff2d7;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.lbPoints {
+  color: rgba(242, 226, 198, 0.76);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.inventoryGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.inventoryCard {
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.035), rgba(255,255,255,0.01)),
+    linear-gradient(180deg, rgba(36, 27, 24, 0.76), rgba(14, 12, 14, 0.84));
+  border: 1px solid rgba(255, 214, 148, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.inventoryTitle {
+  font-size: 13px;
+  color: #d9c8a6;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.inventoryItemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.inventoryItemRow:last-child {
+  border-bottom: 0;
+}
+
+.miniBtn {
+  min-height: 34px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 10px;
+}
+
+.storeRow,
+.bindRow,
+.lbRow {
+  border-radius: 14px;
+}
+
+.storeRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  padding: 12px 12px;
+  align-items: center;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+  border: 1px solid rgba(255,255,255,0.04);
+  margin-bottom: 10px;
+}
+
+@keyframes lobbyOrangeDrift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -40px, 0); }
+}
+
+@keyframes lobbyPurpleDrift {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(0, -28px, 0); }
+}
+
+@media (max-width: 1180px) {
+  .lobbyMainGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .lobbyRight {
+    order: 3;
+  }
+
+  .lobbyCenter {
+    order: 1;
+  }
+
+  .lobbyLeft {
+    order: 2;
+  }
+
+  .heroViewport {
+    height: 430px;
+  }
+}
+
+@media (max-width: 760px) {
+  .lobbyTopBar {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: 12px;
+  }
+
+  .lobbyMenuBtn {
+    justify-self: center;
+  }
+
+  .heroViewport {
+    height: 340px;
+  }
+
+  .enterArenaBtn {
+    height: 82px;
+  }
+
+  .framedPanel {
+    border-width: 44px;
+    border-image-slice: 44;
+  }
+
+  .sidePanelInner {
+    margin: -16px;
+  }
 }

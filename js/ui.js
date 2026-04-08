@@ -174,8 +174,11 @@ function buildColorChoices() {
   colorRow.innerHTML = '';
   colorChoices.forEach((choice, index) => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'colorChoice' + (index === selectedColorIndex ? ' selected' : '');
     btn.style.background = `radial-gradient(circle at 30% 30%, ${choice.body}, ${choice.wand})`;
+    btn.title = `Color ${index + 1}`;
+
     btn.addEventListener('click', () => {
       selectedColorIndex = index;
       applyPlayerColors();
@@ -183,10 +186,10 @@ function buildColorChoices() {
       drawLobbyPreview();
       saveProfile();
     });
+
     colorRow.appendChild(btn);
   });
 }
-
 // ── Keybinds UI ───────────────────────────────────────────────
 function buildKeybindsUI() {
   bindList.innerHTML = '';
@@ -214,16 +217,35 @@ function buildKeybindsUI() {
 // ── Leaderboard ───────────────────────────────────────────────
 function renderLeaderboard() {
   const entries = getLeaderboard();
+
   if (!entries.length) {
     leaderboardList.innerHTML = '<div class="subtle">No entries yet. Win a match to get 3 points.</div>';
     return;
   }
 
-  leaderboardList.innerHTML = entries
-    .map((entry, i) =>
-      `<div class="lbRow"><div>#${i + 1}</div><div>${escapeHtml(entry.name)}</div><div>${entry.points} pts</div></div>`
-    )
-    .join('');
+  leaderboardList.innerHTML = entries.slice(0, 5).map((entry, i) => {
+    let badgeHtml = '';
+
+    if (i === 0) {
+      badgeHtml = '<div class="rankBadge rankGold"></div>';
+    } else if (i === 1) {
+      badgeHtml = '<div class="rankBadge rankSilver"></div>';
+    } else if (i === 2) {
+      badgeHtml = '<div class="rankBadge rankBronze"></div>';
+    } else {
+      badgeHtml = `<div class="rankBadge rankDefault" data-rank="${i + 1}"></div>`;
+    }
+
+    return `
+      <div class="aaaLbRow">
+        ${badgeHtml}
+        <div class="lbMeta">
+          <div class="lbName">${escapeHtml(entry.name)}</div>
+          <div class="lbPoints">${entry.points} pts</div>
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 // ── Inventory ─────────────────────────────────────────────────
@@ -300,6 +322,7 @@ function renderInventory() {
 // ── Store ─────────────────────────────────────────────────────
 function renderStore() {
   wlkLobbyEl.textContent = `WLK Points: ${profile.wlk}`;
+  if (wlkLobbyTopEl) wlkLobbyTopEl.textContent = String(profile.wlk);
 
   storeList.innerHTML = storeItems.map(item => {
     const owned = !!profile.store[item.id];

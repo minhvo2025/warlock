@@ -452,6 +452,7 @@ bindPullCastButton(mobileChargeBtn,   () => castPlayerSpell('charge'), 'charge')
 bindPullCastButton(mobileShockBtn, () => castPlayerSpell('shock'), 'shock');
 bindPullCastButton(mobileGustBtn,  () => castPlayerSpell('gust'),  'gust');
 bindPullCastButton(mobileWallBtn,  () => castPlayerSpell('wall'),  'wall');
+bindPullCastButton(mobileRewindBtn,() => castPlayerSpell('rewind'),'rewind');
 
 // ── Window Resize ─────────────────────────────────────────────
 window.addEventListener('resize', () => {
