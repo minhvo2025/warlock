@@ -100,15 +100,15 @@ const SPELL_DEFS = {
 
 // ── Spell Icons ───────────────────────────────────────────────
 const SPELL_ICONS = {
-  fire:    'docs/art/spells/fireball.jpeg',
-  hook:    'docs/art/spells/hook.jpeg',
-  blink:   'docs/art/spells/blink.jpeg',
-  shield:  'docs/art/spells/shield.jpeg',
-  charge:  'docs/art/spells/charge.jpeg',
-  shock:   'docs/art/spells/shock.jpeg',
-  gust:    'docs/art/spells/gust.jpeg',
-  wall:    'docs/art/spells/wall.jpeg',
-  rewind:  'docs/art/spells/rewind.jpeg'
+  fire:    '/docs/art/spells/fireball.jpeg',
+  hook:    '/docs/art/spells/hook.jpeg',
+  blink:   '/docs/art/spells/blink.jpeg',
+  shield:  '/docs/art/spells/shield.jpeg',
+  charge:  '/docs/art/spells/charge.jpeg',
+  shock:   '/docs/art/spells/shock.jpeg',
+  gust:    '/docs/art/spells/gust.jpeg',
+  wall:    '/docs/art/spells/wall.jpeg',
+  rewind:  '/docs/art/spells/rewind.jpeg'
 };
 
 // ── Store Items ───────────────────────────────────────────────
@@ -158,24 +158,24 @@ window.OUTRA_3D_CONFIG = {
   enabled: true,
 
   lobbyArt: {
-    bg: 'docs/art/Lobby/BG.jpeg',
-    button: 'docs/art/Lobby/Button.png',
-    currency: 'docs/art/Lobby/Currency.png',
-    frame: 'docs/art/Lobby/Frame.png',
-    emberOrange: 'docs/art/Lobby/Orange.png',
-    emberPurple: 'docs/art/Lobby/Purple.png',
-    ranks: 'docs/art/Lobby/Ranks.png',
+    bg: '/docs/art/Lobby/BG.jpeg',
+    button: '/docs/art/Lobby/Button.png',
+    currency: '/docs/art/Lobby/Currency.png',
+    frame: '/docs/art/Lobby/Frame.png',
+    emberOrange: '/docs/art/Lobby/Orange.png',
+    emberPurple: '/docs/art/Lobby/Purple.png',
+    ranks: '/docs/art/Lobby/Ranks.png',
   },
 
   lobbyCharacter: {
-    glb: 'docs/art/Lobby/Outron_lobby.glb',
+    glb: '/docs/art/Lobby/Outron_lobby.glb',
     animations: {
       idle: 'idle',
     },
   },
 
   arenaCharacter: {
-    glb: 'docs/art/character/Outron_arena.glb',
+    glb: '/docs/art/character/Outron_arena.glb',
     animations: {
       idle: 'Hit_Reaction_1',
       walk: 'Idle_5',
@@ -188,7 +188,7 @@ window.OUTRA_3D_CONFIG = {
 
   arenaFloor: {
     enabled: false,
-    glb: 'docs/Objects/floor.glb',
+    glb: '/docs/Objects/floor.glb',
     yOffset: -6,
     opacity: 1,
     brightness: 0.1,
