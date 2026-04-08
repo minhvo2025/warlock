@@ -214,18 +214,24 @@ window.OUTRA_3D_CONFIG = {
   modelYOffsetMobile: 14,
 
   previewCharacter: {
-    targetHeightDesktop: 130,
-    targetHeightMobile: 92,
+    targetHeightDesktop: 112,
+    targetHeightMobile: 84,
+
     cameraFovDesktop: 30,
     cameraFovMobile: 34,
-    cameraYDesktop: 86,
-    cameraYMobile: 60,
-    cameraZDesktop: 320,
-    cameraZMobile: 360,
-    lookAtYDesktop: 70,
-    lookAtYMobile: 48,
-    modelYOffsetDesktop: -12,
-    modelYOffsetMobile: -8,
+
+    cameraYDesktop: 96,
+    cameraYMobile: 68,
+
+    cameraZDesktop: 368,
+    cameraZMobile: 392,
+
+    lookAtYDesktop: 74,
+    lookAtYMobile: 54,
+
+    modelYOffsetDesktop: -18,
+    modelYOffsetMobile: -12,
+
     shadowScaleXDesktop: 1.8,
     shadowScaleXMobile: 1.55,
     shadowScaleYDesktop: 0.82,
