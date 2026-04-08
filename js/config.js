@@ -164,12 +164,12 @@ window.OUTRA_3D_CONFIG = {
   arenaCharacter: {
     glb: 'docs/art/character/Outron_arena.glb',
     animations: {
-      idle: 'Hit_Reaction_1',
-      walk: 'run',
-      run: 'Idle_5',
-      cast: 'Walking,
-      dash: 'Running',
-      hit: 'mage_soell_cast_4',
+      idle: 'idle',
+      walk: 'walk',
+      run: 'run',
+      cast: 'cast,
+      dash: 'dash',
+      hit: 'hit',
     },
   },
 
