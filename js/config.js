@@ -8,7 +8,7 @@ const BRAND = {
 
 // ── Storage Keys ──────────────────────────────────────────────
 const STORAGE_KEY = `${BRAND.storagePrefix}_leaderboard_v1`;
-const PROFILE_KEY = `${BRAND.storagePrefix}_profile_v1`;
+const PROFILE_KEY = `${BRAND.storagePrefix}_profile_v2`;
 
 const LEGACY_STORAGE_KEY = 'warlock_mvp_leaderboard_v1';
 const LEGACY_PROFILE_KEY = 'warlock_mvp_profile_v14';
@@ -16,15 +16,29 @@ const LEGACY_PROFILE_KEY = 'warlock_mvp_profile_v14';
 // ── Device Detection ──────────────────────────────────────────
 const isTouchDevice = window.matchMedia('(pointer: coarse)').matches || window.innerWidth <= 900;
 
-// ── Color Choices ─────────────────────────────────────────────
-const colorChoices = [
-  { body: '#d9d9ff', wand: '#7c4dff' },
-  { body: '#9be7ff', wand: '#008cff' },
-  { body: '#ffd8b8', wand: '#ff7a1a' },
-  { body: '#b8ffcb', wand: '#10c45c' },
-  { body: '#ffc1e3', wand: '#d43186' },
-  { body: '#fff0a8', wand: '#c89b00' },
+// ── Auto Player Colors (assigned automatically) ───────────────
+const autoPlayerColors = [
+  { name: 'Arcane Violet', body: '#d9d9ff', wand: '#7c4dff' },
+  { name: 'Azure Storm', body: '#9be7ff', wand: '#008cff' },
+  { name: 'Ember Gold', body: '#ffd8b8', wand: '#ff7a1a' },
+  { name: 'Verdant Surge', body: '#b8ffcb', wand: '#10c45c' },
 ];
+
+// ── Ranked System ─────────────────────────────────────────────
+const RANKED_CONFIG = {
+  mmrPerStar: 20,
+  promoStarCount: 5,
+  derankProtectionLossesAtZero: 1,
+  winMmr: 20,
+  lossMmr: 20,
+  tiers: [
+    { key: 'bronze',  name: 'Bronze',  min: 0,   max: 99,   iconIndex: 0 },
+    { key: 'silver',  name: 'Silver',  min: 100, max: 199,  iconIndex: 1 },
+    { key: 'gold',    name: 'Gold',    min: 200, max: 299,  iconIndex: 2 },
+    { key: 'crystal', name: 'Crystal', min: 300, max: 399,  iconIndex: 2 },
+    { key: 'master',  name: 'Master',  min: 400, max: Infinity, iconIndex: 2 },
+  ],
+};
 
 // ── Spell Definitions ─────────────────────────────────────────
 const SPELL_DEFS = {
@@ -139,7 +153,6 @@ let hudVisible = false;
 
 const skillAimPreview = { active: false, type: null, dx: 1, dy: 0 };
 
-
 // ── 3D Character Layer ───────────────────────────────────────
 window.OUTRA_3D_CONFIG = {
   enabled: true,
@@ -229,6 +242,13 @@ const moveStick = { active: false, dx: 0, dy: 0, touchId: null, mouseDown: false
 const profile = {
   wlk: 0,
   musicMuted: false,
+  aimSensitivity: 0.7,
+  ranked: {
+    mmr: 0,
+    wins: 0,
+    losses: 0,
+    zeroStarLossBuffer: 0,
+  },
   store: {
     potionBoost: false, cooldownCharm: false, musicPack: false,
     wizardHat: false, beanie: false, crown: false, strawHat: false,
@@ -253,7 +273,7 @@ const player = {
   teleportDistance: 150, shieldUntil: 0,
   chargeActive: false, chargeDirX: 0, chargeDirY: 0, chargeTimer: 0, chargeHit: false,
   alive: true, deadReason: '', score: 0,
-  bodyColor: colorChoices[0].body, wandColor: colorChoices[0].wand,
+  bodyColor: autoPlayerColors[0].body, wandColor: autoPlayerColors[0].wand,
   aimX: 1, aimY: 0,
   rewindSeconds: 1.0,
 };
