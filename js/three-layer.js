@@ -343,60 +343,67 @@
     });
   }
 
-  function centerAndScaleModel(root, targetHeightOverride) {
-    traverseMeshes(root, (obj) => {
-      obj.castShadow = false;
-      obj.receiveShadow = false;
-      obj.frustumCulled = false;
+function centerAndScaleModel(root, targetHeightOverride, options = {}) {
+  const autoRotateZUpToYUp = options.autoRotateZUpToYUp !== false;
 
-      if (Array.isArray(obj.material)) {
-        obj.material = obj.material.map(cloneMaterial);
-      } else if (obj.material) {
-        obj.material = cloneMaterial(obj.material);
-      }
-    });
+  traverseMeshes(root, (obj) => {
+    obj.castShadow = false;
+    obj.receiveShadow = false;
+    obj.frustumCulled = false;
 
-    stylizeModel(root);
-
-    let box = computeBox(root);
-    let center = new THREE.Vector3();
-    let size = new THREE.Vector3();
-    box.getCenter(center);
-    box.getSize(size);
-
-    if (size.y < size.z) {
-      root.rotation.x = -Math.PI / 2;
-      box = computeBox(root);
-      box.getCenter(center);
-      box.getSize(size);
-      log('Auto-rotated model from Z-up to Y-up');
+    if (Array.isArray(obj.material)) {
+      obj.material = obj.material.map(cloneMaterial);
+    } else if (obj.material) {
+      obj.material = cloneMaterial(obj.material);
     }
+  });
 
-    root.position.sub(center);
+  stylizeModel(root);
 
+  let box = computeBox(root);
+  let center = new THREE.Vector3();
+  let size = new THREE.Vector3();
+  box.getCenter(center);
+  box.getSize(size);
+
+  // IMPORTANT:
+  // Only do this auto-rotation when explicitly allowed.
+  // Your arena model is likely already in the correct up-axis,
+  // and this was flipping it into the wrong orientation.
+  if (autoRotateZUpToYUp && size.y < size.z) {
+    root.rotation.x = -Math.PI / 2;
     box = computeBox(root);
     box.getCenter(center);
     box.getSize(size);
-
-    const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
-    const sourceHeight = Math.max(size.y || 1, 1);
-    const scale = targetHeight / sourceHeight;
-
-    root.scale.setScalar(scale);
-
-    box = computeBox(root);
-    box.getCenter(center);
-    box.getSize(size);
-
-    root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
-
-    log('Prepared model size:', {
-      x: size.x.toFixed(2),
-      y: size.y.toFixed(2),
-      z: size.z.toFixed(2),
-      scale: scale.toFixed(2),
-    });
+    log('Auto-rotated model from Z-up to Y-up');
   }
+
+  root.position.sub(center);
+
+  box = computeBox(root);
+  box.getCenter(center);
+  box.getSize(size);
+
+  const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
+  const sourceHeight = Math.max(size.y || 1, 1);
+  const scale = targetHeight / sourceHeight;
+
+  root.scale.setScalar(scale);
+
+  box = computeBox(root);
+  box.getCenter(center);
+  box.getSize(size);
+
+  root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
+
+  log('Prepared model size:', {
+    x: size.x.toFixed(2),
+    y: size.y.toFixed(2),
+    z: size.z.toFixed(2),
+    scale: scale.toFixed(2),
+    autoRotateZUpToYUp
+  });
+}
 
   function findRigFixNode(root) {
     if (!root) return null;
@@ -440,34 +447,51 @@ function applyArenaModelBaseRotation(root) {
 }
 
 function prepareArenaModel(root, parentGroup) {
-  centerAndScaleModel(root, cfg.actorHeight || 95);
+  centerAndScaleModel(root, cfg.actorHeight || 95, {
+    autoRotateZUpToYUp: false
+  });
+
   applyArenaModelBaseRotation(root);
   tintModel(root, player.bodyColor, player.wandColor);
   root.visible = true;
   parentGroup.add(root);
-  state.player.rigFixNode = findRigFixNode(root);
+
+  // Do not use rig fix for arena model
+  state.player.rigFixNode = null;
+
   log('Prepared arena model');
 }
 
 function prepareDummyModel(root, parentGroup) {
-  centerAndScaleModel(root, cfg.actorHeight || 95);
+  centerAndScaleModel(root, cfg.actorHeight || 95, {
+    autoRotateZUpToYUp: false
+  });
+
   applyArenaModelBaseRotation(root);
   tintModel(root, '#ffd8b8', '#ff7a1a');
   root.visible = true;
   parentGroup.add(root);
-  state.dummy.rigFixNode = findRigFixNode(root);
+
+  // Do not use rig fix for arena dummy
+  state.dummy.rigFixNode = null;
+
   log('Prepared dummy model');
 }
 
-  function preparePreviewModel(root, parentGroup) {
-    const previewSettings = getPreviewSettings();
-    centerAndScaleModel(root, previewSettings.targetHeight);
-    tintModel(root, player.bodyColor, player.wandColor);
-    root.visible = true;
-    parentGroup.add(root);
-    state.preview.rigFixNode = findRigFixNode(root);
-    log('Prepared preview model');
-  }
+function preparePreviewModel(root, parentGroup) {
+  const previewSettings = getPreviewSettings();
+
+  centerAndScaleModel(root, previewSettings.targetHeight, {
+    autoRotateZUpToYUp: true
+  });
+
+  tintModel(root, player.bodyColor, player.wandColor);
+  root.visible = true;
+  parentGroup.add(root);
+
+  state.preview.rigFixNode = findRigFixNode(root);
+  log('Prepared preview model');
+}
 
   function prepareArenaFloorModel(root, parentGroup) {
     const floorCfg = getArenaFloorConfig();
@@ -1371,26 +1395,28 @@ function prepareDummyModel(root, parentGroup) {
     tintAllLoadedModelsIfNeeded();
   }
 
-  function updateMixers(dt) {
-    if (state.player.mixer) {
-      state.player.mixer.update(dt);
-    }
-
-    if (state.dummy.mixer) {
-      state.dummy.mixer.update(dt);
-    }
-
-    if (state.preview.mixer) {
-      state.preview.mixer.update(dt);
-    }
-
-    applyRigOrientationFix(state.player.rigFixNode);
-    applyRigOrientationFix(state.dummy.rigFixNode);
-
-    if (state.debugAnim.timer > 0) {
-      state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
-    }
+function updateMixers(dt) {
+  if (state.player.mixer) {
+    state.player.mixer.update(dt);
   }
+
+  if (state.dummy.mixer) {
+    state.dummy.mixer.update(dt);
+  }
+
+  if (state.preview.mixer) {
+    state.preview.mixer.update(dt);
+  }
+
+  // IMPORTANT:
+  // Do not force arena rig quaternions every frame.
+  // That can preserve or reapply a wrong bone orientation.
+  // Leave preview untouched if needed later.
+
+  if (state.debugAnim.timer > 0) {
+    state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
+  }
+}
 
   function renderAnimationDebugLabel() {
     if (gameState === 'lobby') return;
