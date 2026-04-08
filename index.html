@@ -174,64 +174,97 @@
   </div>
 
   <div id="overlay">
-    <div class="panel">
-      <button id="lobbyMenuBtn" class="secondary">Menu</button>
-      <div class="grid">
-        <div>
-          <div class="title">Outra Lobby</div>
-          <div class="subtle">Choose your name and color, preview your character, then enter the Outra arena.</div>
-          <div id="lobbyTabs">
-            <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
-            <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
-          </div>
-          <div id="lobbyPlay" class="lobbyPage active">
-            <div class="twoCol">
-              <div>
-                <div class="sectionTitle">Your Name</div>
-                <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
-                <div class="sectionTitle">Choose Character Color</div>
-                <div id="colorRow" class="row"></div>
-                <div class="sectionTitle">Ready</div>
-                <div class="row">
-                  <button id="startBtn">Enter Arena</button>
-                </div>
-                <div class="row" style="margin-top: 10px;">
-                  <span class="tag">Win = 3 leaderboard points</span>
-                  <span class="tag">Win = 1 WLK</span>
-                </div>
-              </div>
-              <div>
-                <div class="previewPanel">
-                  <div class="sectionTitle" style="margin-top: 0;">Character Preview</div>
-                  <div id="previewViewport">
-                    <canvas id="previewCanvas" width="320" height="240"></canvas>
-                    <div id="previewThreeLayer" aria-hidden="true"></div>
-                  </div>
-                  <div class="hint" style="margin-top: 10px;">Idle animation plays in the lobby. Drag left or right to rotate the model.</div>
-                </div>
-                <div class="inventoryPanel" style="margin-top: 14px;">
-                  <div class="sectionTitle" style="margin-top: 0;">Inventory</div>
-                  <div id="inventoryList" class="inventoryGrid"></div>
-                </div>
-              </div>
+  <div class="panel lobbyShell">
+    <div class="lobbyTopBar">
+      <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
+
+      <div class="lobbyBrandWrap">
+        <div class="lobbyBrandEyebrow">Arcane Arena</div>
+        <div class="lobbyBrand">Outra Lobby</div>
+      </div>
+
+      <div class="lobbyTopRight">
+        <div class="topCurrencyCard">
+          <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
+          <span id="wlkLobbyTop">0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="lobbyMainGrid">
+      <aside class="lobbySide lobbyLeft framedPanel">
+        <div class="sidePanelInner">
+          <div class="sectionTitle sectionCompact">Your Name</div>
+          <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
+
+          <div class="sectionTitle">Choose Character Color</div>
+          <div id="colorRow" class="colorRowAaa"></div>
+
+          <div class="sectionTitle">Inventory</div>
+          <div id="inventoryList" class="inventoryGrid"></div>
+        </div>
+      </aside>
+
+      <section class="lobbyCenter">
+        <div class="heroStage framedPanel">
+          <div class="heroStageHeader">
+            <div>
+              <div class="heroOverline">Character Preview</div>
+              <div class="heroTitle">Outron</div>
             </div>
           </div>
-          <div id="lobbyStore" class="lobbyPage">
-            <div class="storePanel">
-              <div class="sectionTitle" style="margin-top: 0;">Store</div>
-              <div id="wlkLobby">WLK Points: 0</div>
-              <div class="hint" style="margin: 8px 0 12px;">Buy cosmetics and upgrades with WLK.</div>
+
+          <div id="previewViewport" class="heroViewport">
+            <canvas id="previewCanvas" width="320" height="240"></canvas>
+            <div id="previewThreeLayer" aria-hidden="true"></div>
+
+            <div class="heroParticles heroParticlesOrange"></div>
+            <div class="heroParticles heroParticlesPurple"></div>
+            <div class="heroBottomGlow"></div>
+          </div>
+
+          <div class="heroHint">Drag left or right to rotate the model.</div>
+        </div>
+
+        <div class="ctaWrap">
+          <button id="startBtn" class="enterArenaBtn">
+            <span class="enterArenaText">Enter Arena</span>
+          </button>
+
+          <div class="rewardRow">
+            <span class="tag">Win = 3 leaderboard points</span>
+            <span class="tag">Win = 1 WLK</span>
+          </div>
+        </div>
+
+        <div id="lobbyTabs" class="aaaTabs">
+          <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
+          <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
+        </div>
+
+        <div id="lobbyPlay" class="lobbyPage active"></div>
+
+        <div id="lobbyStore" class="lobbyPage">
+          <div class="storePanel framedPanel">
+            <div class="sidePanelInner">
+              <div class="sectionTitle sectionCompact">Store</div>
+              <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
+              <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
               <div id="storeList"></div>
             </div>
           </div>
         </div>
-        <div class="leaderboard">
-          <div class="sectionTitle" style="margin-top: 0;">Leaderboard</div>
+      </section>
+
+      <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa">
+        <div class="sidePanelInner">
+          <div class="sectionTitle sectionCompact">Leaderboard</div>
           <div id="leaderboardList"></div>
         </div>
-      </div>
+      </aside>
     </div>
   </div>
+</div>
 
   <!-- Scripts: config first (globals), main last (calls everything) -->
   <script src="js/config.js"></script>
