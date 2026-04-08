@@ -169,27 +169,102 @@ function refreshMobileControls() {
   mobileControls.classList.toggle('show', isTouchDevice && gameState !== 'lobby');
 }
 
-// ── Color Chooser ─────────────────────────────────────────────
-function buildColorChoices() {
-  colorRow.innerHTML = '';
-  colorChoices.forEach((choice, index) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'colorChoice' + (index === selectedColorIndex ? ' selected' : '');
-    btn.style.background = `radial-gradient(circle at 30% 30%, ${choice.body}, ${choice.wand})`;
-    btn.title = `Color ${index + 1}`;
-
-    btn.addEventListener('click', () => {
-      selectedColorIndex = index;
-      applyPlayerColors();
-      buildColorChoices();
-      drawLobbyPreview();
-      saveProfile();
-    });
-
-    colorRow.appendChild(btn);
-  });
+// ── Ranked Panel (replaces color chooser) ─────────────────────
+function getRankStarsHtml(stars) {
+  let html = '';
+  for (let i = 0; i < RANKED_CONFIG.promoStarCount; i++) {
+    html += `<span style="font-size:18px; letter-spacing:1px; color:${i < stars ? '#ffd36b' : 'rgba(255,255,255,0.24)'}">★</span>`;
+  }
+  return html;
 }
+
+function getRankBadgeHtml(snapshot) {
+  const colors = {
+    bronze: '#b98157',
+    silver: '#bfc7d8',
+    gold: '#f0c45c',
+    crystal: '#7ed7ff',
+    master: '#d58cff',
+  };
+
+  const glow = colors[snapshot.tier.key] || '#ffffff';
+  return `
+    <div style="
+      width:64px;
+      height:64px;
+      border-radius:50%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:800;
+      font-size:18px;
+      color:#111;
+      background:radial-gradient(circle at 35% 30%, #fff, ${glow});
+      box-shadow:0 0 24px ${glow}55, inset 0 0 10px rgba(255,255,255,0.35);
+      border:2px solid rgba(255,255,255,0.65);
+      flex:0 0 auto;
+    ">
+      ${snapshot.tier.name.charAt(0)}
+    </div>
+  `;
+}
+
+function buildRankedPanel() {
+  if (!colorRow) return;
+
+  const snapshot = getRankedSnapshot();
+  const autoColor = getAutoColorForPlayerName(player.name);
+
+  colorRow.innerHTML = `
+    <div style="
+      width:100%;
+      padding:14px 16px;
+      border-radius:16px;
+      background:linear-gradient(180deg, rgba(22,24,34,0.95), rgba(12,14,22,0.95));
+      border:1px solid rgba(255,255,255,0.10);
+      box-shadow:0 12px 30px rgba(0,0,0,0.28);
+      color:#fff;
+    ">
+      <div style="font-size:12px; letter-spacing:1.4px; text-transform:uppercase; opacity:.7; margin-bottom:10px;">
+        Ranked
+      </div>
+
+      <div style="display:flex; align-items:center; gap:14px;">
+        ${getRankBadgeHtml(snapshot)}
+
+        <div style="min-width:0; flex:1;">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px;">
+            <div style="font-size:22px; font-weight:800; white-space:nowrap;">${escapeHtml(snapshot.tier.name)}</div>
+            <div style="font-size:13px; opacity:.75; white-space:nowrap;">MMR ${snapshot.mmr}</div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+            <div>${getRankStarsHtml(snapshot.stars)}</div>
+            <div style="font-size:12px; opacity:.78;">
+              ${snapshot.promo ? 'Rank Up Match' : `${snapshot.stars}/${RANKED_CONFIG.promoStarCount} stars`}
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+            <div style="font-size:12px; opacity:.78;">W ${snapshot.wins} • L ${snapshot.losses}</div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="
+                width:12px;
+                height:12px;
+                border-radius:50%;
+                background:${autoColor.body};
+                box-shadow:0 0 8px ${autoColor.wand};
+                border:1px solid rgba(255,255,255,0.45);
+              "></div>
+              <div style="font-size:12px; opacity:.78;">Auto color</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
 // ── Keybinds UI ───────────────────────────────────────────────
 function buildKeybindsUI() {
   bindList.innerHTML = '';
@@ -438,7 +513,6 @@ function updateSkillCooldownButtons() {
     }
   });
 
-  // Mobile buttons
   Object.entries(skillButtons).forEach(([key, btn]) => {
     if (!btn) return;
 
@@ -463,7 +537,6 @@ function updateSkillCooldownButtons() {
     }
   });
 
-  // Desktop spell bar
   Object.entries(cooldowns).forEach(([key, cd]) => {
     const cell = document.getElementById(`dspell-${key}`);
     const cdEl = document.getElementById(`dcd-${key}`);
@@ -486,7 +559,6 @@ function updateSkillCooldownButtons() {
     }
   });
 
-  // Keep keybind labels in sync
   const keyMap = {
     hook: 'dkey-hook',
     blink: 'dkey-blink',
@@ -560,6 +632,10 @@ function updateHud() {
   if (spellBar) spellBar.style.display = (gameState !== 'lobby' && !isTouchDevice) ? 'flex' : 'none';
 
   updateSkillCooldownButtons();
+
+  if (gameState === 'lobby') {
+    buildRankedPanel();
+  }
 }
 
 // ── Aim Sensitivity UI ────────────────────────────────────────
