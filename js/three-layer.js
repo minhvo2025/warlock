@@ -985,73 +985,77 @@ applyArenaModelBaseRotation(state.dummy.modelMount);
     return null;
   }
 
-  function buildAnimationStateMap(animations, mixer, mode = 'arena') {
-    const charCfg = mode === 'preview'
-      ? getLobbyCharacterConfig()
-      : getArenaCharacterConfig();
+function buildAnimationStateMap(animations, mixer, mode = 'arena') {
+  const charCfg = mode === 'preview'
+    ? getLobbyCharacterConfig()
+    : getArenaCharacterConfig();
 
-    const result = new Map();
+  const result = new Map();
 
-    const wantedStates = {
-      idle: charCfg.animations.idle,
-      walk: charCfg.animations.walk,
-      run: charCfg.animations.run,
-      cast: charCfg.animations.cast,
-      dash: charCfg.animations.dash,
-      hit: charCfg.animations.hit,
-    };
+  const wantedStates = {
+    idle: charCfg.animations.idle,
+    walk: charCfg.animations.walk,
+    run: charCfg.animations.run,
+    cast: charCfg.animations.cast,
+    dash: charCfg.animations.dash,
+    hit: charCfg.animations.hit,
+  };
 
-    const fallbackAliases = {
-      idle: ['idle', 'Idle', 'idle_1'],
-      walk: ['walk', 'Walk', 'run'],
-      run: ['run', 'Run', 'walk'],
-      cast: ['cast', 'Cast', 'attack', 'spell', 'magic'],
-      dash: ['dash', 'Dash', 'roll', 'charge'],
-      hit: ['hit', 'Hit', 'damage', 'hurt', 'react'],
-    };
+  const fallbackAliases = {
+    idle: ['idle', 'Idle', 'idle_1'],
+    walk: ['walk', 'Walk', 'run'],
+    run: ['run', 'Run', 'walk'],
+    cast: ['cast', 'Cast', 'attack', 'spell', 'magic'],
+    dash: ['dash', 'Dash', 'roll', 'charge'],
+    hit: ['hit', 'Hit', 'damage', 'hurt', 'react'],
+  };
 
-    Object.entries(wantedStates).forEach(([stateName, clipName]) => {
-      if (!mixer) return;
+  Object.entries(wantedStates).forEach(([stateName, clipName]) => {
+    if (!mixer) return;
 
-      const searchNames = [];
-      if (clipName) searchNames.push(clipName);
-      searchNames.push(...(fallbackAliases[stateName] || []));
-
-      const clip = findClipByNames(animations, searchNames);
-
-      if (!clip) {
-        console.warn(`[Outra3D] Missing animation clip "${clipName}" for state "${stateName}" (${mode})`);
-        return;
-      }
-
-      const action = mixer.clipAction(clip);
-      action.enabled = true;
-      action.clampWhenFinished = false;
-      action.setLoop(THREE.LoopRepeat, Infinity);
-
-      result.set(stateName, {
-        clipName: clip.name,
-        clip,
-        action,
-      });
-    });
-
-    if (!result.size && animations.length && mixer) {
-      const fallback = animations[0];
-      const action = mixer.clipAction(fallback);
-      action.enabled = true;
-      action.clampWhenFinished = false;
-      action.setLoop(THREE.LoopRepeat, Infinity);
-
-      result.set('idle', {
-        clipName: fallback.name,
-        clip: fallback,
-        action,
-      });
+    // Preview model is allowed to not have these states.
+    if (clipName == null || clipName === '') {
+      return;
     }
 
-    return result;
+    const searchNames = [clipName, ...(fallbackAliases[stateName] || [])];
+    const clip = findClipByNames(animations, searchNames);
+
+    if (!clip) {
+      console.warn(
+        `[Outra3D] Missing animation clip "${clipName}" for state "${stateName}" (${mode})`
+      );
+      return;
+    }
+
+    const action = mixer.clipAction(clip);
+    action.enabled = true;
+    action.clampWhenFinished = false;
+    action.setLoop(THREE.LoopRepeat, Infinity);
+
+    result.set(stateName, {
+      clipName: clip.name,
+      clip,
+      action,
+    });
+  });
+
+  if (!result.size && animations.length && mixer) {
+    const fallback = animations[0];
+    const action = mixer.clipAction(fallback);
+    action.enabled = true;
+    action.clampWhenFinished = false;
+    action.setLoop(THREE.LoopRepeat, Infinity);
+
+    result.set('idle', {
+      clipName: fallback.name,
+      clip: fallback,
+      action,
+    });
   }
+
+  return result;
+}
 
   function getWorldPosition(actor) {
     return getWorldPositionFromCoords(actor.x, actor.y);
