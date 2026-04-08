@@ -144,14 +144,32 @@ const skillAimPreview = { active: false, type: null, dx: 1, dy: 0 };
 window.OUTRA_3D_CONFIG = {
   enabled: true,
 
-  playerCharacter: {
-    glb: 'docs/art/character/Aldrion.glb',
+  lobbyArt: {
+    bg: 'docs/art/Lobby/BG.jpeg',
+    button: 'docs/art/Lobby/Button.png',
+    currency: 'docs/art/Lobby/Currency.png',
+    frame: 'docs/art/Lobby/Frame.png',
+    emberOrange: 'docs/art/Lobby/Orange.png',
+    emberPurple: 'docs/art/Lobby/Purple.png',
+    ranks: 'docs/art/Lobby/Ranks.png',
+  },
+
+  lobbyCharacter: {
+    glb: 'docs/art/Lobby/Outron_lobby.glb',
     animations: {
-      idle: 'Idle_4',
-      run: 'Running',
-      cast: 'mage_soell_cast_4',
-      dash: 'Shield_Push_Left',
-      hit: 'Hit_Reaction_1',
+      idle: 'idle',
+    },
+  },
+
+  arenaCharacter: {
+    glb: 'docs/art/character/Outron_arena.glb',
+    animations: {
+      idle: 'idle',
+      walk: 'run',
+      run: 'run',
+      cast: 'cast',
+      dash: 'dash',
+      hit: 'hit',
     },
   },
 
@@ -165,12 +183,12 @@ window.OUTRA_3D_CONFIG = {
     lockRotationY: 0,
     lockRotationZ: 0,
   },
-  
+
   floorEnergyEnabled: true,
   floorEnergySpeedX: 0.0035,
   floorEnergySpeedY: 0.0055,
   floorEnergyStrength: 1.0,
-  
+
   worldScale: 1,
   actorScale: 28,
   hoverHeight: 0,
@@ -183,22 +201,22 @@ window.OUTRA_3D_CONFIG = {
   modelYOffsetMobile: 14,
 
   previewCharacter: {
-    targetHeightDesktop: 98,
-    targetHeightMobile: 70,
-    cameraFovDesktop: 36,
-    cameraFovMobile: 40,
-    cameraYDesktop: 80,
-    cameraYMobile: 52,
-    cameraZDesktop: 380,
-    cameraZMobile: 420,
-    lookAtYDesktop: 64,
-    lookAtYMobile: 42,
-    modelYOffsetDesktop: -14,
+    targetHeightDesktop: 130,
+    targetHeightMobile: 92,
+    cameraFovDesktop: 30,
+    cameraFovMobile: 34,
+    cameraYDesktop: 86,
+    cameraYMobile: 60,
+    cameraZDesktop: 320,
+    cameraZMobile: 360,
+    lookAtYDesktop: 70,
+    lookAtYMobile: 48,
+    modelYOffsetDesktop: -12,
     modelYOffsetMobile: -8,
-    shadowScaleXDesktop: 1.7,
-    shadowScaleXMobile: 1.45,
-    shadowScaleYDesktop: 0.8,
-    shadowScaleYMobile: 0.72,
+    shadowScaleXDesktop: 1.8,
+    shadowScaleXMobile: 1.55,
+    shadowScaleYDesktop: 0.82,
+    shadowScaleYMobile: 0.74,
   },
 };
 
@@ -333,6 +351,7 @@ const startBtn          = document.getElementById('startBtn');
 const leaderboardList   = document.getElementById('leaderboardList');
 const bindList          = document.getElementById('menuBindList');
 const wlkLobbyEl        = document.getElementById('wlkLobby');
+const wlkLobbyTopEl     = document.getElementById('wlkLobbyTop');
 const storeList         = document.getElementById('storeList');
 const inventoryList     = document.getElementById('inventoryList');
 const aimSensitivitySlider = document.getElementById('aimSensitivitySlider');
