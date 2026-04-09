@@ -391,11 +391,11 @@ function getArenaModelBaseEuler() {
     let sourceAxis = 'y';
 
     if (dims.z > dims.y * 1.12 && dims.z >= dims.x) {
-      root.rotation.x = -Math.PI / 2;
+      root.rotation.x = Math.PI / 2;
       rotated = true;
       sourceAxis = 'z';
     } else if (dims.x > dims.y * 1.12 && dims.x >= dims.z) {
-      root.rotation.z = Math.PI / 2;
+      root.rotation.z = -Math.PI / 2;
       rotated = true;
       sourceAxis = 'x';
     }
