@@ -1290,50 +1290,73 @@ function update(dt) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.life -= dt;
-    for (let n = 0; n < 2; n++)
+
+    for (let n = 0; n < 2; n++) {
       particles.push({
         x: p.x, y: p.y,
-        vx: (Math.random() - 0.5) * 40, vy: (Math.random() - 0.5) * 40,
-        life: 0.18, size: 2 + Math.random() * 2,
+        vx: (Math.random() - 0.5) * 40,
+        vy: (Math.random() - 0.5) * 40,
+        life: 0.18,
+        size: 2 + Math.random() * 2,
         color: p.owner === 'player' ? 'rgba(255,140,40,0.9)' : 'rgba(130,220,255,0.9)'
       });
+    }
+
     if (circleHitsObstacle(p.x, p.y, p.r)) {
       spawnBurst(p.x, p.y, 'rgba(255,200,120,0.9)', 10, 120);
-      projectiles.splice(i, 1); continue;
+      projectiles.splice(i, 1);
+      continue;
     }
+
     if (dummyEnabled && p.owner === 'player' && dummy.alive && distance(p.x, p.y, dummy.x, dummy.y) <= p.r + dummy.r) {
       const dir = normalized(dummy.x - player.x, dummy.y - player.y);
       damageDummy(p.damage);
       dummy.vx += dir.x * p.knockback;
       dummy.vy += dir.y * p.knockback;
       spawnBurst(p.x, p.y, 'rgba(255,170,70,0.95)', 14, 160);
-      projectiles.splice(i, 1); continue;
+      projectiles.splice(i, 1);
+      continue;
     }
+
     if (p.owner === 'dummy' && player.alive && distance(p.x, p.y, player.x, player.y) <= p.r + player.r) {
       const dir = normalized(player.x - dummy.x, player.y - dummy.y);
       damagePlayer(p.damage);
       player.vx += dir.x * p.knockback;
       player.vy += dir.y * p.knockback;
       spawnBurst(p.x, p.y, 'rgba(255,170,70,0.95)', 14, 160);
-      projectiles.splice(i, 1); continue;
+      projectiles.splice(i, 1);
+      continue;
     }
-    if (p.life <= 0 || distance(p.x, p.y, arena.cx, arena.cy) > arena.radius + 180) projectiles.splice(i, 1);
+
+    if (p.life <= 0 || distance(p.x, p.y, arena.cx, arena.cy) > arena.radius + 180) {
+      projectiles.splice(i, 1);
+    }
   }
 
   for (let i = hooks.length - 1; i >= 0; i--) {
-    const h            = hooks[i];
-    const targetActor  = h.owner === 'player' ? dummy : player;
-    const caster       = h.owner === 'player' ? player : dummy;
+    const h = hooks[i];
+    const targetActor = h.owner === 'player' ? dummy : player;
+    const caster = h.owner === 'player' ? player : dummy;
 
-    if (h.owner === 'player' && h.state === 'pulling' && (!dummyEnabled || !dummy.alive)) { hooks.splice(i, 1); continue; }
-    if (h.owner === 'dummy'  && (!dummyEnabled || !dummy.alive))                          { hooks.splice(i, 1); continue; }
+    if (h.owner === 'player' && h.state === 'pulling' && (!dummyEnabled || !dummy.alive)) {
+      hooks.splice(i, 1);
+      continue;
+    }
+
+    if (h.owner === 'dummy' && (!dummyEnabled || !dummy.alive)) {
+      hooks.splice(i, 1);
+      continue;
+    }
 
     if (h.state === 'flying') {
       h.progress += dt * h.speed;
       h.x = h.sx + (h.tx - h.sx) * Math.min(1, h.progress);
       h.y = h.sy + (h.ty - h.sy) * Math.min(1, h.progress);
 
-      if (circleHitsObstacle(h.x, h.y, 4)) { hooks.splice(i, 1); continue; }
+      if (circleHitsObstacle(h.x, h.y, 4)) {
+        hooks.splice(i, 1);
+        continue;
+      }
 
       if (dummyEnabled && targetActor.alive && distance(h.x, h.y, targetActor.x, targetActor.y) <= targetActor.r + 6) {
         h.state = 'pulling';
@@ -1341,31 +1364,38 @@ function update(dt) {
         else damagePlayer(h.damage);
         spawnBurst(h.x, h.y, 'rgba(180,220,255,0.9)', 12, 120);
       } else if (h.progress >= 1) {
-        hooks.splice(i, 1); continue;
+        hooks.splice(i, 1);
+        continue;
       }
     } else {
-      const dir       = normalized(caster.x - targetActor.x, caster.y - targetActor.y);
+      const dir = normalized(caster.x - targetActor.x, caster.y - targetActor.y);
       const pullSpeed = h.owner === 'player' ? 760 : 720;
-      targetActor.vx  = dir.x * pullSpeed;
-      targetActor.vy  = dir.y * pullSpeed;
-      targetActor.x  += dir.x * pullSpeed * dt;
-      targetActor.y  += dir.y * pullSpeed * dt;
+
+      targetActor.vx = dir.x * pullSpeed;
+      targetActor.vy = dir.y * pullSpeed;
+      targetActor.x += dir.x * pullSpeed * dt;
+      targetActor.y += dir.y * pullSpeed * dt;
       pushActorOutOfObstacle(targetActor);
       h.x = targetActor.x;
       h.y = targetActor.y;
+
       if (distance(targetActor.x, targetActor.y, caster.x, caster.y) <= caster.r + targetActor.r + 6) {
         targetActor.x = caster.x + dir.x * (caster.r + targetActor.r + 6);
         targetActor.y = caster.y + dir.y * (caster.r + targetActor.r + 6);
-        hooks.splice(i, 1); continue;
-      }
-      if (circleHitsObstacle(targetActor.x, targetActor.y, targetActor.r) || !targetActor.alive || !caster.alive)
         hooks.splice(i, 1);
+        continue;
+      }
+
+      if (circleHitsObstacle(targetActor.x, targetActor.y, targetActor.r) || !targetActor.alive || !caster.alive) {
+        hooks.splice(i, 1);
+      }
     }
   }
 
   for (let i = walls.length - 1; i >= 0; i--) {
     const wall = walls[i];
     wall.life -= dt;
+
     if (wall.life <= 0) {
       for (const seg of wall.segments) {
         spawnBurst(seg.x, seg.y, 'rgba(140, 190, 255, 0.45)', 3, 55);
@@ -1376,13 +1406,16 @@ function update(dt) {
 
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
-    p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt;
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt;
     if (p.life <= 0) particles.splice(i, 1);
   }
 
   for (let i = damageTexts.length - 1; i >= 0; i--) {
     const d = damageTexts[i];
-    d.y += d.vy * dt; d.life -= dt;
+    d.y += d.vy * dt;
+    d.life -= dt;
     if (d.life <= 0) damageTexts.splice(i, 1);
   }
 
