@@ -409,23 +409,39 @@ hudToggleBtn.addEventListener('click', () => {
 menuBtn.addEventListener('click', toggleMenu);
 lobbyMenuBtn.addEventListener('click', toggleMenu);
 
-document.querySelectorAll('[data-lobby-tab]').forEach(btn =>
+document.querySelectorAll('[data-menu-tab]').forEach((btn) => {
   btn.addEventListener('click', () => {
-    const nextTab = btn.dataset.lobbyTab;
-    setLobbyTab(nextTab);
+    setMenuTab(btn.dataset.menuTab);
+  });
+});
 
-    if (nextTab === 'store') {
-      renderStore();
-      renderInventory();
-    } else if (nextTab === 'play') {
-      drawLobbyPreview();
-    }
-  })
-);
+document.querySelectorAll('[data-lobby-tab]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    setLobbyTab(btn.dataset.lobbyTab);
+  });
+});
 
-document.querySelectorAll('[data-lobby-tab]').forEach(btn =>
-  btn.addEventListener('click', () => setLobbyTab(btn.dataset.lobbyTab))
-);
+const storeCloseBtn = document.getElementById('storeCloseBtn');
+const storeModalBackdrop = document.getElementById('storeModalBackdrop');
+
+if (storeCloseBtn) {
+  storeCloseBtn.addEventListener('click', () => {
+    closeStoreModal();
+  });
+}
+
+if (storeModalBackdrop) {
+  storeModalBackdrop.addEventListener('click', () => {
+    closeStoreModal();
+  });
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.body.classList.contains('storeOpen')) {
+    e.preventDefault();
+    closeStoreModal();
+  }
+});
 
 resumeBtn.addEventListener('click', () => {
   closeMenu();
