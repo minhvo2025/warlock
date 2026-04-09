@@ -281,8 +281,15 @@ arenaCharacter: {
     hit: 'mage_soell_cast_4',
   },
 
-  // ONLY used to rotate the already-upright arena model
-  // so it faces the correct aim direction.
+  // Manual import orientation for the raw GLB.
+  // Start with this to fix the current bottom-up issue.
+  importRotation: {
+    x: -Math.PI / 2,
+    y: 0,
+    z: 0,
+  },
+
+  // Only used for aim/facing alignment after the model stands correctly.
   facingOffsetY: 0,
 
   animationSpeeds: {
