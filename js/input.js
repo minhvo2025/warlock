@@ -378,10 +378,12 @@ canvas.addEventListener('touchmove', (e) => {
 function openMenu() {
   menuOpen = true;
   menuPanel.style.display = 'block';
+
   requestAnimationFrame(() => {
     menuPanel.classList.add('open');
     document.body.classList.add('menuVisible');
   });
+
   setMenuTab(activeMenuTab);
 }
 
@@ -399,6 +401,20 @@ function toggleMenu() {
   if (menuOpen) closeMenu();
   else openMenu();
 }
+
+document.addEventListener('pointerdown', (e) => {
+  if (!menuOpen) return;
+  if (!menuPanel.classList.contains('open')) return;
+
+  const clickedInsideMenu = menuPanel.contains(e.target);
+  const clickedMenuButton =
+    menuBtn.contains(e.target) ||
+    lobbyMenuBtn.contains(e.target);
+
+  if (!clickedInsideMenu && !clickedMenuButton) {
+    closeMenu();
+  }
+});
 
 // ── UI Button Events ──────────────────────────────────────────
 hudToggleBtn.addEventListener('click', () => {
