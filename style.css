@@ -1514,17 +1514,6 @@ body.menuVisible::before {
   z-index: 1;
 }
 
-.heroParticlesOrange {
-  background: url('docs/art/Lobby/Orange.png') center / 220px auto repeat;
-  animation: lobbyOrangeDrift 18s linear infinite;
-}
-
-.heroParticlesPurple {
-  background: url('docs/art/Lobby/Purple.png') center / 240px auto repeat;
-  animation: lobbyPurpleDrift 24s linear infinite reverse;
-  opacity: 0.14;
-}
-
 .heroBottomGlow {
   position: absolute;
   left: 50%;
