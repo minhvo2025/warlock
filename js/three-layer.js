@@ -484,45 +484,36 @@ function getArenaModelBaseEuler() {
 
     stylizeModel(root);
 
-    // Keep the authored pivot for arena rotation,
-    // but still normalize the up-axis so the model stands upright.
+    // Reset root completely. No auto-rotation here — orientation is handled
+    // entirely by modelMount's baseRotation (applyArenaModelBaseRotation).
     root.position.set(0, 0, 0);
     root.rotation.set(0, 0, 0);
     root.scale.set(1, 1, 1);
     root.updateMatrixWorld(true);
 
-    const normalizeInfo = normalizeRootUpAxis(root, {
-      allowAutoRotate: true
-    });
-
     let box = computeBox(root);
     let size = new THREE.Vector3();
     box.getSize(size);
 
+    // Use the largest dimension for scaling so the model fits regardless of axis orientation.
+    const maxDim = Math.max(size.x, size.y, size.z, 1);
     const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
-    const sourceHeight = Math.max(size.y || 1, 1);
-    const scale = targetHeight / sourceHeight;
+    const scale = targetHeight / maxDim;
 
     root.scale.setScalar(scale);
     root.updateMatrixWorld(true);
 
+    // Fully center the model on all axes so it doesn't orbit around a misaligned GLB pivot.
     box = computeBox(root);
-    let center = new THREE.Vector3();
+    const center = new THREE.Vector3();
     box.getCenter(center);
-
-    // Center X/Z so the model doesn't orbit around a misaligned GLB pivot.
-    root.position.x -= center.x;
-    root.position.z -= center.z;
-    // Ground vertically so feet sit at Y=0.
-    root.position.y -= box.min.y;
+    root.position.sub(center);
     root.position.y += (cfg.hoverHeight || 0);
     root.updateMatrixWorld(true);
 
-    log('Prepared arena model transform (keep GLB pivot)', {
-      sourceHeight: sourceHeight.toFixed(2),
+    log('Prepared arena model transform', {
+      size: size.x.toFixed(1) + ' x ' + size.y.toFixed(1) + ' x ' + size.z.toFixed(1),
       scale: scale.toFixed(2),
-      minY: box.min.y.toFixed(2),
-      rotatedFromAxis: normalizeInfo.sourceAxis
     });
   }
   
