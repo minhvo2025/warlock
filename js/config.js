@@ -324,8 +324,8 @@ window.OUTRA_3D_CONFIG = {
     lookAtYDesktop: 74,
     lookAtYMobile: 54,
 
-    modelYOffsetDesktop: -18,
-    modelYOffsetMobile: -12,
+    modelYOffsetDesktop: -28,
+    modelYOffsetMobile: -20,
 
     shadowScaleXDesktop: 1.8,
     shadowScaleXMobile: 1.55,
