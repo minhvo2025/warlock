@@ -75,7 +75,17 @@
     },
   };
 
-const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI, 0, 0, 'XYZ');
+function getArenaModelBaseEuler() {
+  const charCfg = cfg.arenaCharacter || {};
+  const baseRotation = charCfg.baseRotation || {};
+
+  return new THREE.Euler(
+    typeof baseRotation.x === 'number' ? baseRotation.x : 0,
+    typeof baseRotation.y === 'number' ? baseRotation.y : 0,
+    typeof baseRotation.z === 'number' ? baseRotation.z : 0,
+    'XYZ'
+  );
+}
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -106,6 +116,17 @@ const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI, 0, 0, 'XYZ');
         hit: charCfg.animations?.hit || 'hit',
       },
     };
+  }
+    function getArenaAnimationSpeed(stateName) {
+    const charCfg = cfg.arenaCharacter || {};
+    const speeds = charCfg.animationSpeeds || {};
+    const speed = Number(speeds[stateName]);
+    return Number.isFinite(speed) && speed > 0 ? speed : 1;
+  }
+
+  function applyActionTimeScale(action, stateName) {
+    if (!action) return;
+    action.setEffectiveTimeScale(getArenaAnimationSpeed(stateName));
   }
 
   function getLobbyCharacterConfig() {
@@ -538,10 +559,12 @@ const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI, 0, 0, 'XYZ');
   function applyArenaModelBaseRotation(mount) {
     if (!mount) return;
 
+    const baseEuler = getArenaModelBaseEuler();
+
     mount.rotation.set(
-      ARENA_MODEL_BASE_EULER.x,
-      ARENA_MODEL_BASE_EULER.y,
-      ARENA_MODEL_BASE_EULER.z
+      baseEuler.x,
+      baseEuler.y,
+      baseEuler.z
     );
 
     mount.position.set(0, 0, 0);
@@ -1114,23 +1137,32 @@ const ARENA_MODEL_BASE_EULER = new THREE.Euler(Math.PI, 0, 0, 'XYZ');
   function crossFadeState(mixerState, nextName, force = false) {
     if (!mixerState || !mixerState.states || !mixerState.states.has(nextName)) return;
 
-    if (!force && mixerState.currentState === nextName) return;
+    if (!force && mixerState.currentState === nextName) {
+      const same = mixerState.states.get(nextName)?.action;
+      if (same) {
+        applyActionTimeScale(same, nextName);
+      }
+      return;
+    }
 
     const next = mixerState.states.get(nextName)?.action;
     if (!next) return;
 
-    const prev = mixerState.currentState && mixerState.states.get(mixerState.currentState)?.action;
+    const prev =
+      mixerState.currentState &&
+      mixerState.states.get(mixerState.currentState)?.action;
 
     if (prev === next) {
       mixerState.currentState = nextName;
       next.enabled = true;
+      applyActionTimeScale(next, nextName);
       next.play();
       return;
     }
 
     next.reset();
     next.enabled = true;
-    next.setEffectiveTimeScale(1);
+    applyActionTimeScale(next, nextName);
     next.setEffectiveWeight(1);
     next.play();
 
