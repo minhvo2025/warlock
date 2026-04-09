@@ -409,8 +409,18 @@ hudToggleBtn.addEventListener('click', () => {
 menuBtn.addEventListener('click', toggleMenu);
 lobbyMenuBtn.addEventListener('click', toggleMenu);
 
-document.querySelectorAll('[data-menu-tab]').forEach(btn =>
-  btn.addEventListener('click', () => setMenuTab(btn.dataset.menuTab))
+document.querySelectorAll('[data-lobby-tab]').forEach(btn =>
+  btn.addEventListener('click', () => {
+    const nextTab = btn.dataset.lobbyTab;
+    setLobbyTab(nextTab);
+
+    if (nextTab === 'store') {
+      renderStore();
+      renderInventory();
+    } else if (nextTab === 'play') {
+      drawLobbyPreview();
+    }
+  })
 );
 
 document.querySelectorAll('[data-lobby-tab]').forEach(btn =>
