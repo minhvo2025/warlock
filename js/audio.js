@@ -1,38 +1,129 @@
-// ── Audio Context ─────────────────────────────────────────────
+// ── Audio Context / Music ─────────────────────────────────────
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-let musicGain       = null;
-let musicMasterGain = null;
-let musicStarted    = false;
-let musicTimer      = 0;
-let musicStep       = 0;
 
-const musicNotes = [
-  261.63, 329.63, 392.0, 523.25,
-  392.0, 329.63, 293.66, 349.23
-];
+let musicMasterGain = null;
+let musicStarted = false;
+let musicUnlocked = false;
+let lobbyMusicAudio = null;
+let lobbyMusicSource = null;
+
+const LOBBY_MUSIC_SRC = '/docs/Music/Lobby_music.mp3';
+const LOBBY_MUSIC_VOLUME = 0.38;
 
 // ── Core Audio Helpers ────────────────────────────────────────
 function ensureAudioReady() {
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
 
   if (!musicMasterGain) {
     musicMasterGain = audioCtx.createGain();
-    musicMasterGain.gain.value = musicMuted ? 0 : 0.035;
+    musicMasterGain.gain.value = musicMuted ? 0 : LOBBY_MUSIC_VOLUME;
     musicMasterGain.connect(audioCtx.destination);
-  }
-
-  if (!musicGain) {
-    musicGain = audioCtx.createGain();
-    musicGain.gain.value = 1;
-    musicGain.connect(musicMasterGain);
   }
 }
 
+function ensureLobbyMusicElement() {
+  if (lobbyMusicAudio) return lobbyMusicAudio;
+
+  lobbyMusicAudio = new Audio(LOBBY_MUSIC_SRC);
+  lobbyMusicAudio.loop = true;
+  lobbyMusicAudio.preload = 'auto';
+  lobbyMusicAudio.crossOrigin = 'anonymous';
+  lobbyMusicAudio.playsInline = true;
+
+  return lobbyMusicAudio;
+}
+
+function connectLobbyMusicToAudioGraph() {
+  ensureAudioReady();
+  const audioEl = ensureLobbyMusicElement();
+
+  if (!lobbyMusicSource) {
+    lobbyMusicSource = audioCtx.createMediaElementSource(audioEl);
+    lobbyMusicSource.connect(musicMasterGain);
+  }
+}
+
+function startLobbyMusicPlayback() {
+  if (musicMuted) return;
+
+  ensureAudioReady();
+  connectLobbyMusicToAudioGraph();
+
+  const playPromise = lobbyMusicAudio.play();
+  if (playPromise && typeof playPromise.catch === 'function') {
+    playPromise.catch(() => {
+      // Ignore blocked autoplay attempts; first user interaction will retry.
+    });
+  }
+
+  musicStarted = true;
+}
+
+function pauseLobbyMusicPlayback() {
+  if (lobbyMusicAudio) {
+    lobbyMusicAudio.pause();
+  }
+}
+
+// ── Music State ───────────────────────────────────────────────
+function updateMusic(_dt) {
+  // Kept because game.js already calls updateMusic(dt) every frame.
+  // Real music is now handled by the HTMLAudio element instead of tone steps.
+}
+
+function setMusicMuted(value) {
+  musicMuted = !!value;
+  profile.musicMuted = musicMuted;
+
+  ensureAudioReady();
+
+  if (musicMasterGain) {
+    musicMasterGain.gain.value = musicMuted ? 0 : LOBBY_MUSIC_VOLUME;
+  }
+
+  if (musicMuted) {
+    pauseLobbyMusicPlayback();
+  } else if (musicUnlocked) {
+    startLobbyMusicPlayback();
+  }
+
+  musicToggleBtn.textContent = `Music: ${musicMuted ? 'Off' : 'On'}`;
+  musicToggleBtn.className = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
+  saveProfile();
+}
+
+function startMusicIfNeeded() {
+  musicUnlocked = true;
+
+  ensureAudioReady();
+  connectLobbyMusicToAudioGraph();
+
+  if (!musicMuted) {
+    startLobbyMusicPlayback();
+  }
+}
+
+// ── Unlock music on first user interaction in lobby ───────────
+function unlockMusicFromGesture() {
+  startMusicIfNeeded();
+
+  window.removeEventListener('pointerdown', unlockMusicFromGesture);
+  window.removeEventListener('keydown', unlockMusicFromGesture);
+  window.removeEventListener('touchstart', unlockMusicFromGesture);
+}
+
+window.addEventListener('pointerdown', unlockMusicFromGesture, { passive: true });
+window.addEventListener('keydown', unlockMusicFromGesture);
+window.addEventListener('touchstart', unlockMusicFromGesture, { passive: true });
+
+// ── Tone Helper for Sound Effects ─────────────────────────────
 function playTone(type, frequency, duration, volume, frequencyEnd = null, outputGain = null) {
   ensureAudioReady();
 
-  const now  = audioCtx.currentTime;
-  const osc  = audioCtx.createOscillator();
+  const now = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
   const gain = audioCtx.createGain();
 
   osc.type = type;
@@ -51,52 +142,6 @@ function playTone(type, frequency, duration, volume, frequencyEnd = null, output
 
   osc.start(now);
   osc.stop(now + duration + 0.03);
-}
-
-// ── Music ─────────────────────────────────────────────────────
-function playMusicStep() {
-  if (musicMuted) return;
-
-  ensureAudioReady();
-
-  const note = musicNotes[musicStep % musicNotes.length];
-  playTone('triangle', note,     0.28, 0.5,  null, musicGain);
-  playTone('sine',     note / 2, 0.38, 0.18, null, musicGain);
-
-  musicStep++;
-}
-
-function updateMusic(dt) {
-  if (!musicStarted) return;
-
-  musicTimer -= dt;
-  if (musicTimer <= 0) {
-    playMusicStep();
-    musicTimer = 0.42;
-  }
-}
-
-function setMusicMuted(value) {
-  musicMuted = value;
-  profile.musicMuted = value;
-
-  ensureAudioReady();
-
-  if (musicMasterGain) {
-    musicMasterGain.gain.value = musicMuted ? 0 : 0.035;
-  }
-
-  musicToggleBtn.textContent = `Music: ${musicMuted ? 'Off' : 'On'}`;
-  musicToggleBtn.className   = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
-  saveProfile();
-}
-
-function startMusicIfNeeded() {
-  if (!musicStarted) {
-    ensureAudioReady();
-    musicStarted = true;
-    musicTimer   = 0.1;
-  }
 }
 
 // ── Sound Effects ─────────────────────────────────────────────
