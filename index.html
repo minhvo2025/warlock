@@ -337,7 +337,25 @@
         </aside>
       </div>
     </div>
+ <div id="storeModal" class="storeModal" aria-hidden="true">
+    <div id="storeModalBackdrop" class="storeModalBackdrop"></div>
+
+    <div class="storeModalDialog">
+      <button id="storeCloseBtn" class="secondary storeCloseBtn" type="button">Close</button>
+
+      <div class="storeModalHeader">
+        <div>
+          <div class="heroOverline">Arcane Market</div>
+          <div class="heroTitle storeModalTitle">Store</div>
+        </div>
+        <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
+      </div>
+
+      <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
+      <div id="storeList" class="storeModalList"></div>
+    </div>
   </div>
+</div>
 
   <!-- Scripts: config first, main last -->
   <script src="js/config.js"></script>
