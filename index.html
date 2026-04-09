@@ -2,17 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  />
   <title>Outra</title>
   <link rel="stylesheet" href="style.css" />
-  <link rel="icon" type="image/png" href="/docs/art/logo.png">
+  <link rel="icon" type="image/png" href="/docs/art/logo.png" />
 </head>
 <body>
- <div id="stage">
-  <canvas id="game"></canvas>
-  <div id="threeLayer" aria-hidden="true"></div>
-  <canvas id="gameFx" aria-hidden="true"></canvas>
-</div>
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div id="threeLayer" aria-hidden="true"></div>
+    <canvas id="gameFx" aria-hidden="true"></canvas>
+  </div>
 
   <div id="hud">
     <div><strong>Outra</strong></div>
@@ -33,48 +36,56 @@
       <div class="deskSpellLabel">Fire</div>
       <div class="deskSpellKey">M1</div>
     </div>
+
     <div class="deskSpell" id="dspell-hook">
       <div class="deskSpellIcon">🪝</div>
       <div class="deskSpellCooldown" id="dcd-hook"></div>
       <div class="deskSpellLabel">Hook</div>
       <div class="deskSpellKey" id="dkey-hook">E</div>
     </div>
+
     <div class="deskSpell" id="dspell-blink">
       <div class="deskSpellIcon">✦</div>
       <div class="deskSpellCooldown" id="dcd-blink"></div>
       <div class="deskSpellLabel">Blink</div>
       <div class="deskSpellKey" id="dkey-blink">Space</div>
     </div>
+
     <div class="deskSpell" id="dspell-shield">
       <div class="deskSpellIcon">🛡️</div>
       <div class="deskSpellCooldown" id="dcd-shield"></div>
       <div class="deskSpellLabel">Shield</div>
       <div class="deskSpellKey" id="dkey-shield">Q</div>
     </div>
+
     <div class="deskSpell" id="dspell-charge">
       <div class="deskSpellIcon">⚡</div>
       <div class="deskSpellCooldown" id="dcd-charge"></div>
       <div class="deskSpellLabel">Charge</div>
       <div class="deskSpellKey" id="dkey-charge">F</div>
     </div>
+
     <div class="deskSpell" id="dspell-shock">
       <div class="deskSpellIcon">💥</div>
       <div class="deskSpellCooldown" id="dcd-shock"></div>
       <div class="deskSpellLabel">Shock</div>
       <div class="deskSpellKey" id="dkey-shock">C</div>
     </div>
+
     <div class="deskSpell" id="dspell-gust">
       <div class="deskSpellIcon">🌪️</div>
       <div class="deskSpellCooldown" id="dcd-gust"></div>
       <div class="deskSpellLabel">Gust</div>
       <div class="deskSpellKey" id="dkey-gust">X</div>
     </div>
+
     <div class="deskSpell" id="dspell-wall">
       <div class="deskSpellIcon">🧱</div>
       <div class="deskSpellCooldown" id="dcd-wall"></div>
       <div class="deskSpellLabel">Wall</div>
       <div class="deskSpellKey" id="dkey-wall">V</div>
     </div>
+
     <div class="deskSpell" id="dspell-rewind">
       <div class="deskSpellIcon">⏪</div>
       <div class="deskSpellCooldown" id="dcd-rewind"></div>
@@ -96,17 +107,71 @@
       </div>
       <div class="mobileLabel">Move</div>
     </div>
+
     <div class="mobileSide">
       <div class="mobileActions">
-        <button class="mobileBtn big mainSkill" id="mobileFireBtn"><span class="mobileBtnIcon">🔥</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Fire</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileHookBtn"><span class="mobileBtnIcon small">🪝</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Hook</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileTeleportBtn"><span class="mobileBtnIcon small">✦</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Blink</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileShieldBtn"><span class="mobileBtnIcon small">🛡️</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Shield</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileChargeBtn"><span class="mobileBtnIcon small">⚡</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Charge</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileShockBtn"><span class="mobileBtnIcon small">💥</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Shock</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileGustBtn"><span class="mobileBtnIcon small">🌪️</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Gust</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileWallBtn"><span class="mobileBtnIcon small">🧱</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Wall</span><div class="mobileDragArrow"></div></button>
-        <button class="mobileBtn big subSkill" id="mobileRewindBtn"><span class="mobileBtnIcon small">⏪</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Rewind</span><div class="mobileDragArrow"></div></button>
+        <button class="mobileBtn big mainSkill" id="mobileFireBtn">
+          <span class="mobileBtnIcon">🔥</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Fire</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileHookBtn">
+          <span class="mobileBtnIcon small">🪝</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Hook</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileTeleportBtn">
+          <span class="mobileBtnIcon small">✦</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Blink</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileShieldBtn">
+          <span class="mobileBtnIcon small">🛡️</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Shield</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileChargeBtn">
+          <span class="mobileBtnIcon small">⚡</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Charge</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileShockBtn">
+          <span class="mobileBtnIcon small">💥</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Shock</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileGustBtn">
+          <span class="mobileBtnIcon small">🌪️</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Gust</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileWallBtn">
+          <span class="mobileBtnIcon small">🧱</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Wall</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileRewindBtn">
+          <span class="mobileBtnIcon small">⏪</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Rewind</span>
+          <div class="mobileDragArrow"></div>
+        </button>
       </div>
       <div class="mobileLabel">Main skill in center, others around it</div>
     </div>
@@ -114,49 +179,52 @@
 
   <div id="menuPanel">
     <div class="menuTitle">Menu</div>
+
     <div id="menuTabs">
       <button class="secondary tabBtn active" data-menu-tab="main">Main</button>
       <button class="secondary tabBtn" data-menu-tab="keybinds">Keybinds</button>
       <button class="secondary tabBtn" data-menu-tab="settings">Settings</button>
     </div>
+
     <div id="menuMain" class="menuPage active">
-   <div class="row menuActionList" style="flex-direction: column; align-items: stretch;">
-  <button id="resumeBtn" class="menuActionBtn">
-    <span class="menuBtnBadge">✦</span>
-    <span class="menuBtnLabel">Resume</span>
-  </button>
+      <div class="row menuActionList" style="flex-direction: column; align-items: stretch;">
+        <button id="resumeBtn" class="menuActionBtn">
+          <span class="menuBtnBadge">✦</span>
+          <span class="menuBtnLabel">Resume</span>
+        </button>
 
-  <button id="musicToggleBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">♫</span>
-    <span class="menuBtnLabel">Music: On</span>
-  </button>
+        <button id="musicToggleBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">♫</span>
+          <span class="menuBtnLabel">Music: On</span>
+        </button>
 
-  <button id="standingDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">◈</span>
-    <span class="menuBtnLabel">Start Standing Dummy</span>
-  </button>
+        <button id="standingDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">◈</span>
+          <span class="menuBtnLabel">Start Standing Dummy</span>
+        </button>
 
-  <button id="activeDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">✹</span>
-    <span class="menuBtnLabel">Start Active Dummy</span>
-  </button>
+        <button id="activeDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">✹</span>
+          <span class="menuBtnLabel">Start Active Dummy</span>
+        </button>
 
-  <button id="removeDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">✕</span>
-    <span class="menuBtnLabel">Remove Dummy</span>
-  </button>
+        <button id="removeDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">✕</span>
+          <span class="menuBtnLabel">Remove Dummy</span>
+        </button>
 
-  <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
-    <span class="menuBtnBadge">⛧</span>
-    <span class="menuBtnLabel">Go to Lobby</span>
-  </button>
+        <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
+          <span class="menuBtnBadge">⛧</span>
+          <span class="menuBtnLabel">Go to Lobby</span>
+        </button>
 
-  <button id="resetBtn" class="secondary menuActionBtn dangerBtn">
-    <span class="menuBtnBadge">☠</span>
-    <span class="menuBtnLabel">Reset Round</span>
-  </button>
-</div>
+        <button id="resetBtn" class="secondary menuActionBtn dangerBtn">
+          <span class="menuBtnBadge">☠</span>
+          <span class="menuBtnLabel">Reset Round</span>
+        </button>
+      </div>
     </div>
+
     <div id="menuKeybinds" class="menuPage">
       <div id="menuBindList"></div>
       <div class="hint" style="margin-top: 10px;">Mouse buttons stay fixed to avoid browser conflicts.</div>
@@ -164,110 +232,125 @@
         <button id="menuResetBindsBtn" class="secondary">Reset Keys</button>
       </div>
     </div>
+
     <div id="menuSettings" class="menuPage">
       <div class="sectionTitle" style="margin-top:0; font-size:16px;">Aim Drag Sensitivity</div>
       <div class="hint">Lower makes dragging calmer and less twitchy.</div>
       <div class="row" style="margin-top:10px; align-items:center;">
-        <input id="aimSensitivitySlider" type="range" min="0.35" max="1.4" step="0.05" value="0.7" style="width:180px;" />
+        <input
+          id="aimSensitivitySlider"
+          type="range"
+          min="0.35"
+          max="1.4"
+          step="0.05"
+          value="0.7"
+          style="width:180px;"
+        />
         <span id="aimSensitivityValue" class="tag">0.70x</span>
       </div>
     </div>
   </div>
 
   <div id="overlay">
-  <div class="panel lobbyShell">
-    <div class="lobbyTopBar">
-      <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
+    <div class="panel lobbyShell">
+      <div class="lobbyTopBar">
+        <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
 
-      <div class="lobbyBrandWrap">
-        <div class="lobbyBrandEyebrow">Arcane Arena</div>
-        <div class="lobbyBrand">Outra Lobby</div>
-      </div>
+        <div class="lobbyBrandWrap">
+          <div class="lobbyBrandEyebrow">Arcane Arena</div>
+          <div class="lobbyBrand">Outra Lobby</div>
+        </div>
 
-      <div class="lobbyTopRight">
-        <div class="topCurrencyCard">
-          <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
-          <span id="wlkLobbyTop">0</span>
+        <div class="lobbyTopRight">
+          <div class="topCurrencyCard">
+            <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
+            <span id="wlkLobbyTop">0</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="lobbyMainGrid">
-      <aside class="lobbySide lobbyLeft framedPanel">
-        <div class="sidePanelInner">
-          <div class="sectionTitle sectionCompact">Your Name</div>
-          <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
+      <div class="lobbyMainGrid immersiveLobbyGrid">
+        <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
+          <div class="sidePanelInner">
+            <div class="sectionTitle sectionCompact">Your Name</div>
+            <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
 
-          <div class="sectionTitle">Choose Character Color</div>
-          <div id="colorRow" class="colorRowAaa"></div>
+            <div class="sectionTitle">Choose Character Color</div>
+            <div id="colorRow" class="colorRowAaa"></div>
 
-          <div class="sectionTitle">Inventory</div>
-          <div id="inventoryList" class="inventoryGrid"></div>
-        </div>
-      </aside>
+            <div class="sectionTitle">Inventory</div>
+            <div id="inventoryList" class="inventoryGrid"></div>
+          </div>
+        </aside>
 
-      <section class="lobbyCenter">
-        <div class="heroStage framedPanel">
-          <div class="heroStageHeader">
-            <div>
-              <div class="heroOverline">Character Preview</div>
-              <div class="heroTitle">Outron</div>
+        <section class="lobbyCenter immersiveLobbyCenter">
+          <div class="heroStage immersiveHeroStage">
+            <div class="heroStageBackdrop"></div>
+
+            <div class="heroStageHeader immersiveStageHeader">
+              <div>
+                <div class="heroOverline">Arcane Chamber</div>
+                <div class="heroTitle">Outron</div>
+              </div>
+            </div>
+
+            <div id="previewViewport" class="heroViewport immersiveViewport">
+              <canvas id="previewCanvas" width="320" height="240"></canvas>
+
+              <div class="heroParticles heroParticlesOrange"></div>
+              <div class="heroParticles heroParticlesPurple"></div>
+              <div class="heroBottomGlow"></div>
+              <div class="heroStageVignette"></div>
+            </div>
+
+            <div class="heroStageFooter">
+              <div class="heroHint immersiveHeroHint">
+                The mage now stands inside the lobby scene.
+              </div>
             </div>
           </div>
 
-          <div id="previewViewport" class="heroViewport">
-            <canvas id="previewCanvas" width="320" height="240"></canvas>
-            <div id="previewThreeLayer" aria-hidden="true"></div>
+          <div class="ctaWrap">
+            <button id="startBtn" class="enterArenaBtn">
+              <span class="enterArenaText">Enter Arena</span>
+            </button>
 
-            <div class="heroParticles heroParticlesOrange"></div>
-            <div class="heroParticles heroParticlesPurple"></div>
-            <div class="heroBottomGlow"></div>
-          </div>
-
-          <div class="heroHint">Drag left or right to rotate the model.</div>
-        </div>
-
-        <div class="ctaWrap">
-          <button id="startBtn" class="enterArenaBtn">
-            <span class="enterArenaText">Enter Arena</span>
-          </button>
-
-          <div class="rewardRow">
-            <span class="tag">Win = 3 leaderboard points</span>
-            <span class="tag">Win = 1 WLK</span>
-          </div>
-        </div>
-
-        <div id="lobbyTabs" class="aaaTabs">
-          <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
-          <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
-        </div>
-
-        <div id="lobbyPlay" class="lobbyPage active"></div>
-
-        <div id="lobbyStore" class="lobbyPage">
-          <div class="storePanel framedPanel">
-            <div class="sidePanelInner">
-              <div class="sectionTitle sectionCompact">Store</div>
-              <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
-              <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
-              <div id="storeList"></div>
+            <div class="rewardRow">
+              <span class="tag">Win = 3 leaderboard points</span>
+              <span class="tag">Win = 1 WLK</span>
             </div>
           </div>
-        </div>
-      </section>
 
-      <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa">
-        <div class="sidePanelInner">
-          <div class="sectionTitle sectionCompact">Leaderboard</div>
-          <div id="leaderboardList"></div>
-        </div>
-      </aside>
+          <div id="lobbyTabs" class="aaaTabs">
+            <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
+            <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
+          </div>
+
+          <div id="lobbyPlay" class="lobbyPage active"></div>
+
+          <div id="lobbyStore" class="lobbyPage">
+            <div class="storePanel framedPanel floatingLobbyPanel">
+              <div class="sidePanelInner">
+                <div class="sectionTitle sectionCompact">Store</div>
+                <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
+                <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
+                <div id="storeList"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa floatingLobbyPanel">
+          <div class="sidePanelInner">
+            <div class="sectionTitle sectionCompact">Leaderboard</div>
+            <div id="leaderboardList"></div>
+          </div>
+        </aside>
+      </div>
     </div>
   </div>
-</div>
 
-  <!-- Scripts: config first (globals), main last (calls everything) -->
+  <!-- Scripts: config first, main last -->
   <script src="js/config.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/vendor/three.min.js"></script>

@@ -43,39 +43,39 @@
       baseScale: 1,
       sourceDiameter: 1,
     },
-player: {
-  root: null,
-  mixer: null,
-  states: new Map(),
-  currentState: 'idle',
-  castTimer: 0,
-  hitTimer: 0,
-  dashTimer: 0,
-  lastHp: null,
-  shadow: null,
-  rootGroup: null,
-  yawGroup: null,
-  modelMount: null,
-  rigFixNode: null,
-},
-dummy: {
-  root: null,
-  mixer: null,
-  states: new Map(),
-  currentState: 'idle',
-  castTimer: 0,
-  hitTimer: 0,
-  dashTimer: 0,
-  lastHp: null,
-  shadow: null,
-  rootGroup: null,
-  yawGroup: null,
-  modelMount: null,
-  rigFixNode: null,
-},
+    player: {
+      root: null,
+      mixer: null,
+      states: new Map(),
+      currentState: 'idle',
+      castTimer: 0,
+      hitTimer: 0,
+      dashTimer: 0,
+      lastHp: null,
+      shadow: null,
+      rootGroup: null,
+      yawGroup: null,
+      modelMount: null,
+      rigFixNode: null,
+    },
+    dummy: {
+      root: null,
+      mixer: null,
+      states: new Map(),
+      currentState: 'idle',
+      castTimer: 0,
+      hitTimer: 0,
+      dashTimer: 0,
+      lastHp: null,
+      shadow: null,
+      rootGroup: null,
+      yawGroup: null,
+      modelMount: null,
+      rigFixNode: null,
+    },
   };
 
-const ARENA_MODEL_BASE_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
+  const ARENA_MODEL_BASE_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
 
   function log(...args) {
     console.log('[Outra3D]', ...args);
@@ -347,114 +347,115 @@ const ARENA_MODEL_BASE_EULER = new THREE.Euler(0, 0, 0, 'XYZ');
     });
   }
 
-function centerAndScaleModel(root, targetHeightOverride, options = {}) {
-  const autoRotateZUpToYUp = options.autoRotateZUpToYUp !== false;
+  function centerAndScaleModel(root, targetHeightOverride, options = {}) {
+    const autoRotateZUpToYUp = options.autoRotateZUpToYUp !== false;
 
-  traverseMeshes(root, (obj) => {
-    obj.castShadow = false;
-    obj.receiveShadow = false;
-    obj.frustumCulled = false;
+    traverseMeshes(root, (obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      obj.frustumCulled = false;
 
-    if (Array.isArray(obj.material)) {
-      obj.material = obj.material.map(cloneMaterial);
-    } else if (obj.material) {
-      obj.material = cloneMaterial(obj.material);
+      if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map(cloneMaterial);
+      } else if (obj.material) {
+        obj.material = cloneMaterial(obj.material);
+      }
+    });
+
+    stylizeModel(root);
+
+    let box = computeBox(root);
+    let center = new THREE.Vector3();
+    let size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+
+    // IMPORTANT:
+    // Only do this auto-rotation when explicitly allowed.
+    // Your arena model is likely already in the correct up-axis,
+    // and this was flipping it into the wrong orientation.
+    if (autoRotateZUpToYUp && size.y < size.z) {
+      root.rotation.x = -Math.PI / 2;
+      box = computeBox(root);
+      box.getCenter(center);
+      box.getSize(size);
+      log('Auto-rotated model from Z-up to Y-up');
     }
-  });
 
-  stylizeModel(root);
+    root.position.sub(center);
 
-  let box = computeBox(root);
-  let center = new THREE.Vector3();
-  let size = new THREE.Vector3();
-  box.getCenter(center);
-  box.getSize(size);
-
-  // IMPORTANT:
-  // Only do this auto-rotation when explicitly allowed.
-  // Your arena model is likely already in the correct up-axis,
-  // and this was flipping it into the wrong orientation.
-  if (autoRotateZUpToYUp && size.y < size.z) {
-    root.rotation.x = -Math.PI / 2;
     box = computeBox(root);
     box.getCenter(center);
     box.getSize(size);
-    log('Auto-rotated model from Z-up to Y-up');
+
+    const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
+    const sourceHeight = Math.max(size.y || 1, 1);
+    const scale = targetHeight / sourceHeight;
+
+    root.scale.setScalar(scale);
+
+    box = computeBox(root);
+    box.getCenter(center);
+    box.getSize(size);
+
+    root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
+
+    log('Prepared model size:', {
+      x: size.x.toFixed(2),
+      y: size.y.toFixed(2),
+      z: size.z.toFixed(2),
+      scale: scale.toFixed(2),
+      autoRotateZUpToYUp
+    });
   }
 
-  root.position.sub(center);
+  function prepareArenaModelTransform(root, targetHeightOverride) {
+    traverseMeshes(root, (obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      obj.frustumCulled = false;
 
-  box = computeBox(root);
-  box.getCenter(center);
-  box.getSize(size);
+      if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map(cloneMaterial);
+      } else if (obj.material) {
+        obj.material = cloneMaterial(obj.material);
+      }
+    });
 
-  const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
-  const sourceHeight = Math.max(size.y || 1, 1);
-  const scale = targetHeight / sourceHeight;
+    stylizeModel(root);
 
-  root.scale.setScalar(scale);
+    // IMPORTANT:
+    // For arena, keep the GLB pivot exactly as authored.
+    // Do NOT center on X/Z, otherwise the model can orbit when parent yaw rotates.
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
+    root.updateMatrixWorld(true);
 
-  box = computeBox(root);
-  box.getCenter(center);
-  box.getSize(size);
+    let box = computeBox(root);
+    let size = new THREE.Vector3();
+    box.getSize(size);
 
-  root.position.y += (size.y * 0.5) + (cfg.hoverHeight || 0);
+    const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
+    const sourceHeight = Math.max(size.y || 1, 1);
+    const scale = targetHeight / sourceHeight;
 
-  log('Prepared model size:', {
-    x: size.x.toFixed(2),
-    y: size.y.toFixed(2),
-    z: size.z.toFixed(2),
-    scale: scale.toFixed(2),
-    autoRotateZUpToYUp
-  });
-}
-function prepareArenaModelTransform(root, targetHeightOverride) {
-  traverseMeshes(root, (obj) => {
-    obj.castShadow = false;
-    obj.receiveShadow = false;
-    obj.frustumCulled = false;
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
 
-    if (Array.isArray(obj.material)) {
-      obj.material = obj.material.map(cloneMaterial);
-    } else if (obj.material) {
-      obj.material = cloneMaterial(obj.material);
-    }
-  });
+    box = computeBox(root);
 
-  stylizeModel(root);
+    // Only ground vertically. Leave X/Z untouched.
+    root.position.y -= box.min.y;
+    root.position.y += (cfg.hoverHeight || 0);
+    root.updateMatrixWorld(true);
 
-  // IMPORTANT:
-  // For arena, keep the GLB pivot exactly as authored.
-  // Do NOT center on X/Z, otherwise the model can orbit when parent yaw rotates.
-  root.position.set(0, 0, 0);
-  root.rotation.set(0, 0, 0);
-  root.scale.set(1, 1, 1);
-  root.updateMatrixWorld(true);
-
-  let box = computeBox(root);
-  let size = new THREE.Vector3();
-  box.getSize(size);
-
-  const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
-  const sourceHeight = Math.max(size.y || 1, 1);
-  const scale = targetHeight / sourceHeight;
-
-  root.scale.setScalar(scale);
-  root.updateMatrixWorld(true);
-
-  box = computeBox(root);
-
-  // Only ground vertically. Leave X/Z untouched.
-  root.position.y -= box.min.y;
-  root.position.y += (cfg.hoverHeight || 0);
-  root.updateMatrixWorld(true);
-
-  log('Prepared arena model transform (keep GLB pivot)', {
-    sourceHeight: sourceHeight.toFixed(2),
-    scale: scale.toFixed(2),
-    minY: box.min.y.toFixed(2),
-  });
-}
+    log('Prepared arena model transform (keep GLB pivot)', {
+      sourceHeight: sourceHeight.toFixed(2),
+      scale: scale.toFixed(2),
+      minY: box.min.y.toFixed(2),
+    });
+  }
   
   function findRigFixNode(root) {
     if (!root) return null;
@@ -491,55 +492,55 @@ function prepareArenaModelTransform(root, targetHeightOverride) {
     return namedRig || root;
   }
 
-function applyArenaModelBaseRotation(mount) {
-  if (!mount) return;
+  function applyArenaModelBaseRotation(mount) {
+    if (!mount) return;
 
-  mount.rotation.set(
-    ARENA_MODEL_BASE_EULER.x,
-    ARENA_MODEL_BASE_EULER.y,
-    ARENA_MODEL_BASE_EULER.z
-  );
+    mount.rotation.set(
+      ARENA_MODEL_BASE_EULER.x,
+      ARENA_MODEL_BASE_EULER.y,
+      ARENA_MODEL_BASE_EULER.z
+    );
 
-  mount.position.set(0, 0, 0);
-  mount.updateMatrixWorld(true);
-}
+    mount.position.set(0, 0, 0);
+    mount.updateMatrixWorld(true);
+  }
 
-function prepareArenaModel(root, mountGroup) {
-  prepareArenaModelTransform(root, cfg.actorHeight || 95);
-  tintModel(root, player.bodyColor, player.wandColor);
-  root.visible = true;
-  mountGroup.add(root);
+  function prepareArenaModel(root, mountGroup) {
+    prepareArenaModelTransform(root, cfg.actorHeight || 95);
+    tintModel(root, player.bodyColor, player.wandColor);
+    root.visible = true;
+    mountGroup.add(root);
 
-  state.player.rigFixNode = null;
+    state.player.rigFixNode = null;
 
-  log('Prepared arena model');
-}
+    log('Prepared arena model');
+  }
 
-function prepareDummyModel(root, mountGroup) {
-  prepareArenaModelTransform(root, cfg.actorHeight || 95);
-  tintModel(root, '#ffd8b8', '#ff7a1a');
-  root.visible = true;
-  mountGroup.add(root);
+  function prepareDummyModel(root, mountGroup) {
+    prepareArenaModelTransform(root, cfg.actorHeight || 95);
+    tintModel(root, '#ffd8b8', '#ff7a1a');
+    root.visible = true;
+    mountGroup.add(root);
 
-  state.dummy.rigFixNode = null;
+    state.dummy.rigFixNode = null;
 
-  log('Prepared dummy model');
-}
+    log('Prepared dummy model');
+  }
 
-function preparePreviewModel(root, parentGroup) {
-  const previewSettings = getPreviewSettings();
+  function preparePreviewModel(root, parentGroup) {
+    const previewSettings = getPreviewSettings();
 
-  centerAndScaleModel(root, previewSettings.targetHeight, {
-    autoRotateZUpToYUp: true
-  });
+    centerAndScaleModel(root, previewSettings.targetHeight, {
+      autoRotateZUpToYUp: true
+    });
 
-  tintModel(root, player.bodyColor, player.wandColor);
-  root.visible = true;
-  parentGroup.add(root);
+    tintModel(root, player.bodyColor, player.wandColor);
+    root.visible = true;
+    parentGroup.add(root);
 
-  state.preview.rigFixNode = findRigFixNode(root);
-  log('Prepared preview model');
-}
+    state.preview.rigFixNode = findRigFixNode(root);
+    log('Prepared preview model');
+  }
 
   function prepareArenaFloorModel(root, parentGroup) {
     const floorCfg = getArenaFloorConfig();
@@ -727,23 +728,23 @@ function preparePreviewModel(root, parentGroup) {
     state.floor.rootGroup = new THREE.Group();
     state.scene.add(state.floor.rootGroup);
 
-state.player.rootGroup = new THREE.Group();
-state.player.yawGroup = new THREE.Group();
-state.player.modelMount = new THREE.Group();
-state.player.rootGroup.add(state.player.yawGroup);
-state.player.yawGroup.add(state.player.modelMount);
-state.scene.add(state.player.rootGroup);
+    state.player.rootGroup = new THREE.Group();
+    state.player.yawGroup = new THREE.Group();
+    state.player.modelMount = new THREE.Group();
+    state.player.rootGroup.add(state.player.yawGroup);
+    state.player.yawGroup.add(state.player.modelMount);
+    state.scene.add(state.player.rootGroup);
 
-applyArenaModelBaseRotation(state.player.modelMount);
+    applyArenaModelBaseRotation(state.player.modelMount);
 
-state.dummy.rootGroup = new THREE.Group();
-state.dummy.yawGroup = new THREE.Group();
-state.dummy.modelMount = new THREE.Group();
-state.dummy.rootGroup.add(state.dummy.yawGroup);
-state.dummy.yawGroup.add(state.dummy.modelMount);
-state.scene.add(state.dummy.rootGroup);
+    state.dummy.rootGroup = new THREE.Group();
+    state.dummy.yawGroup = new THREE.Group();
+    state.dummy.modelMount = new THREE.Group();
+    state.dummy.rootGroup.add(state.dummy.yawGroup);
+    state.dummy.yawGroup.add(state.dummy.modelMount);
+    state.scene.add(state.dummy.rootGroup);
 
-applyArenaModelBaseRotation(state.dummy.modelMount);
+    applyArenaModelBaseRotation(state.dummy.modelMount);
 
     const shadowGeo = new THREE.CircleGeometry(cfg.shadowSize || 24, 32);
     const shadowMat = new THREE.MeshBasicMaterial({
@@ -985,465 +986,389 @@ applyArenaModelBaseRotation(state.dummy.modelMount);
     return null;
   }
 
-function buildAnimationStateMap(animations, mixer, mode = 'arena') {
-  const charCfg = mode === 'preview'
-    ? getLobbyCharacterConfig()
-    : getArenaCharacterConfig();
+  function buildAnimationStateMap(animations, mixer, mode = 'arena') {
+    const charCfg = mode === 'preview'
+      ? getLobbyCharacterConfig()
+      : getArenaCharacterConfig();
 
-  const result = new Map();
+    const result = new Map();
 
-  const wantedStates = {
-    idle: charCfg.animations.idle,
-    walk: charCfg.animations.walk,
-    run: charCfg.animations.run,
-    cast: charCfg.animations.cast,
-    dash: charCfg.animations.dash,
-    hit: charCfg.animations.hit,
-  };
+    const wantedStates = {
+      idle: charCfg.animations.idle,
+      walk: charCfg.animations.walk,
+      run: charCfg.animations.run,
+      cast: charCfg.animations.cast,
+      dash: charCfg.animations.dash,
+      hit: charCfg.animations.hit,
+    };
 
-  const fallbackAliases = {
-    idle: ['idle', 'Idle', 'idle_1'],
-    walk: ['walk', 'Walk', 'run'],
-    run: ['run', 'Run', 'walk'],
-    cast: ['cast', 'Cast', 'attack', 'spell', 'magic'],
-    dash: ['dash', 'Dash', 'roll', 'charge'],
-    hit: ['hit', 'Hit', 'damage', 'hurt', 'react'],
-  };
+    const fallbackAliases = {
+      idle: ['idle', 'Idle', 'idle_1'],
+      walk: ['walk', 'Walk', 'run'],
+      run: ['run', 'Run', 'walk'],
+      cast: ['cast', 'Cast', 'attack', 'spell', 'magic'],
+      dash: ['dash', 'Dash', 'roll', 'charge'],
+      hit: ['hit', 'Hit', 'damage', 'hurt', 'react'],
+    };
 
-  Object.entries(wantedStates).forEach(([stateName, clipName]) => {
-    if (!mixer) return;
+    Object.entries(wantedStates).forEach(([stateName, clipName]) => {
+      if (!mixer) return;
 
-    // Preview model is allowed to not have these states.
-    if (clipName == null || clipName === '') {
-      return;
+      // Preview model is allowed to not have these states.
+      if (clipName == null || clipName === '') {
+        return;
+      }
+
+      const searchNames = [clipName, ...(fallbackAliases[stateName] || [])];
+      const clip = findClipByNames(animations, searchNames);
+
+      if (!clip) {
+        console.warn(
+          `[Outra3D] Missing animation clip "${clipName}" for state "${stateName}" (${mode})`
+        );
+        return;
+      }
+
+      const action = mixer.clipAction(clip);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopRepeat, Infinity);
+
+      result.set(stateName, {
+        clipName: clip.name,
+        clip,
+        action,
+      });
+    });
+
+    if (!result.size && animations.length && mixer) {
+      const fallback = animations[0];
+      const action = mixer.clipAction(fallback);
+      action.enabled = true;
+      action.clampWhenFinished = false;
+      action.setLoop(THREE.LoopRepeat, Infinity);
+
+      result.set('idle', {
+        clipName: fallback.name,
+        clip: fallback,
+        action,
+      });
     }
 
-    const searchNames = [clipName, ...(fallbackAliases[stateName] || [])];
-    const clip = findClipByNames(animations, searchNames);
-
-    if (!clip) {
-      console.warn(
-        `[Outra3D] Missing animation clip "${clipName}" for state "${stateName}" (${mode})`
-      );
-      return;
-    }
-
-    const action = mixer.clipAction(clip);
-    action.enabled = true;
-    action.clampWhenFinished = false;
-    action.setLoop(THREE.LoopRepeat, Infinity);
-
-    result.set(stateName, {
-      clipName: clip.name,
-      clip,
-      action,
-    });
-  });
-
-  if (!result.size && animations.length && mixer) {
-    const fallback = animations[0];
-    const action = mixer.clipAction(fallback);
-    action.enabled = true;
-    action.clampWhenFinished = false;
-    action.setLoop(THREE.LoopRepeat, Infinity);
-
-    result.set('idle', {
-      clipName: fallback.name,
-      clip: fallback,
-      action,
-    });
+    return result;
   }
-
-  return result;
-}
 
   function getWorldPosition(actor) {
     return getWorldPositionFromCoords(actor.x, actor.y);
   }
 
   function getWorldPositionFromCoords(x, y) {
-    const nx = x - arena.cx;
-    const ny = y - arena.cy;
-    return {
-      x: nx * (cfg.worldScale || 1),
-      z: ny * (cfg.worldScale || 1),
-    };
+    const wx = x - arena.cx;
+    const wz = y - arena.cy;
+    return { x: wx, z: wz };
+  }
+
+  function crossFadeState(mixerState, nextName, force = false) {
+    if (!mixerState || !mixerState.states || !mixerState.states.has(nextName)) return;
+
+    if (!force && mixerState.currentState === nextName) return;
+
+    const next = mixerState.states.get(nextName)?.action;
+    if (!next) return;
+
+    const prev = mixerState.currentState && mixerState.states.get(mixerState.currentState)?.action;
+
+    if (prev === next) {
+      mixerState.currentState = nextName;
+      next.enabled = true;
+      next.play();
+      return;
+    }
+
+    next.reset();
+    next.enabled = true;
+    next.setEffectiveTimeScale(1);
+    next.setEffectiveWeight(1);
+    next.play();
+
+    if (prev) {
+      prev.crossFadeTo(next, 0.12, true);
+    } else {
+      next.fadeIn(0.12);
+    }
+
+    mixerState.currentState = nextName;
+    showAnimationDebug(mixerState.states.get(nextName)?.clipName || nextName);
+  }
+
+  function setArenaPlayerState(nextName, force = false) {
+    crossFadeState(state.player, nextName, force);
+  }
+
+  function setDummyState(nextName, force = false) {
+    crossFadeState(state.dummy, nextName, force);
+  }
+
+  function setPreviewState(nextName, force = false) {
+    crossFadeState(state.preview, nextName, force);
+  }
+
+  function loadCharacterStates() {
+    const arenaCfg = getArenaCharacterConfig();
+    const previewCfg = getLobbyCharacterConfig();
+
+    if (!state.loader) return;
+
+    if (arenaCfg.glb) {
+      state.loader.load(
+        arenaCfg.glb,
+        (gltf) => {
+          if (state.player.root) {
+            state.player.modelMount.remove(state.player.root);
+          }
+          if (state.dummy.root) {
+            state.dummy.modelMount.remove(state.dummy.root);
+          }
+
+          const sourceScene = gltf.scene || gltf.scenes?.[0];
+          if (!sourceScene) {
+            console.error('[Outra3D] Arena GLB loaded without a scene.');
+            return;
+          }
+
+          const playerRoot = sourceScene.clone(true);
+          const dummyRoot = sourceScene.clone(true);
+
+          prepareArenaModel(playerRoot, state.player.modelMount);
+          prepareDummyModel(dummyRoot, state.dummy.modelMount);
+
+          state.player.root = playerRoot;
+          state.dummy.root = dummyRoot;
+
+          const arenaAnimations = gltf.animations || [];
+          if (arenaAnimations.length) {
+            state.player.mixer = new THREE.AnimationMixer(playerRoot);
+            state.player.states = buildAnimationStateMap(arenaAnimations, state.player.mixer, 'arena');
+            setArenaPlayerState(state.player.states.has('idle') ? 'idle' : (state.player.states.keys().next().value || null), true);
+
+            state.dummy.mixer = new THREE.AnimationMixer(dummyRoot);
+            state.dummy.states = buildAnimationStateMap(arenaAnimations, state.dummy.mixer, 'arena');
+            setDummyState(state.dummy.states.has('idle') ? 'idle' : (state.dummy.states.keys().next().value || null), true);
+          }
+
+          state.ready = true;
+          tintAllLoadedModelsIfNeeded();
+          log('Arena character states loaded');
+        },
+        undefined,
+        (error) => {
+          console.error('[Outra3D] Failed to load arena character GLB:', error);
+        }
+      );
+    }
+
+    if (previewCfg.glb) {
+      state.loader.load(
+        previewCfg.glb,
+        (gltf) => {
+          if (state.preview.root) {
+            state.preview.rootGroup.remove(state.preview.root);
+          }
+
+          const sourceScene = gltf.scene || gltf.scenes?.[0];
+          if (!sourceScene) {
+            console.error('[Outra3D] Preview GLB loaded without a scene.');
+            return;
+          }
+
+          const previewRoot = sourceScene.clone(true);
+          preparePreviewModel(previewRoot, state.preview.rootGroup);
+          state.preview.root = previewRoot;
+
+          const previewAnimations = gltf.animations || [];
+          if (previewAnimations.length) {
+            state.preview.mixer = new THREE.AnimationMixer(previewRoot);
+            state.preview.states = buildAnimationStateMap(previewAnimations, state.preview.mixer, 'preview');
+            setPreviewState(state.preview.states.has('idle') ? 'idle' : (state.preview.states.keys().next().value || null), true);
+          }
+
+          state.preview.ready = true;
+          tintAllLoadedModelsIfNeeded();
+          onResize();
+          log('Preview character loaded');
+        },
+        undefined,
+        (error) => {
+          console.error('[Outra3D] Failed to load preview character GLB:', error);
+        }
+      );
+    }
   }
 
   function loadArenaFloor() {
     const floorCfg = getArenaFloorConfig();
-    if (!state.loader || !floorCfg.enabled || !floorCfg.glb) return;
+    if (!floorCfg.enabled || !floorCfg.glb || !state.loader || !state.floor.rootGroup) return;
 
     state.loader.load(
       floorCfg.glb,
       (gltf) => {
-        state.floor.root = gltf.scene || gltf.scenes?.[0];
-        if (!state.floor.root || !state.floor.rootGroup) return;
-        prepareArenaFloorModel(state.floor.root, state.floor.rootGroup);
+        if (state.floor.root) {
+          state.floor.rootGroup.remove(state.floor.root);
+        }
+
+        const sourceScene = gltf.scene || gltf.scenes?.[0];
+        if (!sourceScene) {
+          console.error('[Outra3D] Arena floor GLB loaded without a scene.');
+          return;
+        }
+
+        const floorRoot = sourceScene.clone(true);
+        prepareArenaFloorModel(floorRoot, state.floor.rootGroup);
+        state.floor.root = floorRoot;
         state.arenaFloorReady = true;
+        log('Arena floor loaded');
       },
       undefined,
-      (err) => {
-        console.warn('[Outra3D] Failed to load arena floor:', err);
+      (error) => {
+        console.error('[Outra3D] Failed to load arena floor GLB:', error);
       }
     );
-  }
-
-  function loadCharacterStates() {
-    const arenaChar = getArenaCharacterConfig();
-    const lobbyChar = getLobbyCharacterConfig();
-
-    if (!state.loader) return;
-
-    let arenaPlayerReady = false;
-    let arenaDummyReady = false;
-
-    function markArenaReady() {
-      if (arenaPlayerReady && arenaDummyReady) {
-        state.ready = true;
-      }
-    }
-
-    if (arenaChar.glb) {
-      state.loader.load(
-        arenaChar.glb,
-        (gltf) => {
-          const root = gltf.scene || gltf.scenes?.[0];
-          if (!root || !state.player.rootGroup) return;
-
-          state.player.root = root;
-          state.player.mixer = new THREE.AnimationMixer(state.player.root);
-          state.player.states = buildAnimationStateMap(
-            gltf.animations || [],
-            state.player.mixer,
-            'arena'
-          );
-
-prepareArenaModel(state.player.root, state.player.modelMount);
-          playStateAction(state.player.states, 'idle', true);
-
-          arenaPlayerReady = true;
-          markArenaReady();
-        },
-        undefined,
-        (err) => {
-          console.error('[Outra3D] Failed to load arena player character:', err);
-        }
-      );
-
-      state.loader.load(
-        arenaChar.glb,
-        (gltf) => {
-          const root = gltf.scene || gltf.scenes?.[0];
-          if (!root || !state.dummy.rootGroup) return;
-
-          state.dummy.root = root;
-          state.dummy.mixer = new THREE.AnimationMixer(state.dummy.root);
-          state.dummy.states = buildAnimationStateMap(
-            gltf.animations || [],
-            state.dummy.mixer,
-            'arena'
-          );
-
-prepareDummyModel(state.dummy.root, state.dummy.modelMount);
-          playStateAction(state.dummy.states, 'idle', true);
-
-          arenaDummyReady = true;
-          markArenaReady();
-        },
-        undefined,
-        (err) => {
-          console.error('[Outra3D] Failed to load arena dummy character:', err);
-        }
-      );
-    }
-
-    if (lobbyChar.glb) {
-      state.loader.load(
-        lobbyChar.glb,
-        (gltf) => {
-          const root = gltf.scene || gltf.scenes?.[0];
-          if (!root || !state.preview.rootGroup) return;
-
-          state.preview.root = root;
-          state.preview.mixer = new THREE.AnimationMixer(root);
-          state.preview.states = buildAnimationStateMap(
-            gltf.animations || [],
-            state.preview.mixer,
-            'preview'
-          );
-
-          preparePreviewModel(root, state.preview.rootGroup);
-          playStateAction(state.preview.states, 'idle', true);
-          state.preview.ready = true;
-        },
-        undefined,
-        (err) => {
-          console.error('[Outra3D] Failed to load lobby character:', err);
-        }
-      );
-    }
-  }
-
-  function playStateAction(stateMap, targetState, force = false) {
-    if (!stateMap || !stateMap.size) return null;
-
-    const entry = stateMap.get(targetState) || stateMap.get('idle');
-    if (!entry) return null;
-
-    const resolvedState = stateMap.get(targetState) ? targetState : 'idle';
-
-    stateMap.forEach((other, key) => {
-      if (key === resolvedState) return;
-      other.action.stop();
-    });
-
-    if (force) {
-      entry.action.reset();
-    }
-
-    if (!entry.action.isRunning()) {
-      entry.action.reset();
-      entry.action.play();
-    } else if (force) {
-      entry.action.play();
-    }
-
-    return resolvedState;
-  }
-
-  function setArenaPlayerState(name, force = false) {
-    if (!state.player.states.size) return;
-    if (!force && state.player.currentState === name) return;
-
-    const resolved = playStateAction(state.player.states, name, force);
-    if (resolved) {
-      state.player.currentState = resolved;
-      const entry = state.player.states.get(resolved);
-      if (entry && entry.clipName) {
-        showAnimationDebug(entry.clipName);
-      }
-    }
-
-    if (state.player.root) {
-      state.player.root.visible = true;
-    }
-  }
-
-  function setDummyState(name, force = false) {
-    if (!state.dummy.states.size) return;
-    if (!force && state.dummy.currentState === name) return;
-
-    const resolved = playStateAction(state.dummy.states, name, force);
-    if (resolved) state.dummy.currentState = resolved;
-
-    if (state.dummy.root) {
-      state.dummy.root.visible = true;
-    }
-  }
-
-  function setPreviewState(name, force = false) {
-    if (!state.preview.states.size) return;
-    if (!force && state.preview.currentState === name) return;
-
-    const resolved = playStateAction(state.preview.states, name, force);
-    if (resolved) state.preview.currentState = resolved;
-
-    if (state.preview.root) {
-      state.preview.root.visible = true;
-    }
-  }
-
-  function chooseState(dt) {
-    const p = player;
-    if (!p) return 'idle';
-
-    if (!p.alive) return state.player.states.has('hit') ? 'hit' : 'idle';
-
-    const hpDrop = state.player.lastHp !== null && p.hp < state.player.lastHp - 0.01;
-    state.player.lastHp = p.hp;
-
-    if (hpDrop) state.player.hitTimer = cfg.hitHoldTime || 0.28;
-    if (p.chargeActive) state.player.dashTimer = cfg.dashHoldTime || 0.30;
-
-    state.player.castTimer = Math.max(0, state.player.castTimer - dt);
-    state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
-    state.player.dashTimer = Math.max(0, state.player.dashTimer - dt);
-
-    if (state.player.hitTimer > 0 && state.player.states.has('hit')) return 'hit';
-    if (state.player.dashTimer > 0 && state.player.states.has('dash')) return 'dash';
-    if (state.player.castTimer > 0 && state.player.states.has('cast')) return 'cast';
-
-    const moving =
-      Math.hypot(p.vx || 0, p.vy || 0) > 20 ||
-      moveStick.active ||
-      keys[keybinds.left] ||
-      keys[keybinds.right] ||
-      keys[keybinds.up] ||
-      keys[keybinds.down];
-
-    if (moving) {
-      if (state.player.states.has('run')) return 'run';
-      if (state.player.states.has('walk')) return 'walk';
-    }
-
-    return 'idle';
-  }
-
-  function chooseDummyState(dt) {
-    if (!dummyEnabled || !dummy) return 'idle';
-
-    if (!dummy.alive) return state.dummy.states.has('hit') ? 'hit' : 'idle';
-
-    const hpDrop = state.dummy.lastHp !== null && dummy.hp < state.dummy.lastHp - 0.01;
-    state.dummy.lastHp = dummy.hp;
-
-    if (hpDrop) state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
-
-    state.dummy.castTimer = Math.max(0, state.dummy.castTimer - dt);
-    state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
-    state.dummy.dashTimer = Math.max(0, state.dummy.dashTimer - dt);
-
-    if (state.dummy.hitTimer > 0 && state.dummy.states.has('hit')) return 'hit';
-    if (state.dummy.dashTimer > 0 && state.dummy.states.has('dash')) return 'dash';
-    if (state.dummy.castTimer > 0 && state.dummy.states.has('cast')) return 'cast';
-
-    const moving = Math.hypot(dummy.vx || 0, dummy.vy || 0) > 20;
-
-    if (moving) {
-      if (state.dummy.states.has('run')) return 'run';
-      if (state.dummy.states.has('walk')) return 'walk';
-    }
-
-    return 'idle';
-  }
-
-  function applyRigOrientationFix(rigNode) {
-    if (!rigNode) return;
-
-    if (!rigNode.userData.outraBaseQuaternion) {
-      rigNode.userData.outraBaseQuaternion = rigNode.quaternion.clone();
-    }
-
-    rigNode.quaternion.copy(rigNode.userData.outraBaseQuaternion);
-    rigNode.updateMatrixWorld(true);
   }
 
   function tintAllLoadedModelsIfNeeded() {
-    const body = player?.bodyColor || '#d9d9ff';
-    const wand = player?.wandColor || '#7c4dff';
-    const tintKey = `${body}|${wand}`;
+    const nextKey = `${player.bodyColor}|${player.wandColor}`;
+    if (state.lastTintKey === nextKey) return;
 
-    if (tintKey === state.lastTintKey) return;
-    state.lastTintKey = tintKey;
+    if (state.player.root) tintModel(state.player.root, player.bodyColor, player.wandColor);
+    if (state.preview.root) tintModel(state.preview.root, player.bodyColor, player.wandColor);
+    if (state.dummy.root) tintModel(state.dummy.root, '#ffd8b8', '#ff7a1a');
 
-    if (state.player.root) tintModel(state.player.root, body, wand);
-    if (state.preview.root) tintModel(state.preview.root, body, wand);
+    state.lastTintKey = nextKey;
   }
 
   function updateArenaFloorPose() {
-    if (!state.arenaFloorReady || !state.floor.rootGroup || !state.floor.root) return;
-
-    const pos = getWorldPositionFromCoords(arena.cx, arena.cy);
-    const baseRadius = Math.max(arena.baseRadius || arena.radius || 1, 1);
-    const currentRadius = Math.max(arena.radius || baseRadius, 1);
-    const radiusRatio = currentRadius / baseRadius;
-    const floorCfg = getArenaFloorConfig();
+    if (!state.floor.rootGroup || !state.arenaFloorReady) return;
 
     state.floor.rootGroup.visible = gameState !== 'lobby';
-    state.floor.rootGroup.position.set(pos.x, 0, pos.z);
 
-    const scale = Math.max(0.001, state.floor.baseScale * radiusRatio);
+    if (!state.floor.root) return;
+
+    const targetDiameter = Math.max((arena.radius || arena.baseRadius || 200) * 2, 1);
+    const scale = targetDiameter / Math.max(state.floor.sourceDiameter || 1, 1);
+
     state.floor.root.scale.setScalar(scale);
-
-    state.floor.root.position.y = floorCfg.yOffset;
   }
 
   function updateArenaPlayerPose(dt) {
-    if (!state.ready || !state.player.rootGroup) return;
+    if (!state.player.rootGroup) return;
 
-    const p = player;
-    if (!p) return;
+    const visible = gameState !== 'lobby' && player.alive;
+    state.player.rootGroup.visible = visible;
+    if (!visible) return;
 
-    const pos = getWorldPosition(p);
-    const stateName = chooseState(dt);
+    const world = getWorldPosition(player);
 
-    const baseHeightOffset = cfg.modelYOffset || 0;
-    const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
-
-    const mobileBaseScreenOffsetZ = 40;
-    const mobileDriftStrength = 24;
-
-    const normalizedScreenY = ((player.y / canvas.height) - 0.5) * 2;
-    const mobileDynamicOffsetZ = isTouchDevice
-      ? mobileBaseScreenOffsetZ - (normalizedScreenY * mobileDriftStrength)
-      : 0;
-
-    state.player.rootGroup.visible = gameState !== 'lobby';
     state.player.rootGroup.position.set(
-      pos.x,
-      isTouchDevice ? mobileHeightOffset : baseHeightOffset,
-      pos.z + mobileDynamicOffsetZ
+      world.x,
+      cfg.modelYOffset || 0,
+      world.z
     );
 
-const aimAngle = Math.atan2(p.aimY, p.aimX);
-if (state.player.yawGroup) {
-  state.player.yawGroup.rotation.set(0, -aimAngle - Math.PI / 2, 0);
-}
-
-    setArenaPlayerState(stateName);
-
-    const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
-    state.player.rootGroup.position.y = (isTouchDevice ? mobileHeightOffset : baseHeightOffset) + bob;
-
     if (state.player.shadow) {
-      state.player.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
-      state.player.shadow.material.opacity = p.alive ? 0.22 : 0.12;
+      state.player.shadow.visible = true;
+      state.player.shadow.scale.setScalar(player.chargeActive ? 1.15 : 1.0);
+    }
+
+    const aimAngle = Math.atan2(player.aimY, player.aimX);
+    if (state.player.yawGroup) {
+      state.player.yawGroup.rotation.y = -aimAngle + Math.PI * 0.5;
+    }
+
+    const moved =
+      Math.abs(player.vx) > 24 ||
+      Math.abs(player.vy) > 24;
+
+    if (state.player.hitTimer > 0) {
+      state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
+      setArenaPlayerState('hit');
+    } else if (state.player.dashTimer > 0 || player.chargeActive) {
+      state.player.dashTimer = Math.max(0, state.player.dashTimer - dt);
+      setArenaPlayerState(state.player.states.has('dash') ? 'dash' : 'run');
+    } else if (state.player.castTimer > 0) {
+      state.player.castTimer = Math.max(0, state.player.castTimer - dt);
+      setArenaPlayerState(state.player.states.has('cast') ? 'cast' : 'idle');
+    } else if (moved) {
+      setArenaPlayerState(state.player.states.has('run') ? 'run' : 'walk');
+    } else {
+      setArenaPlayerState('idle');
     }
 
     tintAllLoadedModelsIfNeeded();
+
+    if (state.player.lastHp == null) {
+      state.player.lastHp = player.hp;
+    } else if (player.hp < state.player.lastHp) {
+      state.player.hitTimer = cfg.hitHoldTime || 0.28;
+      setArenaPlayerState('hit', true);
+      state.player.lastHp = player.hp;
+    } else {
+      state.player.lastHp = player.hp;
+    }
   }
 
   function updateDummyPose(dt) {
-    if (!state.ready || !state.dummy.rootGroup) return;
+    if (!state.dummy.rootGroup) return;
 
-    state.dummy.rootGroup.visible = gameState !== 'lobby' && dummyEnabled;
+    const visible = gameState !== 'lobby' && dummyEnabled && dummy.alive;
+    state.dummy.rootGroup.visible = visible;
+    if (!visible) return;
 
-    if (!dummyEnabled || !dummy) return;
-
-    const pos = getWorldPosition(dummy);
-    const stateName = chooseDummyState(dt);
-
-    const baseHeightOffset = cfg.modelYOffset || 0;
-    const mobileHeightOffset = cfg.modelYOffsetMobile || 0;
-
-    const mobileBaseScreenOffsetZ = 40;
-    const mobileDriftStrength = 24;
-
-    const normalizedScreenY = ((dummy.y / canvas.height) - 0.5) * 2;
-    const mobileDynamicOffsetZ = isTouchDevice
-      ? mobileBaseScreenOffsetZ - (normalizedScreenY * mobileDriftStrength)
-      : 0;
-
+    const world = getWorldPosition(dummy);
     state.dummy.rootGroup.position.set(
-      pos.x,
-      isTouchDevice ? mobileHeightOffset : baseHeightOffset,
-      pos.z + mobileDynamicOffsetZ
+      world.x,
+      cfg.modelYOffset || 0,
+      world.z
     );
 
-const aimAngle = Math.atan2(player.y - dummy.y, player.x - dummy.x);
-if (state.dummy.yawGroup) {
-  state.dummy.yawGroup.rotation.set(0, -aimAngle - Math.PI / 2, 0);
-}
-
-    setDummyState(stateName);
-
-    const bob = stateName === 'run' ? Math.sin(performance.now() * 0.012) * 1.5 : 0;
-    state.dummy.rootGroup.position.y = (isTouchDevice ? mobileHeightOffset : baseHeightOffset) + bob;
-
     if (state.dummy.shadow) {
-      state.dummy.shadow.scale.setScalar(stateName === 'dash' ? 1.25 : 1);
-      state.dummy.shadow.material.opacity = dummy.alive ? 0.22 : 0.12;
+      state.dummy.shadow.visible = true;
+      state.dummy.shadow.scale.setScalar(1.0);
+    }
+
+    const dx = player.x - dummy.x;
+    const dy = player.y - dummy.y;
+    const aimAngle = Math.atan2(dy, dx);
+    if (state.dummy.yawGroup) {
+      state.dummy.yawGroup.rotation.y = -aimAngle + Math.PI * 0.5;
+    }
+
+    const moved =
+      Math.abs(dummy.vx) > 24 ||
+      Math.abs(dummy.vy) > 24;
+
+    if (state.dummy.hitTimer > 0) {
+      state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
+      setDummyState('hit');
+    } else if (state.dummy.dashTimer > 0) {
+      state.dummy.dashTimer = Math.max(0, state.dummy.dashTimer - dt);
+      setDummyState(state.dummy.states.has('dash') ? 'dash' : 'run');
+    } else if (state.dummy.castTimer > 0) {
+      state.dummy.castTimer = Math.max(0, state.dummy.castTimer - dt);
+      setDummyState(state.dummy.states.has('cast') ? 'cast' : 'idle');
+    } else if (moved) {
+      setDummyState(state.dummy.states.has('run') ? 'run' : 'walk');
+    } else {
+      setDummyState('idle');
+    }
+
+    if (state.dummy.lastHp == null) {
+      state.dummy.lastHp = dummy.hp;
+    } else if (dummy.hp < state.dummy.lastHp) {
+      state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
+      setDummyState('hit', true);
+      state.dummy.lastHp = dummy.hp;
+    } else {
+      state.dummy.lastHp = dummy.hp;
     }
   }
 
@@ -1463,28 +1388,28 @@ if (state.dummy.yawGroup) {
     tintAllLoadedModelsIfNeeded();
   }
 
-function updateMixers(dt) {
-  if (state.player.mixer) {
-    state.player.mixer.update(dt);
-  }
+  function updateMixers(dt) {
+    if (state.player.mixer) {
+      state.player.mixer.update(dt);
+    }
 
-  if (state.dummy.mixer) {
-    state.dummy.mixer.update(dt);
-  }
+    if (state.dummy.mixer) {
+      state.dummy.mixer.update(dt);
+    }
 
-  if (state.preview.mixer) {
-    state.preview.mixer.update(dt);
-  }
+    if (state.preview.mixer) {
+      state.preview.mixer.update(dt);
+    }
 
-  // IMPORTANT:
-  // Do not force arena rig quaternions every frame.
-  // That can preserve or reapply a wrong bone orientation.
-  // Leave preview untouched if needed later.
+    // IMPORTANT:
+    // Do not force arena rig quaternions every frame.
+    // That can preserve or reapply a wrong bone orientation.
+    // Leave preview untouched if needed later.
 
-  if (state.debugAnim.timer > 0) {
-    state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
+    if (state.debugAnim.timer > 0) {
+      state.debugAnim.timer = Math.max(0, state.debugAnim.timer - dt);
+    }
   }
-}
 
   function renderAnimationDebugLabel() {
     if (gameState === 'lobby') return;
@@ -1561,34 +1486,22 @@ function updateMixers(dt) {
       state.preview.renderer.render(state.preview.scene, state.preview.camera);
     },
 
+    isArenaFloorRenderedIn3D() {
+      return !!(state.arenaFloorReady && state.floor.root && gameState !== 'lobby');
+    },
+
     isPlayerRenderedIn3D() {
-      return !!(state.ready && state.player.root && state.player.rootGroup && gameState !== 'lobby');
+      return !!(state.ready && state.player.root && gameState !== 'lobby' && player.alive);
     },
 
     isDummyRenderedIn3D() {
-      return !!(state.ready && dummyEnabled && state.dummy.root && state.dummy.rootGroup && gameState !== 'lobby');
-    },
-
-    isArenaFloorRenderedIn3D() {
-      return !!state.arenaFloorReady;
+      return !!(state.ready && state.dummy.root && gameState !== 'lobby' && dummyEnabled && dummy.alive);
     },
 
     triggerCast() {
       if (!state.ready || !state.player.states.has('cast')) return;
       state.player.castTimer = cfg.castHoldTime || 0.22;
       setArenaPlayerState('cast', true);
-    },
-
-    triggerDummyCast() {
-      if (!state.ready || !state.dummy.states.has('cast')) return;
-      state.dummy.castTimer = cfg.castHoldTime || 0.22;
-      setDummyState('cast', true);
-    },
-
-    triggerDummyHit() {
-      if (!state.ready || !state.dummy.states.has('hit')) return;
-      state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
-      setDummyState('hit', true);
     },
 
     triggerDash() {
@@ -1601,6 +1514,24 @@ function updateMixers(dt) {
       if (!state.ready || !state.player.states.has('hit')) return;
       state.player.hitTimer = cfg.hitHoldTime || 0.28;
       setArenaPlayerState('hit', true);
+    },
+
+    triggerDummyCast() {
+      if (!state.ready || !state.dummy.states.has('cast')) return;
+      state.dummy.castTimer = cfg.castHoldTime || 0.22;
+      setDummyState('cast', true);
+    },
+
+    triggerDummyDash() {
+      if (!state.ready || !state.dummy.states.has('dash')) return;
+      state.dummy.dashTimer = cfg.dashHoldTime || 0.30;
+      setDummyState('dash', true);
+    },
+
+    triggerDummyHit() {
+      if (!state.ready || !state.dummy.states.has('hit')) return;
+      state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
+      setDummyState('hit', true);
     },
   };
 })();
