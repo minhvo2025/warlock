@@ -273,7 +273,7 @@ arenaCharacter: {
   glb: '/docs/art/character/Outron_arena.glb',
 
   animations: {
-    idle: 'Idle_4,
+    idle: 'Idle_4',
     walk: 'Walking',
     run: 'Running',
     cast: 'mage_soell_cast_4',
