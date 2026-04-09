@@ -54,65 +54,41 @@ function drawCosmetics(drawCtx, x, y, scale = 1) {
 
 // ── Lobby Preview ─────────────────────────────────────────────
 function drawLobbyPreview() {
+  if (!previewCtx || !previewCanvas) return;
+
   previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-  previewCtx.fillStyle = '#242630';
-  previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
 
-  previewCtx.fillStyle = 'rgba(255,120,30,0.22)';
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 2, 130, 34, 0, 0, Math.PI * 2);
-  previewCtx.fill();
-
-  previewCtx.fillStyle = '#3a4047';
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 18, 96, 26, 0, 0, Math.PI * 2);
-  previewCtx.fill();
-
-  previewCtx.strokeStyle = '#8a939e';
-  previewCtx.lineWidth = 4;
-  previewCtx.beginPath();
-  previewCtx.ellipse(previewCanvas.width / 2, previewCanvas.height - 18, 96, 26, 0, 0, Math.PI * 2);
-  previewCtx.stroke();
-
-  previewCtx.fillStyle = 'rgba(255,255,255,0.95)';
-  previewCtx.font = 'bold 18px Arial';
-  previewCtx.textAlign = 'center';
-  previewCtx.fillText(player.name || 'Player', previewCanvas.width / 2, 34);
-
-  previewCtx.font = '13px Arial';
-  previewCtx.fillStyle = 'rgba(255,255,255,0.72)';
-  previewCtx.fillText('Drag to rotate', previewCanvas.width / 2, previewCanvas.height - 16);
-  previewCtx.textAlign = 'left';
-
-  if (
+  const has3DPreview =
     window.outraThree &&
-    typeof window.outraThree.renderLobbyPreview === 'function'
-  ) {
+    typeof window.outraThree.renderLobbyPreview === 'function';
+
+  if (has3DPreview) {
     window.outraThree.renderLobbyPreview();
-  } else {
-    // fallback if 3D preview has not loaded yet
-    const x = previewCanvas.width / 2;
-    const y = previewCanvas.height / 2 + 18;
-
-    previewCtx.fillStyle = 'rgba(0,0,0,0.25)';
-    previewCtx.beginPath();
-    previewCtx.ellipse(x, y + 42, 32, 12, 0, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    previewCtx.fillStyle = player.bodyColor;
-    previewCtx.beginPath();
-    previewCtx.arc(x, y, 32, 0, Math.PI * 2);
-    previewCtx.fill();
-
-    drawCosmetics(previewCtx, x, y, 1);
-
-    previewCtx.fillStyle = player.wandColor;
-    previewCtx.save();
-    previewCtx.translate(x, y);
-    previewCtx.rotate(-0.3);
-    previewCtx.fillRect(2, -5, 34, 10);
-    previewCtx.restore();
+    return;
   }
+
+  // minimal fallback only, no fake boxed window
+  const x = previewCanvas.width / 2;
+  const y = previewCanvas.height * 0.68;
+
+  previewCtx.fillStyle = 'rgba(0,0,0,0.22)';
+  previewCtx.beginPath();
+  previewCtx.ellipse(x, y + 52, 54, 18, 0, 0, Math.PI * 2);
+  previewCtx.fill();
+
+  previewCtx.fillStyle = player.bodyColor;
+  previewCtx.beginPath();
+  previewCtx.arc(x, y, 34, 0, Math.PI * 2);
+  previewCtx.fill();
+
+  drawCosmetics(previewCtx, x, y, 1);
+
+  previewCtx.fillStyle = player.wandColor;
+  previewCtx.save();
+  previewCtx.translate(x, y);
+  previewCtx.rotate(-0.3);
+  previewCtx.fillRect(4, -4, 34, 8);
+  previewCtx.restore();
 }
 
 // ── Arena ─────────────────────────────────────────────────────
