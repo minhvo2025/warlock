@@ -162,9 +162,9 @@
         ? (previewCfg.lookAtYMobile || 42)
         : (previewCfg.lookAtYDesktop || 64),
 
-      modelYOffset: mobile
-        ? (previewCfg.modelYOffsetMobile || -8)
-        : (previewCfg.modelYOffsetDesktop || -14),
+modelYOffset: mobile
+  ? -18
+  : -26,
 
       shadowScaleX: mobile
         ? (previewCfg.shadowScaleXMobile || 1.45)
@@ -880,8 +880,16 @@
     state.preview.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     state.preview.renderer.toneMappingExposure = 1.0;
 
-    const ambient = new THREE.AmbientLight(0xffffff, 1.35);
-    state.preview.scene.add(ambient);
+const ambient = new THREE.AmbientLight(0xffffff, 1.1);
+
+const key = new THREE.DirectionalLight(0xffdca8, 1.4);
+key.position.set(140, 180, 120);
+
+const fill = new THREE.DirectionalLight(0x6f8cff, 0.5);
+fill.position.set(-140, 100, 120);
+
+state.preview.scene.add(key);
+state.preview.scene.add(fill);
 
     const key = new THREE.DirectionalLight(0xfff0dd, 1.25);
     key.position.set(120, 170, 150);
