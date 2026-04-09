@@ -284,7 +284,7 @@ window.OUTRA_3D_CONFIG = {
   arenaFloor: {
     enabled: false,
     glb: '/docs/Objects/floor.glb',
-    yOffset: -6,
+    yOffset: 1,
     opacity: 1,
     brightness: 0.1,
     lockRotationX: 0,
