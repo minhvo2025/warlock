@@ -1269,44 +1269,6 @@
     }
   }
 
-    if (previewCfg.glb) {
-      state.loader.load(
-        previewCfg.glb,
-        (gltf) => {
-          if (state.preview.root) {
-            state.preview.rootGroup.remove(state.preview.root);
-          }
-
-          const sourceScene = gltf.scene || gltf.scenes?.[0];
-          if (!sourceScene) {
-            console.error('[Outra3D] Preview GLB loaded without a scene.');
-            return;
-          }
-
-          const previewRoot = sourceScene.clone(true);
-          preparePreviewModel(previewRoot, state.preview.rootGroup);
-          state.preview.root = previewRoot;
-
-          const previewAnimations = gltf.animations || [];
-          if (previewAnimations.length) {
-            state.preview.mixer = new THREE.AnimationMixer(previewRoot);
-            state.preview.states = buildAnimationStateMap(previewAnimations, state.preview.mixer, 'preview');
-            setPreviewState(state.preview.states.has('idle') ? 'idle' : (state.preview.states.keys().next().value || null), true);
-          }
-
-          state.preview.ready = true;
-          tintAllLoadedModelsIfNeeded();
-          onResize();
-          log('Preview character loaded');
-        },
-        undefined,
-        (error) => {
-          console.error('[Outra3D] Failed to load preview character GLB:', error);
-        }
-      );
-    }
-  }
-
   function loadArenaFloor() {
     const floorCfg = getArenaFloorConfig();
     if (!floorCfg.enabled || !floorCfg.glb || !state.loader || !state.floor.rootGroup) return;
