@@ -192,8 +192,8 @@
       </div>
     </div>
 
-    <div class="lobbyMainGrid">
-      <aside class="lobbySide lobbyLeft framedPanel">
+    <div class="lobbyMainGrid immersiveLobbyGrid">
+      <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
         <div class="sidePanelInner">
           <div class="sectionTitle sectionCompact">Your Name</div>
           <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
@@ -206,16 +206,14 @@
         </div>
       </aside>
 
-      <section class="lobbyCenter">
-        <div class="heroStage framedPanel">
-          <div class="heroStageHeader">
-            <div>
-              <div class="heroOverline">Character Preview</div>
-              <div class="heroTitle">Outron</div>
-            </div>
+      <section class="lobbyCenter immersiveLobbyCenter">
+        <div class="lobbySceneShell">
+          <div class="lobbySceneUiTop">
+            <div class="heroOverline">Featured Mage</div>
+            <div class="heroTitle">Outron</div>
           </div>
 
-          <div id="previewViewport" class="heroViewport">
+          <div id="previewViewport" class="heroViewport immersiveViewport">
             <canvas id="previewCanvas" width="320" height="240"></canvas>
             <div id="previewThreeLayer" aria-hidden="true"></div>
 
@@ -224,7 +222,10 @@
             <div class="heroBottomGlow"></div>
           </div>
 
-          <div class="heroHint">Drag left or right to rotate the model.</div>
+          <div class="lobbySceneCaption">
+            <div class="lobbySceneCaptionTitle">Mage on the platform</div>
+            <div class="lobbySceneCaptionText">Integrated into the lobby scene instead of a separate preview box.</div>
+          </div>
         </div>
 
         <div class="ctaWrap">
@@ -246,7 +247,7 @@
         <div id="lobbyPlay" class="lobbyPage active"></div>
 
         <div id="lobbyStore" class="lobbyPage">
-          <div class="storePanel framedPanel">
+          <div class="storePanel framedPanel floatingLobbyPanel">
             <div class="sidePanelInner">
               <div class="sectionTitle sectionCompact">Store</div>
               <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
@@ -257,7 +258,7 @@
         </div>
       </section>
 
-      <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa">
+      <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa floatingLobbyPanel">
         <div class="sidePanelInner">
           <div class="sectionTitle sectionCompact">Leaderboard</div>
           <div id="leaderboardList"></div>
