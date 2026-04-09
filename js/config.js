@@ -283,11 +283,11 @@ arenaCharacter: {
 
   // Manual import orientation for the raw GLB.
   // Start with this to fix the current bottom-up issue.
-  importRotation: {
-    x: -Math.PI / 2,
-    y: 0,
-    z: 0,
-  },
+ importRotation: {
+  x: 0,
+  y: 0,
+  z: Math.PI,
+},
 
   // Only used for aim/facing alignment after the model stands correctly.
   facingOffsetY: 0,
