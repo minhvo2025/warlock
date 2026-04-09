@@ -96,7 +96,32 @@ function getArenaFacingOffset() {
   const facingOffset = Number(charCfg.facingOffsetY);
   return Number.isFinite(facingOffset) ? facingOffset : 0;
 }
+function getArenaStateRotationOffset(stateName) {
+  const charCfg = cfg.arenaCharacter || {};
+  const offsets = charCfg.stateRotationOffsets || {};
+  const stateOffset = offsets?.[stateName] || {};
 
+  return {
+    x: Number.isFinite(Number(stateOffset.x)) ? Number(stateOffset.x) : 0,
+    y: Number.isFinite(Number(stateOffset.y)) ? Number(stateOffset.y) : 0,
+    z: Number.isFinite(Number(stateOffset.z)) ? Number(stateOffset.z) : 0,
+  };
+}
+
+function applyArenaRotationForState(mixerState) {
+  if (!mixerState || !mixerState.modelMount) return;
+
+  const baseY = getArenaFacingOffset();
+  const stateOffset = getArenaStateRotationOffset(mixerState.currentState || 'idle');
+
+  mixerState.modelMount.rotation.set(
+    stateOffset.x,
+    baseY + stateOffset.y,
+    stateOffset.z
+  );
+  mixerState.modelMount.position.set(0, 0, 0);
+  mixerState.modelMount.updateMatrixWorld(true);
+}
   function log(...args) {
     console.log('[Outra3D]', ...args);
   }
@@ -604,8 +629,6 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
 function applyArenaModelBaseRotation(mount) {
   if (!mount) return;
 
-  // Arena mount should only control facing offset around Y.
-  // Up-axis correction is handled inside prepareArenaModelTransform().
   mount.rotation.set(0, getArenaFacingOffset(), 0);
   mount.position.set(0, 0, 0);
   mount.updateMatrixWorld(true);
@@ -1195,6 +1218,7 @@ function prepareDummyModel(root, mountGroup) {
       next.enabled = true;
       applyActionTimeScale(next, nextName);
       next.play();
+      applyArenaRotationForState(mixerState);
       return;
     }
 
@@ -1211,8 +1235,8 @@ function prepareDummyModel(root, mountGroup) {
     }
 
     mixerState.currentState = nextName;
+    applyArenaRotationForState(mixerState);
     showAnimationDebug(mixerState.states.get(nextName)?.clipName || nextName);
-  }
 
   function setArenaPlayerState(nextName, force = false) {
     crossFadeState(state.player, nextName, force);
