@@ -281,6 +281,7 @@ arenaCharacter: {
     hit: 'mage_soell_cast_4',
   },
 
+
   // Manual import orientation for the raw GLB.
   // Start with this to fix the current bottom-up issue.
  importRotation: {
@@ -291,7 +292,16 @@ arenaCharacter: {
 
   // Only used for aim/facing alignment after the model stands correctly.
 facingOffsetY: Math.PI,
-
+  
+stateRotationOffsets: {
+  idle: { x: 0, y: 0, z: 0 },
+  walk: { x: 0, y: 0, z: 0 },
+  run: { x: 0, y: 0, z: Math.PI },
+  cast: { x: 0, y: 0, z: 0 },
+  dash: { x: 0, y: 0, z: 0 },
+  hit: { x: 0, y: 0, z: 0 },
+},
+  
   animationSpeeds: {
     idle: 1.3,
     walk: 1.15,
