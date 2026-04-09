@@ -1416,9 +1416,8 @@ function prepareDummyModel(root, mountGroup) {
             state.player.yawGroup.rotation.y = -aimAngle - Math.PI * 0.5;
     }
 
-    const moved =
-      Math.abs(player.vx) > 24 ||
-      Math.abs(player.vy) > 24;
+const moveSpeedSq = (player.vx * player.vx) + (player.vy * player.vy);
+const moved = moveSpeedSq > 16;
 
     if (state.player.hitTimer > 0) {
       state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
@@ -1474,9 +1473,8 @@ function prepareDummyModel(root, mountGroup) {
             state.dummy.yawGroup.rotation.y = -aimAngle - Math.PI * 0.5;
     }
 
-    const moved =
-      Math.abs(dummy.vx) > 24 ||
-      Math.abs(dummy.vy) > 24;
+const moveSpeedSq = (dummy.vx * dummy.vx) + (dummy.vy * dummy.vy);
+const moved = moveSpeedSq > 16;
 
     if (state.dummy.hitTimer > 0) {
       state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
