@@ -8,7 +8,7 @@ let lobbyMusicAudio = null;
 let lobbyMusicSource = null;
 
 const LOBBY_MUSIC_SRC = '/docs/Music/Lobby_music.mp3';
-const LOBBY_MUSIC_VOLUME = 0.38;
+const DEFAULT_LOBBY_MUSIC_VOLUME = 0.38;
 
 // ── Core Audio Helpers ────────────────────────────────────────
 function ensureAudioReady() {
