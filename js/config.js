@@ -306,9 +306,9 @@ stateRotationOffsets: {
     idle: 1.3,
     walk: 1.15,
     run: 1.0,
-    cast: 1.5,
-    dash: 1.35,
-    hit: 2.1,
+    cast: 1.1,
+    dash: 1.2,
+    hit: 1.6,
   },
 },
 
