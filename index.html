@@ -8,11 +8,11 @@
   <link rel="icon" type="image/png" href="/docs/art/logo.png">
 </head>
 <body>
- <div id="stage">
-  <canvas id="game"></canvas>
-  <div id="threeLayer" aria-hidden="true"></div>
-  <canvas id="gameFx" aria-hidden="true"></canvas>
-</div>
+  <div id="stage">
+    <canvas id="game"></canvas>
+    <div id="threeLayer" aria-hidden="true"></div>
+    <canvas id="gameFx" aria-hidden="true"></canvas>
+  </div>
 
   <div id="hud">
     <div><strong>Outra</strong></div>
@@ -96,6 +96,7 @@
       </div>
       <div class="mobileLabel">Move</div>
     </div>
+
     <div class="mobileSide">
       <div class="mobileActions">
         <button class="mobileBtn big mainSkill" id="mobileFireBtn"><span class="mobileBtnIcon">🔥</span><span class="mobileBtnCooldown"></span><span class="mobileBtnText">Fire</span><div class="mobileDragArrow"></div></button>
@@ -114,49 +115,52 @@
 
   <div id="menuPanel">
     <div class="menuTitle">Menu</div>
+
     <div id="menuTabs">
       <button class="secondary tabBtn active" data-menu-tab="main">Main</button>
       <button class="secondary tabBtn" data-menu-tab="keybinds">Keybinds</button>
       <button class="secondary tabBtn" data-menu-tab="settings">Settings</button>
     </div>
+
     <div id="menuMain" class="menuPage active">
-   <div class="row menuActionList" style="flex-direction: column; align-items: stretch;">
-  <button id="resumeBtn" class="menuActionBtn">
-    <span class="menuBtnBadge">✦</span>
-    <span class="menuBtnLabel">Resume</span>
-  </button>
+      <div class="row menuActionList" style="flex-direction: column; align-items: stretch;">
+        <button id="resumeBtn" class="menuActionBtn">
+          <span class="menuBtnBadge">✦</span>
+          <span class="menuBtnLabel">Resume</span>
+        </button>
 
-  <button id="musicToggleBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">♫</span>
-    <span class="menuBtnLabel">Music: On</span>
-  </button>
+        <button id="musicToggleBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">♫</span>
+          <span class="menuBtnLabel">Music: On</span>
+        </button>
 
-  <button id="standingDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">◈</span>
-    <span class="menuBtnLabel">Start Standing Dummy</span>
-  </button>
+        <button id="standingDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">◈</span>
+          <span class="menuBtnLabel">Start Standing Dummy</span>
+        </button>
 
-  <button id="activeDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">✹</span>
-    <span class="menuBtnLabel">Start Active Dummy</span>
-  </button>
+        <button id="activeDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">✹</span>
+          <span class="menuBtnLabel">Start Active Dummy</span>
+        </button>
 
-  <button id="removeDummyBtn" class="secondary menuActionBtn">
-    <span class="menuBtnBadge">✕</span>
-    <span class="menuBtnLabel">Remove Dummy</span>
-  </button>
+        <button id="removeDummyBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">✕</span>
+          <span class="menuBtnLabel">Remove Dummy</span>
+        </button>
 
-  <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
-    <span class="menuBtnBadge">⛧</span>
-    <span class="menuBtnLabel">Go to Lobby</span>
-  </button>
+        <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
+          <span class="menuBtnBadge">⛧</span>
+          <span class="menuBtnLabel">Go to Lobby</span>
+        </button>
 
-  <button id="resetBtn" class="secondary menuActionBtn dangerBtn">
-    <span class="menuBtnBadge">☠</span>
-    <span class="menuBtnLabel">Reset Round</span>
-  </button>
-</div>
+        <button id="resetBtn" class="secondary menuActionBtn dangerBtn">
+          <span class="menuBtnBadge">☠</span>
+          <span class="menuBtnLabel">Reset Round</span>
+        </button>
+      </div>
     </div>
+
     <div id="menuKeybinds" class="menuPage">
       <div id="menuBindList"></div>
       <div class="hint" style="margin-top: 10px;">Mouse buttons stay fixed to avoid browser conflicts.</div>
@@ -164,6 +168,7 @@
         <button id="menuResetBindsBtn" class="secondary">Reset Keys</button>
       </div>
     </div>
+
     <div id="menuSettings" class="menuPage">
       <div class="sectionTitle" style="margin-top:0; font-size:16px;">Aim Drag Sensitivity</div>
       <div class="hint">Lower makes dragging calmer and less twitchy.</div>
@@ -175,98 +180,104 @@
   </div>
 
   <div id="overlay">
-  <div class="panel lobbyShell">
-    <div class="lobbyTopBar">
-      <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
+    <div class="panel lobbyShell">
+      <div class="lobbyTopBar">
+        <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
 
-      <div class="lobbyBrandWrap">
-        <div class="lobbyBrandEyebrow">Arcane Arena</div>
-        <div class="lobbyBrand">Outra Lobby</div>
+        <div class="lobbyBrandWrap">
+          <div class="lobbyBrandEyebrow">Arcane Arena</div>
+          <div class="lobbyBrand">Outra Lobby</div>
+        </div>
+
+        <div class="lobbyTopRight">
+          <div class="topCurrencyCard">
+            <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
+            <span id="wlkLobbyTop">0</span>
+          </div>
+        </div>
       </div>
 
-      <div class="lobbyTopRight">
-        <div class="topCurrencyCard">
-          <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
-          <span id="wlkLobbyTop">0</span>
-        </div>
-      </div>
-    </div>
+      <div class="lobbyMainGrid immersiveLobbyGrid">
+        <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
+          <div class="sidePanelInner">
+            <div class="sectionTitle sectionCompact">Your Name</div>
+            <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
 
-    <div class="lobbyMainGrid immersiveLobbyGrid">
-      <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
-        <div class="sidePanelInner">
-          <div class="sectionTitle sectionCompact">Your Name</div>
-          <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
+            <div class="sectionTitle">Choose Character Color</div>
+            <div id="colorRow" class="colorRowAaa"></div>
 
-          <div class="sectionTitle">Choose Character Color</div>
-          <div id="colorRow" class="colorRowAaa"></div>
-
-          <div class="sectionTitle">Inventory</div>
-          <div id="inventoryList" class="inventoryGrid"></div>
-        </div>
-      </aside>
-
-      <section class="lobbyCenter immersiveLobbyCenter">
-        <div class="lobbySceneShell">
-          <div class="lobbySceneUiTop">
-            <div class="heroOverline">Featured Mage</div>
-            <div class="heroTitle">Outron</div>
+            <div class="sectionTitle">Inventory</div>
+            <div id="inventoryList" class="inventoryGrid"></div>
           </div>
+        </aside>
 
-          <div id="previewViewport" class="heroViewport immersiveViewport">
-            <canvas id="previewCanvas" width="320" height="240"></canvas>
-            <div id="previewThreeLayer" aria-hidden="true"></div>
+        <section class="lobbyCenter immersiveLobbyCenter">
+          <div class="heroStage immersiveHeroStage">
+            <div class="heroStageBackdrop"></div>
 
-            <div class="heroParticles heroParticlesOrange"></div>
-            <div class="heroParticles heroParticlesPurple"></div>
-            <div class="heroBottomGlow"></div>
-          </div>
+            <div class="heroStageHeader immersiveStageHeader">
+              <div>
+                <div class="heroOverline">Arcane Chamber</div>
+                <div class="heroTitle">Outron</div>
+              </div>
+            </div>
 
-          <div class="lobbySceneCaption">
-            <div class="lobbySceneCaptionTitle">Mage on the platform</div>
-            <div class="lobbySceneCaptionText">Integrated into the lobby scene instead of a separate preview box.</div>
-          </div>
-        </div>
+            <div id="previewViewport" class="heroViewport immersiveViewport">
+              <canvas id="previewCanvas" width="320" height="240"></canvas>
+              <div id="previewThreeLayer" aria-hidden="true"></div>
 
-        <div class="ctaWrap">
-          <button id="startBtn" class="enterArenaBtn">
-            <span class="enterArenaText">Enter Arena</span>
-          </button>
+              <div class="heroParticles heroParticlesOrange"></div>
+              <div class="heroParticles heroParticlesPurple"></div>
+              <div class="heroBottomGlow"></div>
+              <div class="heroStageVignette"></div>
+            </div>
 
-          <div class="rewardRow">
-            <span class="tag">Win = 3 leaderboard points</span>
-            <span class="tag">Win = 1 WLK</span>
-          </div>
-        </div>
-
-        <div id="lobbyTabs" class="aaaTabs">
-          <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
-          <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
-        </div>
-
-        <div id="lobbyPlay" class="lobbyPage active"></div>
-
-        <div id="lobbyStore" class="lobbyPage">
-          <div class="storePanel framedPanel floatingLobbyPanel">
-            <div class="sidePanelInner">
-              <div class="sectionTitle sectionCompact">Store</div>
-              <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
-              <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
-              <div id="storeList"></div>
+            <div class="heroStageFooter">
+              <div class="heroHint immersiveHeroHint">
+                The mage now stands inside the lobby scene.
+              </div>
             </div>
           </div>
-        </div>
-      </section>
 
-      <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa floatingLobbyPanel">
-        <div class="sidePanelInner">
-          <div class="sectionTitle sectionCompact">Leaderboard</div>
-          <div id="leaderboardList"></div>
-        </div>
-      </aside>
+          <div class="ctaWrap">
+            <button id="startBtn" class="enterArenaBtn">
+              <span class="enterArenaText">Enter Arena</span>
+            </button>
+
+            <div class="rewardRow">
+              <span class="tag">Win = 3 leaderboard points</span>
+              <span class="tag">Win = 1 WLK</span>
+            </div>
+          </div>
+
+          <div id="lobbyTabs" class="aaaTabs">
+            <button class="secondary tabBtn active" data-lobby-tab="play">Play</button>
+            <button class="secondary tabBtn" data-lobby-tab="store">Store</button>
+          </div>
+
+          <div id="lobbyPlay" class="lobbyPage active"></div>
+
+          <div id="lobbyStore" class="lobbyPage">
+            <div class="storePanel framedPanel floatingLobbyPanel">
+              <div class="sidePanelInner">
+                <div class="sectionTitle sectionCompact">Store</div>
+                <div id="wlkLobby" class="storeCurrencyLine">WLK Points: 0</div>
+                <div class="hint storeHint">Buy cosmetics and upgrades with WLK.</div>
+                <div id="storeList"></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa floatingLobbyPanel">
+          <div class="sidePanelInner">
+            <div class="sectionTitle sectionCompact">Leaderboard</div>
+            <div id="leaderboardList"></div>
+          </div>
+        </aside>
+      </div>
     </div>
   </div>
-</div>
 
   <!-- Scripts: config first (globals), main last (calls everything) -->
   <script src="js/config.js"></script>
