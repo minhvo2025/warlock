@@ -1824,25 +1824,45 @@ body.storeOpen {
 
 .enterArenaBtn {
   min-width: min(520px, 92%);
-  min-height: 76px;
-  padding: 18px 34px;
-  border-radius: 22px;
-  border: 1px solid rgba(255, 210, 138, 0.22);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 195, 96, 0.26), rgba(255, 195, 96, 0) 56%),
-    linear-gradient(180deg, rgba(118, 66, 21, 0.98), rgba(76, 41, 12, 0.99));
-  box-shadow:
-    0 14px 36px rgba(0,0,0,0.28),
-    0 0 24px rgba(255, 176, 72, 0.10),
-    inset 0 1px 0 rgba(255,246,224,0.14);
+  width: min(520px, 92%);
+  height: 96px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: url('/docs/art/Lobby/Button.png') center center / 100% 100% no-repeat;
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: visible;
+}
+
+.enterArenaBtn::after {
+  display: none;
 }
 
 .enterArenaBtn:hover {
+  transform: translateY(-2px);
   filter: brightness(1.08);
-  box-shadow:
-    0 18px 42px rgba(0,0,0,0.32),
-    0 0 30px rgba(255, 176, 72, 0.16),
-    inset 0 1px 0 rgba(255,246,224,0.16);
+  box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+}
+
+.enterArenaBtn:active {
+  transform: translateY(1px) scale(0.99);
+}
+
+.enterArenaText {
+  display: inline-block;
+  font-size: clamp(24px, 2vw, 34px);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fbf1dc;
+  text-shadow:
+    0 2px 0 rgba(0,0,0,0.82),
+    0 0 14px rgba(255, 183, 84, 0.20);
+  pointer-events: none;
 }
 
 .enterArenaText {
