@@ -1823,19 +1823,20 @@ body.storeOpen {
 }
 
 .enterArenaBtn {
-  min-width: min(520px, 92%);
-  width: min(520px, 92%);
-  height: 96px;
+  width: min(720px, 95%);   /* BIGGER overall size */
+  aspect-ratio: 5 / 1;      /* keeps your image proportions */
+  
   padding: 0;
   border: 0;
   border-radius: 0;
-  background: url('/docs/art/Lobby/Button.png') center center / 100% 100% no-repeat;
-  box-shadow: none;
+
+  background: url('/docs/art/Lobby/Button.png') center / contain no-repeat;
+  
   display: flex;
   align-items: center;
   justify-content: center;
+
   position: relative;
-  overflow: visible;
 }
 
 .enterArenaBtn::after {
@@ -1843,18 +1844,17 @@ body.storeOpen {
 }
 
 .enterArenaBtn:hover {
-  transform: translateY(-2px);
-  filter: brightness(1.08);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.22);
+  transform: scale(1.04);
+  filter: brightness(1.1);
 }
 
 .enterArenaBtn:active {
-  transform: translateY(1px) scale(0.99);
+  transform: scale(0.98);
 }
 
 .enterArenaText {
   display: inline-block;
-  font-size: clamp(24px, 2vw, 34px);
+  font-size: clamp(28px, 2.4vw, 42px);
   font-weight: 900;
   letter-spacing: 0.06em;
   text-transform: uppercase;
