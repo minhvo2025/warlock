@@ -1148,7 +1148,7 @@ body.menuVisible::before {
   background:
     radial-gradient(circle at center, rgba(0, 0, 0, 0.20), rgba(0, 0, 0, 0.74)),
     linear-gradient(180deg, rgba(10, 7, 8, 0.18), rgba(10, 7, 8, 0.56)),
-    url('docs/art/Lobby/BG.jpeg') center center / cover no-repeat;
+    url('docs/art/Lobby/BG.png') center center / cover no-repeat;
 }
 
 /* ─────────────────────────────────────────────
