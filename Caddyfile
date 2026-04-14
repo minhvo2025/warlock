@@ -1,6 +1,14 @@
 :80 {
 	root * /app
+
+	@runtimeConfig path /runtime-config.js
+	handle @runtimeConfig {
+		header Content-Type "application/javascript; charset=utf-8"
+		header Cache-Control "no-store"
+		respond "window.__OUTRA_MULTIPLAYER_URL__ = \"{$OUTRA_MULTIPLAYER_SERVER_URL}\";"
+	}
+
 	file_server
 
-	header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https: blob:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'"
+	header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https: http: wss: ws: blob:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'"
 }

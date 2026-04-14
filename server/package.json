@@ -1,0 +1,15 @@
+{
+  "name": "outra-multiplayer-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Realtime 1v1 backend service for Outra.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "server": "^1.0.42",
+    "socket.io": "^4.8.1"
+  }
+}

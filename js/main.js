@@ -40,6 +40,9 @@ updateAimSensitivityUI();
 updateMusicVolumeUI();
 updatePerformanceModeUI();
 setMusicMuted(musicMuted);
+if (window.outraMultiplayer && typeof window.outraMultiplayer.connect === 'function') {
+  window.outraMultiplayer.connect();
+}
 drawLobbyPreview();
 updateHud();
 resetMoveStick();
