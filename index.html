@@ -297,27 +297,32 @@
           <span class="menuBtnLabel">Music: On</span>
         </button>
 
-        <button id="standingDummyBtn" class="secondary menuActionBtn">
+        <button id="godModeBtn" class="secondary menuActionBtn">
+          <span class="menuBtnBadge">☣</span>
+          <span class="menuBtnLabel">GOD MODE</span>
+        </button>
+
+        <button id="standingDummyBtn" class="secondary menuActionBtn" data-god-mode-only="1" hidden>
           <span class="menuBtnBadge">◈</span>
           <span class="menuBtnLabel">Start Standing Dummy</span>
         </button>
 
-        <button id="activeDummyBtn" class="secondary menuActionBtn">
+        <button id="activeDummyBtn" class="secondary menuActionBtn" data-god-mode-only="1" hidden>
           <span class="menuBtnBadge">✹</span>
           <span class="menuBtnLabel">Start Active Dummy</span>
         </button>
 
-        <button id="removeDummyBtn" class="secondary menuActionBtn">
+        <button id="removeDummyBtn" class="secondary menuActionBtn" data-god-mode-only="1" hidden>
           <span class="menuBtnBadge">✕</span>
           <span class="menuBtnLabel">Remove Dummy</span>
         </button>
 
-        <button id="toArenaBtn" class="secondary menuActionBtn">
+        <button id="toArenaBtn" class="secondary menuActionBtn" data-god-mode-only="1" hidden>
           <span class="menuBtnBadge">&gt;</span>
           <span class="menuBtnLabel">Practice</span>
         </button>
 
-        <button id="draftRoomBtn" class="secondary menuActionBtn">
+        <button id="draftRoomBtn" class="secondary menuActionBtn" data-god-mode-only="1" hidden>
           <span class="menuBtnBadge">◇</span>
           <span class="menuBtnLabel">Draft Room</span>
         </button>
@@ -325,6 +330,11 @@
         <button id="toLobbyBtn" class="secondary menuActionBtn dangerBtn">
           <span class="menuBtnBadge">⛧</span>
           <span class="menuBtnLabel">Exit to Lobby</span>
+        </button>
+
+        <button id="leaveGameBtn" class="secondary menuActionBtn dangerBtn" hidden>
+          <span class="menuBtnBadge">⚔</span>
+          <span class="menuBtnLabel">Leave Game</span>
         </button>
       </div>
     </div>
@@ -497,6 +507,7 @@
   <script src="js/vendor/socket.io.min.js"></script>
   <script src="/runtime-config.js"></script>
   <script src="js/multiplayer.js"></script>
+  <script src="js/phase-assets.js"></script>
   <script src="js/main.js"></script>
 </body>
 </html>

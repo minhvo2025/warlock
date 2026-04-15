@@ -1882,6 +1882,12 @@ body.cursorCustomLobbyDraft * {
   border-radius: 14px;
 }
 
+/* Ensure GOD MODE-gated buttons stay hidden until unlocked. */
+.menuActionBtn[hidden],
+[data-god-mode-only][hidden] {
+  display: none !important;
+}
+
 .menuActionBtn::before {
   content: "";
   position: absolute;

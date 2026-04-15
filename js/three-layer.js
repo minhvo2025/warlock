@@ -22,10 +22,42 @@
     hitFlash: {
       texture: null,
       textureRequested: false,
+      loadPromise: null,
       active: [],
       pool: [],
       maxActive: 18,
     },
+    gltfCache: new Map(),
+    gltfLoadCache: new Map(),
+    assetPacks: {
+      lobby: {
+        status: 'idle',
+        loaded: false,
+        loading: false,
+        error: '',
+        loadedAt: 0,
+        promise: null,
+      },
+      draft: {
+        status: 'idle',
+        loaded: false,
+        loading: false,
+        error: '',
+        loadedAt: 0,
+        promise: null,
+      },
+      arena: {
+        status: 'idle',
+        loaded: false,
+        loading: false,
+        error: '',
+        loadedAt: 0,
+        promise: null,
+      },
+    },
+    previewLoadPromise: null,
+    arenaFloorLoadPromise: null,
+    draftPlatformLoadPromise: null,
     chargeAfterimage: {
       group: null,
       slots: [],
@@ -230,10 +262,129 @@ function applyArenaRotationForState(mixerState) {
     state.debugAnim.timer = 1.0;
   }
 
+  function getPackState(packName) {
+    return state.assetPacks?.[packName] || null;
+  }
+
+  function markPackLoading(packName) {
+    const pack = getPackState(packName);
+    if (!pack) return;
+    pack.status = 'loading';
+    pack.loading = true;
+    pack.error = '';
+  }
+
+  function markPackReady(packName) {
+    const pack = getPackState(packName);
+    if (!pack) return;
+    pack.status = 'ready';
+    pack.loaded = true;
+    pack.loading = false;
+    pack.error = '';
+    pack.loadedAt = Date.now();
+  }
+
+  function markPackFailed(packName, error) {
+    const pack = getPackState(packName);
+    if (!pack) return;
+    pack.status = 'error';
+    pack.loading = false;
+    pack.loaded = false;
+    pack.error = String(error?.message || error || 'unknown_error');
+  }
+
+  function getAssetPackSnapshot() {
+    const snapshot = {};
+    Object.keys(state.assetPacks || {}).forEach((packName) => {
+      const pack = getPackState(packName);
+      if (!pack) return;
+      snapshot[packName] = {
+        status: pack.status,
+        loaded: !!pack.loaded,
+        loading: !!pack.loading,
+        error: String(pack.error || ''),
+        loadedAt: Number(pack.loadedAt) || 0,
+      };
+    });
+    return snapshot;
+  }
+
   function getGLTFLoaderClass() {
     if (typeof THREE !== 'undefined' && typeof THREE.GLTFLoader !== 'undefined') return THREE.GLTFLoader;
     if (typeof GLTFLoader !== 'undefined') return GLTFLoader;
     return null;
+  }
+
+  function loadGltfAsset(path) {
+    const glbPath = String(path || '').trim();
+    if (!glbPath || !state.loader) return Promise.resolve(null);
+
+    const cached = state.gltfCache.get(glbPath);
+    if (cached) return Promise.resolve(cached);
+
+    const inFlight = state.gltfLoadCache.get(glbPath);
+    if (inFlight) return inFlight;
+
+    const loadPromise = new Promise((resolve, reject) => {
+      state.loader.load(
+        glbPath,
+        (gltf) => {
+          state.gltfCache.set(glbPath, gltf);
+          resolve(gltf);
+        },
+        undefined,
+        (error) => {
+          reject(error);
+        }
+      );
+    }).finally(() => {
+      state.gltfLoadCache.delete(glbPath);
+    });
+
+    state.gltfLoadCache.set(glbPath, loadPromise);
+    return loadPromise;
+  }
+
+  function parallelTraverse(source, target, callback) {
+    if (!source || !target || typeof callback !== 'function') return;
+    callback(source, target);
+    const childCount = Math.min(source.children.length, target.children.length);
+    for (let i = 0; i < childCount; i += 1) {
+      parallelTraverse(source.children[i], target.children[i], callback);
+    }
+  }
+
+  function cloneSceneGraph(sourceScene) {
+    if (!sourceScene) return null;
+    const clonedScene = sourceScene.clone(true);
+
+    let hasSkinnedMesh = false;
+    sourceScene.traverse((node) => {
+      if (node?.isSkinnedMesh) hasSkinnedMesh = true;
+    });
+    if (!hasSkinnedMesh) return clonedScene;
+
+    const sourceLookup = new Map();
+    const cloneLookup = new Map();
+    parallelTraverse(sourceScene, clonedScene, (sourceNode, clonedNode) => {
+      sourceLookup.set(clonedNode, sourceNode);
+      cloneLookup.set(sourceNode, clonedNode);
+    });
+
+    clonedScene.traverse((clonedNode) => {
+      if (!clonedNode?.isSkinnedMesh) return;
+      const sourceNode = sourceLookup.get(clonedNode);
+      const sourceSkeleton = sourceNode?.skeleton;
+      if (!sourceSkeleton) return;
+
+      const clonedSkeleton = sourceSkeleton.clone();
+      clonedSkeleton.bones = sourceSkeleton.bones
+        .map((bone) => cloneLookup.get(bone))
+        .filter(Boolean);
+      clonedNode.bind(clonedSkeleton, sourceNode.bindMatrix);
+    });
+
+    return clonedScene;
   }
 
   function getArenaCharacterConfig() {
@@ -324,10 +475,28 @@ function applyArenaRotationForState(mixerState) {
       const isTranslationTrack =
         propPart === 'position' ||
         propPart === 'translation';
+      const isTransformTrack =
+        propPart === 'position' ||
+        propPart === 'translation' ||
+        propPart === 'quaternion' ||
+        propPart === 'rotation';
+      const isRootMotionNode =
+        nodePart.includes('hips') ||
+        nodePart.includes('hip') ||
+        nodePart.includes('pelvis') ||
+        nodePart.includes('root') ||
+        nodePart.includes('armature');
 
       // Arena actor world position is gameplay-driven, so strip all translation tracks
       // to prevent animation root-motion drift/orbiting.
       if (isTranslationTrack) {
+        return false;
+      }
+
+      // Keep arena orientation owned by our mount/facing pipeline.
+      // Some imported clips include root/hip transform tracks that can flip the avatar
+      // (bottom-up) or force orientation snaps frame-to-frame.
+      if (isTransformTrack && isRootMotionNode) {
         return false;
       }
 
@@ -496,6 +665,9 @@ function applyArenaRotationForState(mixerState) {
   }
 
   function isArenaPhase() {
+    // Local arena/practice must always win over stale multiplayer presentation flags.
+    if (gameState === 'playing' || gameState === 'result') return true;
+
     const multiplayerApi = window.outraMultiplayer;
     if (multiplayerApi && typeof multiplayerApi.getPresentationSnapshot === 'function') {
       const snapshot = multiplayerApi.getPresentationSnapshot();
@@ -509,6 +681,10 @@ function applyArenaRotationForState(mixerState) {
   }
 
   function isDraftPhase() {
+    // Never allow draft transforms while local arena/practice is active.
+    if (gameState === 'playing' || gameState === 'result') return false;
+    if (gameState === 'draft') return true;
+
     const multiplayerApi = window.outraMultiplayer;
     if (multiplayerApi && typeof multiplayerApi.getPresentationSnapshot === 'function') {
       const snapshot = multiplayerApi.getPresentationSnapshot();
@@ -518,11 +694,15 @@ function applyArenaRotationForState(mixerState) {
         if (snapshot.isDraftActive) return true;
       }
     }
-    return gameState === 'draft';
+    return false;
   }
 
   function isDraft3DEnabled() {
     return !!getDraftRoomConfig().enabled;
+  }
+
+  function isLobbyPreviewPhase() {
+    return gameState === 'lobby' && !isArenaPhase() && !isDraftPhase();
   }
 
   function createAuraTexture(kind) {
@@ -1026,6 +1206,13 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
   root.scale.set(1, 1, 1);
   root.updateMatrixWorld(true);
 
+  // Auto-normalize imported model up-axis before manual arena offsets.
+  // This keeps arena avatars upright for top-down camera even when source GLBs vary.
+  const normalizeInfo = normalizeRootUpAxis(root, {
+    allowAutoRotate: true
+  });
+  root.updateMatrixWorld(true);
+
   // Wrapper hierarchy:
   // mountGroup (already controlled by yaw/facing)
   //   -> pivotGroup (stable local pivot at 0,0,0)
@@ -1086,6 +1273,7 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
   orientGroup.updateMatrixWorld(true);
 
   log('Prepared arena model transform', {
+    autoUpAxisFrom: normalizeInfo.sourceAxis,
     importRotation: {
       x: importEuler.x,
       y: importEuler.y,
@@ -1460,7 +1648,6 @@ function prepareDummyModel(root, mountGroup) {
     state.scene.add(fill);
 
     state.loader = new LoaderClass();
-    ensureHitFlashTextureLoaded();
 
     state.floor.rootGroup = new THREE.Group();
     state.scene.add(state.floor.rootGroup);
@@ -2161,44 +2348,57 @@ function prepareDummyModel(root, mountGroup) {
 
   function loadHitFlashTexture(pathIndex = 0) {
     if (pathIndex >= HIT_FLASH_TEXTURE_CANDIDATES.length) {
-      console.error('[Outra3D] Failed to load hit flash texture from all configured paths.');
-      return;
+      return Promise.reject(new Error('hit_flash_texture_not_found'));
     }
 
     const texturePath = HIT_FLASH_TEXTURE_CANDIDATES[pathIndex];
     const loader = new THREE.TextureLoader();
 
-    loader.load(
-      texturePath,
-      (texture) => {
-        texture.wrapS = THREE.ClampToEdgeWrapping;
-        texture.wrapT = THREE.ClampToEdgeWrapping;
-        texture.minFilter = THREE.LinearFilter;
-        texture.magFilter = THREE.LinearFilter;
-        texture.generateMipmaps = false;
+    return new Promise((resolve, reject) => {
+      loader.load(
+        texturePath,
+        (texture) => {
+          texture.wrapS = THREE.ClampToEdgeWrapping;
+          texture.wrapT = THREE.ClampToEdgeWrapping;
+          texture.minFilter = THREE.LinearFilter;
+          texture.magFilter = THREE.LinearFilter;
+          texture.generateMipmaps = false;
 
-        if ('colorSpace' in texture && THREE.SRGBColorSpace) {
-          texture.colorSpace = THREE.SRGBColorSpace;
-        } else if ('encoding' in texture && THREE.sRGBEncoding) {
-          texture.encoding = THREE.sRGBEncoding;
+          if ('colorSpace' in texture && THREE.SRGBColorSpace) {
+            texture.colorSpace = THREE.SRGBColorSpace;
+          } else if ('encoding' in texture && THREE.sRGBEncoding) {
+            texture.encoding = THREE.sRGBEncoding;
+          }
+
+          state.hitFlash.texture = texture;
+          resolve(texture);
+        },
+        undefined,
+        (error) => {
+          reject(error);
         }
-
-        state.hitFlash.texture = texture;
-      },
-      undefined,
-      () => {
-        loadHitFlashTexture(pathIndex + 1);
-      }
-    );
+      );
+    }).catch(() => loadHitFlashTexture(pathIndex + 1));
   }
 
   function ensureHitFlashTextureLoaded() {
-    if (state.hitFlash.texture || state.hitFlash.textureRequested || typeof THREE === 'undefined') {
-      return;
+    if (state.hitFlash.texture) return Promise.resolve(state.hitFlash.texture);
+    if (state.hitFlash.loadPromise) return state.hitFlash.loadPromise;
+    if (typeof THREE === 'undefined') {
+      return Promise.resolve(null);
     }
 
     state.hitFlash.textureRequested = true;
-    loadHitFlashTexture(0);
+    state.hitFlash.loadPromise = loadHitFlashTexture(0)
+      .catch((error) => {
+        console.error('[Outra3D] Failed to load hit flash texture from all configured paths.', error);
+        return null;
+      })
+      .finally(() => {
+        state.hitFlash.loadPromise = null;
+      });
+
+    return state.hitFlash.loadPromise;
   }
 
   function createHitFlashInstance() {
@@ -2833,7 +3033,9 @@ function prepareDummyModel(root, mountGroup) {
   }
 
   function stabilizeGameplayRootMotion() {
-    if (gameState === 'lobby') return;
+    // Multiplayer arena can be active while legacy gameState still reports "lobby".
+    // Use phase detection so root-motion tracks are always locked during arena combat.
+    if (!isArenaPhase()) return;
     lockSlotRootMotion(state.player);
     lockSlotRootMotion(state.dummy);
   }
@@ -2898,7 +3100,8 @@ function prepareDummyModel(root, mountGroup) {
     }
     applyArenaModelBaseRotation(slotState.modelMount);
 
-    const root = sourceScene;
+    const root = cloneSceneGraph(sourceScene);
+    if (!root) return false;
     prepareFn(root, slotState.modelMount);
     slotState.root = root;
     slotState.rigFixNode = findRigFixNode(root);
@@ -2962,16 +3165,14 @@ function prepareDummyModel(root, mountGroup) {
           return;
         }
 
-        state.loader.load(
-          path,
-          (gltf) => {
+        loadGltfAsset(path)
+          .then((gltf) => {
             if (token !== state.characterLoadToken) return;
             const ok = attachCharacterInstance(slotName, gltf, prepareFn, setStateFn, animationMode);
             if (typeof onLoaded === 'function') onLoaded(!!ok);
             log(`Loaded ${desiredSet} ${slotName} character${usedFallback ? ' (fallback)' : ''}`);
-          },
-          undefined,
-          (error) => {
+          })
+          .catch((error) => {
             if (
               !usedFallback &&
               fallbackGlbPath &&
@@ -2986,8 +3187,7 @@ function prepareDummyModel(root, mountGroup) {
             }
             console.error(`[Outra3D] Failed to load ${desiredSet} ${slotName} GLB:`, error);
             if (typeof onLoaded === 'function') onLoaded(false);
-          }
-        );
+          });
       };
 
       loadWithFallback(glbPath, false);
@@ -3005,16 +3205,22 @@ function prepareDummyModel(root, mountGroup) {
   }
 
   function syncCharacterSetForPhase() {
-    const desiredSet = (isDraftPhase() && isDraft3DEnabled()) ? 'draft' : 'arena';
-    if (state.activeCharacterSet !== desiredSet) {
-      switchCharacterSet(desiredSet);
+    let desiredSet = null;
+    if (isArenaPhase()) {
+      desiredSet = 'arena';
+    } else if (isDraftPhase() && isDraft3DEnabled()) {
+      desiredSet = 'draft';
     }
+    if (!desiredSet) return;
+    if (state.activeCharacterSet !== desiredSet) switchCharacterSet(desiredSet);
   }
 
   function ensureArenaCharacterRecovery(nowSec) {
     if (!isArenaPhase()) return;
     if (state.activeCharacterSet !== 'arena') return;
-    if (state.ready && state.player.root && state.dummy.root) return;
+    // Local arena rendering should not be blocked if only the dummy slot is incomplete.
+    // Recover only when the local player slot is missing/incomplete.
+    if (state.ready && state.player.root) return;
 
     const now = Number.isFinite(Number(nowSec)) ? Number(nowSec) : (performance.now() * 0.001);
     if ((now - state.lastArenaRecoveryAt) < 2.0) return;
@@ -3029,68 +3235,98 @@ function prepareDummyModel(root, mountGroup) {
     switchCharacterSet(nextSet);
   }
 
-  function loadCharacterStates() {
+  function loadPreviewCharacter() {
     const previewCfg = getLobbyCharacterConfig();
-    if (!state.loader) return;
+    const previewPath = String(previewCfg.glb || '').trim();
+    if (!state.loader || !previewPath || !state.preview.rootGroup) return Promise.resolve(false);
+    if (state.preview.ready && state.preview.root) return Promise.resolve(true);
+    if (state.previewLoadPromise) return state.previewLoadPromise;
 
-    switchCharacterSet('arena');
-
-    if (previewCfg.glb) {
-      state.loader.load(
-        previewCfg.glb,
-        (gltf) => {
-          if (state.preview.root) {
-            state.preview.rootGroup.remove(state.preview.root);
-          }
-
-          const sourceScene = gltf.scene || gltf.scenes?.[0];
-          if (!sourceScene) {
-            console.error('[Outra3D] Preview GLB loaded without a scene.');
-            return;
-          }
-
-          const previewRoot = sourceScene;
-          preparePreviewModel(previewRoot, state.preview.rootGroup);
-          state.preview.root = previewRoot;
-
-          const previewAnimations = gltf.animations || [];
-          if (previewAnimations.length) {
-            state.preview.mixer = new THREE.AnimationMixer(previewRoot);
-            state.preview.states = buildAnimationStateMap(previewAnimations, state.preview.mixer, 'preview');
-            state.preview.positionTrackLocks = buildPositionTrackLocks(previewRoot, previewAnimations);
-            capturePreviewRootMotionBase();
-            const firstState = state.preview.states.has('idle')
-              ? 'idle'
-              : (state.preview.states.keys().next().value || null);
-
-            if (firstState) setPreviewState(firstState, true);
-          } else {
-            state.preview.mixer = null;
-            state.preview.states = new Map();
-            state.preview.positionTrackLocks = [];
-            capturePreviewRootMotionBase();
-          }
-
-          state.preview.ready = true;
-          tintAllLoadedModelsIfNeeded();
-          onResize();
-          log('Preview character loaded');
-        },
-        undefined,
-        (error) => {
-          console.error('[Outra3D] Failed to load preview character GLB:', error);
+    state.previewLoadPromise = loadGltfAsset(previewPath)
+      .then((gltf) => {
+        if (state.preview.root) {
+          state.preview.rootGroup.remove(state.preview.root);
         }
-      );
-    }
+
+        const sourceScene = gltf.scene || gltf.scenes?.[0];
+        if (!sourceScene) {
+          console.error('[Outra3D] Preview GLB loaded without a scene.');
+          return false;
+        }
+
+        const previewRoot = cloneSceneGraph(sourceScene);
+        if (!previewRoot) return false;
+        preparePreviewModel(previewRoot, state.preview.rootGroup);
+        state.preview.root = previewRoot;
+
+        const previewAnimations = gltf.animations || [];
+        if (previewAnimations.length) {
+          state.preview.mixer = new THREE.AnimationMixer(previewRoot);
+          state.preview.states = buildAnimationStateMap(previewAnimations, state.preview.mixer, 'preview');
+          state.preview.positionTrackLocks = buildPositionTrackLocks(previewRoot, previewAnimations);
+          capturePreviewRootMotionBase();
+          const firstState = state.preview.states.has('idle')
+            ? 'idle'
+            : (state.preview.states.keys().next().value || null);
+          if (firstState) setPreviewState(firstState, true);
+        } else {
+          state.preview.mixer = null;
+          state.preview.states = new Map();
+          state.preview.positionTrackLocks = [];
+          capturePreviewRootMotionBase();
+        }
+
+        state.preview.ready = true;
+        tintAllLoadedModelsIfNeeded();
+        onResize();
+        log('Preview character loaded');
+        return true;
+      })
+      .catch((error) => {
+        console.error('[Outra3D] Failed to load preview character GLB:', error);
+        return false;
+      })
+      .finally(() => {
+        state.previewLoadPromise = null;
+      });
+
+    return state.previewLoadPromise;
+  }
+
+  function preloadArenaCharacterModel() {
+    const arenaCfg = getArenaCharacterConfig();
+    const arenaPath = String(arenaCfg.glb || '').trim();
+    if (!arenaPath) return Promise.resolve(true);
+    return loadGltfAsset(arenaPath)
+      .then(() => true)
+      .catch((error) => {
+        console.error('[Outra3D] Failed to preload arena character GLB:', error);
+        return false;
+      });
+  }
+
+  function preloadDraftCharacterModel() {
+    const draftCfg = getDraftCharacterConfig();
+    const draftPath = String(draftCfg.glb || '').trim();
+    if (!draftPath) return Promise.resolve(true);
+    return loadGltfAsset(draftPath)
+      .then(() => true)
+      .catch((error) => {
+        console.error('[Outra3D] Failed to preload draft character GLB:', error);
+        return false;
+      });
   }
 
   function loadArenaFloor() {
     const floorCfg = getArenaFloorConfig();
-    if (!floorCfg.enabled || !floorCfg.glb || !state.loader || !state.floor.rootGroup) return;
+    if (!floorCfg.enabled || !floorCfg.glb || !state.loader || !state.floor.rootGroup) {
+      return Promise.resolve(true);
+    }
+    if (state.arenaFloorReady && state.floor.root) return Promise.resolve(true);
+    if (state.arenaFloorLoadPromise) return state.arenaFloorLoadPromise;
 
-    state.loader.load(
-      floorCfg.glb,
-      (gltf) => {
+    state.arenaFloorLoadPromise = loadGltfAsset(floorCfg.glb)
+      .then((gltf) => {
         if (state.floor.root) {
           state.floor.rootGroup.remove(state.floor.root);
         }
@@ -3098,20 +3334,31 @@ function prepareDummyModel(root, mountGroup) {
         const sourceScene = gltf.scene || gltf.scenes?.[0];
         if (!sourceScene) {
           console.error('[Outra3D] Arena floor GLB loaded without a scene.');
-          return;
+          state.arenaFloorReady = false;
+          return false;
         }
 
-        const floorRoot = sourceScene.clone(true);
+        const floorRoot = cloneSceneGraph(sourceScene);
+        if (!floorRoot) {
+          state.arenaFloorReady = false;
+          return false;
+        }
         prepareArenaFloorModel(floorRoot, state.floor.rootGroup);
         state.floor.root = floorRoot;
         state.arenaFloorReady = true;
         log('Arena floor loaded');
-      },
-      undefined,
-      (error) => {
+        return true;
+      })
+      .catch((error) => {
+        state.arenaFloorReady = false;
         console.error('[Outra3D] Failed to load arena floor GLB:', error);
-      }
-    );
+        return false;
+      })
+      .finally(() => {
+        state.arenaFloorLoadPromise = null;
+      });
+
+    return state.arenaFloorLoadPromise;
   }
 
   function loadDraftPlatform() {
@@ -3122,12 +3369,13 @@ function prepareDummyModel(root, mountGroup) {
         state.draft.platformGroup.visible = false;
       }
       state.draft.platformTopY = null;
-      return;
+      return Promise.resolve(true);
     }
+    if (state.draft.platformReady && state.draft.platformRoot) return Promise.resolve(true);
+    if (state.draftPlatformLoadPromise) return state.draftPlatformLoadPromise;
 
-    state.loader.load(
-      draftCfg.platform.glb,
-      (gltf) => {
+    state.draftPlatformLoadPromise = loadGltfAsset(draftCfg.platform.glb)
+      .then((gltf) => {
         if (state.draft.platformRoot) {
           state.draft.platformGroup.remove(state.draft.platformRoot);
         }
@@ -3135,20 +3383,142 @@ function prepareDummyModel(root, mountGroup) {
         const sourceScene = gltf.scene || gltf.scenes?.[0];
         if (!sourceScene) {
           console.error('[Outra3D] Draft platform GLB loaded without a scene.');
-          return;
+          state.draft.platformReady = false;
+          return false;
         }
 
-        const platformRoot = sourceScene.clone(true);
+        const platformRoot = cloneSceneGraph(sourceScene);
+        if (!platformRoot) {
+          state.draft.platformReady = false;
+          return false;
+        }
         prepareDraftPlatformModel(platformRoot, state.draft.platformGroup);
         state.draft.platformRoot = platformRoot;
         state.draft.platformReady = true;
         log('Draft platform loaded');
-      },
-      undefined,
-      (error) => {
+        return true;
+      })
+      .catch((error) => {
+        state.draft.platformReady = false;
         console.error('[Outra3D] Failed to load draft platform GLB:', error);
-      }
-    );
+        return false;
+      })
+      .finally(() => {
+        state.draftPlatformLoadPromise = null;
+      });
+
+    return state.draftPlatformLoadPromise;
+  }
+
+  function loadLobbyAssetPack() {
+    const pack = getPackState('lobby');
+    if (pack?.loaded) return Promise.resolve(true);
+    if (pack?.promise) return pack.promise;
+    markPackLoading('lobby');
+    const loadPromise = Promise.allSettled([
+      loadPreviewCharacter()
+    ])
+      .then((results) => {
+        const ok = results.every((entry) => entry.status === 'fulfilled' && entry.value !== false);
+        if (!ok) {
+          markPackFailed('lobby', 'lobby_pack_incomplete');
+          return false;
+        }
+        markPackReady('lobby');
+        return true;
+      });
+    if (pack) {
+      pack.promise = loadPromise.finally(() => {
+        pack.promise = null;
+      });
+      return pack.promise;
+    }
+    return loadPromise;
+  }
+
+  function loadDraftAssetPack() {
+    const pack = getPackState('draft');
+    if (pack?.loaded) return Promise.resolve(true);
+    if (pack?.promise) return pack.promise;
+    markPackLoading('draft');
+    const loadPromise = Promise.allSettled([
+      preloadDraftCharacterModel(),
+      loadDraftPlatform()
+    ])
+      .then((results) => {
+        const ok = results.every((entry) => entry.status === 'fulfilled' && entry.value !== false);
+        if (!ok) {
+          markPackFailed('draft', 'draft_pack_incomplete');
+          return false;
+        }
+        markPackReady('draft');
+        return true;
+      });
+    if (pack) {
+      pack.promise = loadPromise.finally(() => {
+        pack.promise = null;
+      });
+      return pack.promise;
+    }
+    return loadPromise;
+  }
+
+  function loadArenaAssetPack() {
+    const pack = getPackState('arena');
+    if (pack?.loaded) return Promise.resolve(true);
+    if (pack?.promise) return pack.promise;
+    markPackLoading('arena');
+    const loadPromise = Promise.allSettled([
+      preloadArenaCharacterModel(),
+      loadArenaFloor(),
+      ensureHitFlashTextureLoaded()
+    ])
+      .then((results) => {
+        const ok = results.every((entry) => entry.status === 'fulfilled' && entry.value !== false);
+        if (!ok) {
+          markPackFailed('arena', 'arena_pack_incomplete');
+          return false;
+        }
+        markPackReady('arena');
+        return true;
+      });
+    if (pack) {
+      pack.promise = loadPromise.finally(() => {
+        pack.promise = null;
+      });
+      return pack.promise;
+    }
+    return loadPromise;
+  }
+
+  function unloadLobbyAssetPack() {
+    if (state.preview.rootGroup) {
+      state.preview.rootGroup.visible = false;
+    }
+    return true;
+  }
+
+  function unloadDraftAssetPack() {
+    if (state.draft.platformGroup) {
+      state.draft.platformGroup.visible = false;
+    }
+    state.draft.platformTopY = null;
+    if (state.player.draftTurnRing) state.player.draftTurnRing.visible = false;
+    if (state.dummy.draftTurnRing) state.dummy.draftTurnRing.visible = false;
+    if (state.player.draftPlatform) state.player.draftPlatform.visible = false;
+    if (state.dummy.draftPlatform) state.dummy.draftPlatform.visible = false;
+    return true;
+  }
+
+  function unloadArenaAssetPack() {
+    if (state.floor.rootGroup) state.floor.rootGroup.visible = false;
+    for (let i = state.hitFlash.active.length - 1; i >= 0; i -= 1) {
+      const flash = state.hitFlash.active[i];
+      state.hitFlash.active.splice(i, 1);
+      recycleHitFlash(flash);
+    }
+    clearChargeAfterimagePool();
+    return true;
   }
 
   function tintAllLoadedModelsIfNeeded() {
@@ -3452,8 +3822,7 @@ function prepareDummyModel(root, mountGroup) {
 
     // Safety: ensure no draft front-view transform leaks into arena rendering.
     if (state.activeCharacterSet === 'arena' && state.player.modelMount) {
-      state.player.modelMount.scale.setScalar(1);
-      state.player.modelMount.position.set(0, 0, 0);
+      applyArenaModelBaseRotation(state.player.modelMount);
     }
 
     const world = getWorldPosition(player);
@@ -3525,8 +3894,7 @@ state.player.lastWorldZ = world.z;
 
     // Safety: ensure no draft front-view transform leaks into arena rendering.
     if (state.activeCharacterSet === 'arena' && state.dummy.modelMount) {
-      state.dummy.modelMount.scale.setScalar(1);
-      state.dummy.modelMount.position.set(0, 0, 0);
+      applyArenaModelBaseRotation(state.dummy.modelMount);
     }
 
     const world = getWorldPosition(dummy);
@@ -3594,7 +3962,7 @@ state.dummy.lastWorldZ = world.z;
   function updatePreviewPose() {
     if (!state.preview.rootGroup || !state.preview.root) return;
 
-    state.preview.rootGroup.visible = gameState === 'lobby';
+    state.preview.rootGroup.visible = isLobbyPreviewPhase();
     if (!state.preview.rootGroup.visible) {
       state.preview.hoverActive = false;
       return;
@@ -3620,7 +3988,7 @@ state.dummy.lastWorldZ = world.z;
 
     const active =
       state.preview.auraActive &&
-      gameState === 'lobby' &&
+      isLobbyPreviewPhase() &&
       !!state.preview.rootGroup &&
       state.preview.rootGroup.visible;
 
@@ -3683,7 +4051,7 @@ state.dummy.lastWorldZ = world.z;
   function updatePreviewAtmosphere(dt) {
     if (!state.preview.rootGroup) return;
 
-    const active = gameState === 'lobby' && state.preview.rootGroup.visible;
+    const active = isLobbyPreviewPhase() && state.preview.rootGroup.visible;
     const ambient = state.preview.ambientLight;
     const key = state.preview.keyLight;
     const fill = state.preview.fillLight;
@@ -3789,7 +4157,7 @@ state.dummy.lastWorldZ = world.z;
     }
 
     const previewActive =
-      gameState === 'lobby' ||
+      isLobbyPreviewPhase() ||
       !!(state.preview.rootGroup && state.preview.rootGroup.visible);
 
     if (previewActive && state.preview.mixer) {
@@ -3846,11 +4214,7 @@ state.dummy.lastWorldZ = world.z;
       initScene();
       initPreviewScene();
       if (!state.failed) {
-        if (cfg.arenaFloor?.enabled) {
-          loadArenaFloor();
-        }
-        loadDraftPlatform();
-        loadCharacterStates();
+        loadLobbyAssetPack();
       }
     },
 
@@ -3870,7 +4234,7 @@ state.dummy.lastWorldZ = world.z;
 
       const hadPreviewVisible = !!(state.preview.rootGroup && state.preview.rootGroup.visible);
       const shouldUpdatePreview =
-        gameState === 'lobby' ||
+        isLobbyPreviewPhase() ||
         hadPreviewVisible ||
         !!state.preview.auraActive;
 
@@ -3885,7 +4249,7 @@ state.dummy.lastWorldZ = world.z;
       updateHitFlashes(dt);
       updateCameraShake(dt);
 
-      if (gameState === 'lobby') {
+      if (isLobbyPreviewPhase()) {
         if (state.preview.renderer && state.preview.scene && state.preview.camera) {
           state.preview.renderer.render(state.preview.scene, state.preview.camera);
         }
@@ -3901,6 +4265,34 @@ state.dummy.lastWorldZ = world.z;
 
     forceCharacterSet(nextSet = 'arena') {
       forceCharacterSet(nextSet);
+    },
+
+    loadLobbyAssets() {
+      return loadLobbyAssetPack();
+    },
+
+    loadDraftAssets() {
+      return loadDraftAssetPack();
+    },
+
+    loadArenaAssets() {
+      return loadArenaAssetPack();
+    },
+
+    unloadLobbyAssets() {
+      return unloadLobbyAssetPack();
+    },
+
+    unloadDraftAssets() {
+      return unloadDraftAssetPack();
+    },
+
+    unloadArenaAssets() {
+      return unloadArenaAssetPack();
+    },
+
+    getAssetPackState() {
+      return getAssetPackSnapshot();
     },
 
     renderLobbyPreview() {

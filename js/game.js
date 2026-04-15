@@ -1,11 +1,15 @@
 // ── Persistence ───────────────────────────────────────────────
 function saveProfile() {
-  localStorage.setItem(PROFILE_KEY, JSON.stringify({
-    name: player.name,
-    selectedColorIndex,
-    keybinds,
-    profile
-  }));
+  try {
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({
+      name: player.name,
+      selectedColorIndex,
+      keybinds,
+      profile
+    }));
+  } catch (error) {
+    console.warn('[profile] failed to save profile to localStorage', error);
+  }
 }
 
 function loadProfile() {
@@ -49,10 +53,7 @@ if (data.profile && typeof data.profile === 'object') {
   }
 
   if (data.profile.ranked && typeof data.profile.ranked === 'object') {
-        profile.ranked.mmr = Math.max(0, Number(data.profile.ranked.mmr) || 0);
-        profile.ranked.wins = Math.max(0, Number(data.profile.ranked.wins) || 0);
-        profile.ranked.losses = Math.max(0, Number(data.profile.ranked.losses) || 0);
-        profile.ranked.zeroStarLossBuffer = Math.max(0, Number(data.profile.ranked.zeroStarLossBuffer) || 0);
+        profile.ranked = normalizeRankedProfile(data.profile.ranked);
       }
 
       profile.store = { ...profile.store, ...(data.profile.store || {}) };
@@ -76,9 +77,7 @@ if (typeof profile.performanceMode !== 'boolean') profile.performanceMode = fals
 if (typeof FORCE_ARENA_PERFORMANCE_MODE !== 'undefined' && FORCE_ARENA_PERFORMANCE_MODE) {
   profile.performanceMode = true;
 }
-if (!profile.ranked) {
-  profile.ranked = { mmr: 0, wins: 0, losses: 0, zeroStarLossBuffer: 0 };
-}
+profile.ranked = normalizeRankedProfile(profile.ranked);
 }
 
 // ── Leaderboard ───────────────────────────────────────────────
@@ -296,76 +295,8 @@ function getPlayerPoints(name) {
 }
 
 // ── Ranked Helpers ────────────────────────────────────────────
-function getRankProgressionTiers() {
-  const external = window.OUTRA_RANKS?.progressionTiers;
-  if (Array.isArray(external) && external.length) return external;
-  return Array.isArray(RANKED_CONFIG?.tiers) && RANKED_CONFIG.tiers.length
-    ? RANKED_CONFIG.tiers
-    : [];
-}
-
-function getTierStarCount(tier) {
-  if (!tier || tier.max === Infinity) return 0;
-  const count = Number(tier.stars);
-  if (Number.isFinite(count) && count >= 0) return Math.floor(count);
-  return Math.max(0, Number(RANKED_CONFIG.promoStarCount) || 0);
-}
-
-function getRankTierByMmr(mmr) {
-  const safeMmr = Math.max(0, Number(mmr) || 0);
-  const tiers = getRankProgressionTiers();
-  return tiers.find(t => safeMmr >= t.min && safeMmr <= t.max) || tiers[0];
-}
-
-function getRankTierIndexByMmr(mmr) {
-  const tiers = getRankProgressionTiers();
-  const tier = getRankTierByMmr(mmr);
-  return Math.max(0, tiers.findIndex(t => t.key === tier.key));
-}
-
-function getStarsFromMmr(mmr) {
-  const tier = getRankTierByMmr(mmr);
-  const tierStars = getTierStarCount(tier);
-  if (tier.max === Infinity || tierStars <= 0) return 0;
-
-  const span = Math.max(1, (tier.max - tier.min + 1));
-  const offset = Math.max(0, Math.min(span - 1, mmr - tier.min));
-  const stars = Math.min(
-    tierStars,
-    Math.floor(offset / RANKED_CONFIG.mmrPerStar)
-  );
-
-  return stars;
-}
-
-function isPromoMatchByMmr(mmr) {
-  const tier = getRankTierByMmr(mmr);
-  const tierStars = getTierStarCount(tier);
-  if (tier.max === Infinity || tierStars <= 0) return false;
-
-  const offset = Math.max(0, mmr - tier.min);
-  return offset >= (tierStars * RANKED_CONFIG.mmrPerStar);
-}
-
-function getRankedSnapshot() {
-  const mmr = Math.max(0, Number(profile.ranked?.mmr) || 0);
-  const tier = getRankTierByMmr(mmr);
-  const stars = getStarsFromMmr(mmr);
-  const promo = isPromoMatchByMmr(mmr);
-
-  return {
-    mmr,
-    tier,
-    tierIndex: getRankTierIndexByMmr(mmr),
-    stars,
-    promo,
-    wins: Number(profile.ranked?.wins) || 0,
-    losses: Number(profile.ranked?.losses) || 0,
-    zeroStarLossBuffer: Number(profile.ranked?.zeroStarLossBuffer) || 0,
-  };
-}
-
-function getRankedResultSummary(didWin, before, after, forcedDerank) {
+function getRankedResultSummaryLegacyMmr(didWin, before, after, forcedDerank) {
+  return `Legacy ranked path disabled (${didWin ? 'win' : 'loss'}).`;
   const parts = [];
 
   parts.push(`${didWin ? '+' : '-'}${didWin ? RANKED_CONFIG.winMmr : RANKED_CONFIG.lossMmr} MMR`);
@@ -383,7 +314,8 @@ function getRankedResultSummary(didWin, before, after, forcedDerank) {
   return parts.join(' • ');
 }
 
-function applyRankedMatchResult(didWin) {
+function applyRankedMatchResultLegacyMmr(didWin) {
+  return applyRankedMatchResult(didWin, { source: 'legacy_redirect' });
   if (!profile.ranked) {
     profile.ranked = { mmr: 0, wins: 0, losses: 0, zeroStarLossBuffer: 0 };
   }
@@ -433,10 +365,279 @@ function applyRankedMatchResult(didWin) {
 
   const after = getRankedSnapshot();
   saveProfile();
-  return getRankedResultSummary(didWin, before, after, forcedDerank);
+  return getRankedResultSummaryLegacyMmr(didWin, before, after, forcedDerank);
 }
 
 // ── Math Helpers ──────────────────────────────────────────────
+// Local-only ranked progression (temporary until backend persistence).
+const RANKED_MIN_RANK = 1;
+const RANKED_MAX_RANK = 20;
+const RANKED_DEFAULT_START_RANK = 20;
+const RANKED_WIN_STREAK_BONUS_THRESHOLD = 3;
+
+function clampRankNumber(rankNumber) {
+  return Math.max(RANKED_MIN_RANK, Math.min(RANKED_MAX_RANK, Math.floor(Number(rankNumber) || RANKED_DEFAULT_START_RANK)));
+}
+
+function getStarsForRankNumber(rankNumber) {
+  const safeRank = clampRankNumber(rankNumber);
+  const fromConfig = Number(window.OUTRA_RANKS?.getById?.(String(safeRank))?.stars);
+  if (Number.isFinite(fromConfig) && fromConfig >= 0) return Math.floor(fromConfig);
+  if (safeRank >= 16) return 2;
+  if (safeRank >= 11) return 3;
+  return 4;
+}
+
+function getRankTierByRankNumber(rankNumber) {
+  const safeRank = clampRankNumber(rankNumber);
+  const fromConfig = window.OUTRA_RANKS?.getById?.(String(safeRank));
+  if (fromConfig) return fromConfig;
+  return {
+    id: String(safeRank),
+    rankNumber: safeRank,
+    name: `Rank ${safeRank}`,
+    label: `Rank ${safeRank}`,
+    stars: getStarsForRankNumber(safeRank),
+    badge: window.OUTRA_RANKS?.placeholderBadge || '/docs/art/ranks/20.png',
+  };
+}
+
+function createDefaultRankedProfile() {
+  return {
+    currentRank: RANKED_DEFAULT_START_RANK,
+    currentStars: 0,
+    winStreak: 0,
+    wins: 0,
+    losses: 0,
+    totalMatches: 0,
+    highestRank: RANKED_DEFAULT_START_RANK,
+    lastProcessedMatchId: '',
+  };
+}
+
+function buildRankedFromLegacyMmr(legacyRanked) {
+  const defaultProfile = createDefaultRankedProfile();
+  const mmr = Math.max(0, Number(legacyRanked?.mmr) || 0);
+  const wins = Math.max(0, Number(legacyRanked?.wins) || 0);
+  const losses = Math.max(0, Number(legacyRanked?.losses) || 0);
+  const tier = window.OUTRA_RANKS?.getByMmr?.(mmr);
+  const rankNumber = clampRankNumber(Number(tier?.rankNumber) || defaultProfile.currentRank);
+  const tierMin = Number(tier?.minMmr);
+  const mmrPerStar = Math.max(1, Number(window.OUTRA_RANKS?.mmrPerStar) || 20);
+  const maxStars = getStarsForRankNumber(rankNumber);
+  const stars = Number.isFinite(tierMin)
+    ? Math.min(maxStars, Math.max(0, Math.floor((mmr - tierMin) / mmrPerStar)))
+    : 0;
+  return {
+    ...defaultProfile,
+    currentRank: rankNumber,
+    currentStars: stars,
+    wins,
+    losses,
+    totalMatches: Math.max(wins + losses, Number(legacyRanked?.totalMatches) || 0),
+    highestRank: rankNumber,
+  };
+}
+
+function normalizeRankedProfile(rawRanked) {
+  const defaultProfile = createDefaultRankedProfile();
+  if (!rawRanked || typeof rawRanked !== 'object') return { ...defaultProfile };
+
+  const hasNewFormat = Number.isFinite(Number(rawRanked.currentRank));
+  if (!hasNewFormat && Number.isFinite(Number(rawRanked.mmr))) {
+    return buildRankedFromLegacyMmr(rawRanked);
+  }
+
+  const currentRank = clampRankNumber(rawRanked.currentRank);
+  const maxStars = getStarsForRankNumber(currentRank);
+  const currentStars = Math.max(0, Math.min(maxStars, Math.floor(Number(rawRanked.currentStars) || 0)));
+  const wins = Math.max(0, Math.floor(Number(rawRanked.wins) || 0));
+  const losses = Math.max(0, Math.floor(Number(rawRanked.losses) || 0));
+  const totalMatches = Math.max(wins + losses, Math.floor(Number(rawRanked.totalMatches) || 0));
+  const winStreak = Math.max(0, Math.floor(Number(rawRanked.winStreak) || 0));
+
+  let highestRank = clampRankNumber(rawRanked.highestRank);
+  if (highestRank > currentRank) highestRank = currentRank;
+
+  return {
+    currentRank,
+    currentStars,
+    winStreak,
+    wins,
+    losses,
+    totalMatches,
+    highestRank,
+    lastProcessedMatchId: String(rawRanked.lastProcessedMatchId || '').trim(),
+  };
+}
+
+function canApplyWinStreakBonus(rankNumber, nextWinStreak) {
+  return rankNumber >= 6 && rankNumber <= 20 && nextWinStreak >= RANKED_WIN_STREAK_BONUS_THRESHOLD;
+}
+
+function canDemoteAcrossRankFloor(currentRank, nextRank) {
+  if (currentRank <= 5 && nextRank > 5) return false;
+  if (currentRank <= 10 && nextRank > 10) return false;
+  if (currentRank <= 15 && nextRank > 15) return false;
+  return true;
+}
+
+function getRankedSnapshot() {
+  profile.ranked = normalizeRankedProfile(profile.ranked);
+  const ranked = profile.ranked;
+  const tier = getRankTierByRankNumber(ranked.currentRank);
+  const maxStars = getStarsForRankNumber(ranked.currentRank);
+
+  return {
+    currentRank: ranked.currentRank,
+    tier,
+    tierIndex: Math.max(0, RANKED_MAX_RANK - ranked.currentRank),
+    stars: ranked.currentStars,
+    maxStars,
+    promo: false,
+    winStreak: ranked.winStreak,
+    wins: ranked.wins,
+    losses: ranked.losses,
+    totalMatches: ranked.totalMatches,
+    highestRank: ranked.highestRank,
+  };
+}
+
+function getRankedResultSummary(result) {
+  const parts = [];
+  if (result.didWin) {
+    parts.push(`+${result.starsDelta} star${result.starsDelta === 1 ? '' : 's'}`);
+    if (result.streakBonusApplied) parts.push('WIN STREAK BONUS');
+  } else if (result.lossProtected) {
+    parts.push('NO STAR LOSS (PROTECTION)');
+  } else {
+    parts.push(`-${result.starsDelta} star${result.starsDelta === 1 ? '' : 's'}`);
+  }
+
+  if (result.promoted) {
+    parts.push(`PROMOTED TO RANK ${result.after.currentRank}`);
+  } else if (result.demoted) {
+    parts.push(`DEMOTED TO RANK ${result.after.currentRank}`);
+  }
+
+  return parts.join(' • ');
+}
+
+function applyRankedMatchResult(didWin, options = {}) {
+  didWin = !!didWin;
+  profile.ranked = normalizeRankedProfile(profile.ranked);
+  const ranked = profile.ranked;
+  const matchId = String(options?.matchId || '').trim();
+  const source = String(options?.source || 'offline').trim() || 'offline';
+
+  if (matchId && ranked.lastProcessedMatchId === matchId) {
+    console.info(`[ranked] skipped duplicate result for match ${matchId} (source=${source})`);
+    return 'No ranked change (already processed).';
+  }
+
+  const before = getRankedSnapshot();
+  let starsDelta = 0;
+  let promoted = false;
+  let demoted = false;
+  let streakBonusApplied = false;
+  let lossProtected = false;
+
+  ranked.totalMatches += 1;
+  if (didWin) {
+    ranked.wins += 1;
+    ranked.winStreak += 1;
+
+    let starsToAdd = 1;
+    if (canApplyWinStreakBonus(ranked.currentRank, ranked.winStreak)) {
+      starsToAdd += 1;
+      streakBonusApplied = true;
+    }
+
+    starsDelta = starsToAdd;
+    ranked.currentStars += starsToAdd;
+
+    while (ranked.currentRank > RANKED_MIN_RANK) {
+      const maxStarsAtRank = getStarsForRankNumber(ranked.currentRank);
+      if (ranked.currentStars < maxStarsAtRank) break;
+      ranked.currentStars -= maxStarsAtRank;
+      ranked.currentRank -= 1;
+      promoted = true;
+    }
+
+    if (ranked.currentRank === RANKED_MIN_RANK) {
+      ranked.currentStars = Math.min(getStarsForRankNumber(RANKED_MIN_RANK), ranked.currentStars);
+    }
+
+    ranked.highestRank = Math.min(ranked.highestRank, ranked.currentRank);
+  } else {
+    ranked.losses += 1;
+    ranked.winStreak = 0;
+
+    if (ranked.currentRank >= 16) {
+      lossProtected = true;
+      starsDelta = 0;
+    } else {
+      ranked.currentStars -= 1;
+      starsDelta = 1;
+
+      while (ranked.currentStars < 0) {
+        const nextRank = ranked.currentRank + 1;
+        if (nextRank > RANKED_MAX_RANK || !canDemoteAcrossRankFloor(ranked.currentRank, nextRank)) {
+          ranked.currentStars = 0;
+          break;
+        }
+        ranked.currentRank = nextRank;
+        ranked.currentStars += getStarsForRankNumber(ranked.currentRank);
+        demoted = true;
+      }
+    }
+  }
+
+  ranked.currentRank = clampRankNumber(ranked.currentRank);
+  ranked.currentStars = Math.max(0, Math.min(getStarsForRankNumber(ranked.currentRank), ranked.currentStars));
+  ranked.highestRank = Math.min(clampRankNumber(ranked.highestRank), ranked.currentRank);
+  if (matchId) ranked.lastProcessedMatchId = matchId;
+
+  const after = getRankedSnapshot();
+  const summary = getRankedResultSummary({
+    didWin,
+    before,
+    after,
+    starsDelta,
+    promoted,
+    demoted,
+    streakBonusApplied,
+    lossProtected,
+  });
+
+  saveProfile();
+  if (typeof buildRankedPanel === 'function') {
+    buildRankedPanel();
+  }
+  console.info(
+    `[ranked] ${didWin ? 'win' : 'loss'} source=${source} rank=${before.currentRank}->${after.currentRank} `
+    + `stars=${before.stars}/${before.maxStars}->${after.stars}/${after.maxStars} `
+    + `streak=${after.winStreak}${streakBonusApplied ? ' (bonus)' : ''}${lossProtected ? ' (protected)' : ''}`
+  );
+  if (promoted) console.info(`[ranked] promotion to rank ${after.currentRank}`);
+  if (demoted) console.info(`[ranked] demotion to rank ${after.currentRank}`);
+  return summary;
+}
+
+function resetLocalRankedProfile() {
+  profile.ranked = createDefaultRankedProfile();
+  saveProfile();
+  if (typeof buildRankedPanel === 'function') {
+    buildRankedPanel();
+  }
+  console.info('[ranked] local ranked profile reset');
+  return getRankedSnapshot();
+}
+
+window.applyRankedMatchResult = applyRankedMatchResult;
+window.getRankedSnapshot = getRankedSnapshot;
+window.resetLocalRankedProfile = resetLocalRankedProfile;
+
 function distance(ax, ay, bx, by) { return Math.hypot(bx - ax, by - ay); }
 function normalized(dx, dy) { const len = Math.hypot(dx, dy) || 1; return { x: dx / len, y: dy / len }; }
 function insidePlatform(x, y, padding = 0) { return distance(x, y, arena.cx, arena.cy) <= arena.radius - padding; }
@@ -1621,8 +1822,12 @@ function endMatch(playerWon) {
   winnerReward = null;
 
   let rankedText = '';
+  const multiplayerSnapshot = (window.outraMultiplayer && typeof window.outraMultiplayer.getPresentationSnapshot === 'function')
+    ? window.outraMultiplayer.getPresentationSnapshot()
+    : null;
+  const multiplayerArenaActive = !!(multiplayerSnapshot && multiplayerSnapshot.active && multiplayerSnapshot.isArenaActive);
 
-  if (dummyEnabled && dummyBehavior === 'active') {
+  if (!multiplayerArenaActive) {
     rankedText = applyRankedMatchResult(playerWon);
   }
 
@@ -1635,7 +1840,7 @@ function endMatch(playerWon) {
     soundLose();
     winnerText = dummyEnabled
       ? `Dummy wins!${rankedText ? ` • ${rankedText}` : ''}`
-      : 'Round ended';
+      : `Round ended${rankedText ? ` • ${rankedText}` : ''}`;
   }
 
   resultTimer = 2.2;
@@ -2488,8 +2693,13 @@ function updateDraftPhase(dt) {
   draftState.timeLeft = draftState.complete ? 0 : draftState.turnTimeLeft;
 }
 
+let pendingDraftAssetGate = false;
+let pendingArenaAssetGate = false;
+
 function enterLobby() {
   stopDraftSpellHoverSound();
+  pendingDraftAssetGate = false;
+  pendingArenaAssetGate = false;
   gameState      = 'lobby';
   menuOpen       = false;
   waitingForBind = null;
@@ -2519,7 +2729,34 @@ function enterLobby() {
   refreshMobileControls();
 }
 
-function enterDraftRoom() {
+function enterDraftRoom(options = {}) {
+  const skipAssetGate = !!options.skipAssetGate;
+  const phaseAssetApi = window.outraPhaseAssets;
+  if (
+    !skipAssetGate &&
+    phaseAssetApi &&
+    typeof phaseAssetApi.isDraftAssetsReady === 'function' &&
+    typeof phaseAssetApi.ensureDraftAssetsReady === 'function' &&
+    !phaseAssetApi.isDraftAssetsReady()
+  ) {
+    if (!pendingDraftAssetGate) {
+      pendingDraftAssetGate = true;
+      phaseAssetApi.ensureDraftAssetsReady({
+        blocking: true,
+        reason: 'enter_draft_room',
+        title: 'Loading Draft Room',
+        detail: 'Preparing draft assets...'
+      }).then(() => {
+        if (gameState !== 'draft') {
+          enterDraftRoom({ ...options, skipAssetGate: true });
+        }
+      }).finally(() => {
+        pendingDraftAssetGate = false;
+      });
+    }
+    return;
+  }
+
   player.name = (nameInput.value || 'Player').trim().slice(0, 16) || 'Player';
   applyPlayerColors();
   saveProfile();
@@ -2599,12 +2836,38 @@ function isArenaPreFightLocked() {
 }
 
 function startMatch(options = {}) {
+  const skipAssetGate = !!options.skipAssetGate;
+  const phaseAssetApi = window.outraPhaseAssets;
+  if (
+    !skipAssetGate &&
+    phaseAssetApi &&
+    typeof phaseAssetApi.isArenaAssetsReady === 'function' &&
+    typeof phaseAssetApi.ensureArenaAssetsReady === 'function' &&
+    !phaseAssetApi.isArenaAssetsReady()
+  ) {
+    if (!pendingArenaAssetGate) {
+      pendingArenaAssetGate = true;
+      phaseAssetApi.ensureArenaAssetsReady({
+        blocking: true,
+        reason: 'start_match',
+        title: 'Loading Arena',
+        detail: 'Preparing combat assets...'
+      }).then(() => {
+        const resolvedOptions = { ...options, skipAssetGate: true };
+        startMatch(resolvedOptions);
+      }).finally(() => {
+        pendingArenaAssetGate = false;
+      });
+    }
+    return;
+  }
+
   stopDraftSpellHoverSound();
   const skipArenaIntro = !!options.skipArenaIntro;
   startMusicIfNeeded();
   const fromDraft = gameState === 'draft';
   if (fromDraft && !draftState.complete) return;
-  if (fromDraft && window.outraThree && typeof window.outraThree.forceCharacterSet === 'function') {
+  if (window.outraThree && typeof window.outraThree.forceCharacterSet === 'function') {
     window.outraThree.forceCharacterSet('arena');
   }
   player.name = (nameInput.value || 'Player').trim().slice(0, 16) || 'Player';
@@ -2858,6 +3121,29 @@ function triggerAbilityCastOriginFeedback(snapshot, ownerPlayerNumber, abilityId
   }
 }
 
+function playMultiplayerAbilitySound(abilityId, context = 'cast') {
+  const id = String(abilityId || '').trim().toLowerCase();
+  const phase = String(context || '').trim().toLowerCase();
+
+  if (id === 'fireblast') {
+    soundFire();
+    return;
+  }
+
+  if (id === 'shield') {
+    if (phase === 'cast' || phase === 'activate' || phase === 'block') {
+      soundShield();
+    }
+    return;
+  }
+
+  if (id === 'charge') {
+    if (phase === 'cast' || phase === 'activate') {
+      soundCharge();
+    }
+  }
+}
+
 function triggerRewindFeedback(snapshot, hitEvent) {
   const metadata = hitEvent?.metadata && typeof hitEvent.metadata === 'object'
     ? hitEvent.metadata
@@ -2937,10 +3223,14 @@ function triggerMultiplayerHitFeedback(snapshot, hitEvent) {
       width: hitType === 'shield_block' ? 2.2 : 3.2,
     });
     if (hitType !== 'rewind_used') {
+      const metadataDamage = Number(hitEvent?.metadata?.damage);
+      const damageLabel = Number.isFinite(metadataDamage) && metadataDamage > 0
+        ? `-${Math.round(metadataDamage)}`
+        : String(palette.text || 'HIT');
       damageTexts.push({
         x: targetMapped.x,
         y: targetMapped.y - 30,
-        value: String(palette.text || 'HIT'),
+        value: damageLabel,
         life: 0.34,
         vy: -26,
         color: palette.textColor || '#ffe4bf',
@@ -3091,8 +3381,27 @@ function syncMultiplayerArenaActors(snapshot) {
   const oppConnected = snapshot?.opponentConnected !== false;
   player.alive = !isMatchEnd || eliminated !== myNumber;
   dummy.alive = !!oppMapped && oppConnected && (!isMatchEnd || eliminated !== oppNumber);
-  player.hp = player.alive ? player.maxHp : 0;
-  dummy.hp = dummy.alive ? dummy.maxHp : 0;
+  const myMaxHealth = Number(snapshot?.myMaxHealth);
+  if (Number.isFinite(myMaxHealth) && myMaxHealth > 0) {
+    player.maxHp = myMaxHealth;
+  }
+  const myCurrentHealth = Number(snapshot?.myCurrentHealth);
+  if (Number.isFinite(myCurrentHealth)) {
+    player.hp = Math.max(0, Math.min(player.maxHp, myCurrentHealth));
+  } else {
+    player.hp = player.alive ? player.maxHp : 0;
+  }
+
+  const oppMaxHealth = Number(snapshot?.opponentMaxHealth);
+  if (Number.isFinite(oppMaxHealth) && oppMaxHealth > 0) {
+    dummy.maxHp = oppMaxHealth;
+  }
+  const oppCurrentHealth = Number(snapshot?.opponentCurrentHealth);
+  if (Number.isFinite(oppCurrentHealth)) {
+    dummy.hp = Math.max(0, Math.min(dummy.maxHp, oppCurrentHealth));
+  } else {
+    dummy.hp = dummy.alive ? dummy.maxHp : 0;
+  }
 
   if (player.alive) {
     emitKnockbackTrail(player, 'player');
@@ -3245,10 +3554,12 @@ function syncMultiplayerArenaFeedback(snapshot) {
     if (!projectileId || multiplayerArenaBridgeState.seenProjectileIds.has(projectileId)) continue;
     multiplayerArenaBridgeState.seenProjectileIds.add(projectileId);
     triggerArenaCastForPlayer(snapshot, projectile?.ownerPlayerNumber);
+    const abilityId = String(projectile?.abilityId || '').trim().toLowerCase();
+    playMultiplayerAbilitySound(abilityId, 'cast');
     triggerAbilityCastOriginFeedback(
       snapshot,
       projectile?.ownerPlayerNumber,
-      String(projectile?.abilityId || '').trim().toLowerCase()
+      abilityId
     );
   }
 
@@ -3283,6 +3594,8 @@ function syncMultiplayerArenaFeedback(snapshot) {
       triggerArenaHitForPlayer(snapshot, hitEvent?.targetPlayerNumber);
       if (hitType !== 'shield_block') {
         triggerArenaCastForPlayer(snapshot, hitEvent?.sourcePlayerNumber);
+      } else {
+        playMultiplayerAbilitySound('shield', 'block');
       }
     } else {
       triggerArenaCastForPlayer(snapshot, hitEvent?.sourcePlayerNumber);
@@ -3295,6 +3608,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
   const myShield = !!snapshot?.myActiveEffects?.shieldActive;
   const oppShield = !!snapshot?.opponentActiveEffects?.shieldActive;
   if (myCharge && !multiplayerArenaBridgeState.lastMyChargeActive) {
+    playMultiplayerAbilitySound('charge', 'activate');
     triggerArenaDashForPlayer(snapshot, myNumber);
     const source = getMappedPlayerPositionByNumber(snapshot, myNumber);
     const dir = normalizeRuntimeAim(snapshot?.myActiveEffects?.chargeDirection, snapshot?.myAimDirection?.x || 1, snapshot?.myAimDirection?.y || 0);
@@ -3311,6 +3625,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
     }
   }
   if (oppCharge && !multiplayerArenaBridgeState.lastOppChargeActive) {
+    playMultiplayerAbilitySound('charge', 'activate');
     triggerArenaDashForPlayer(snapshot, oppNumber);
     const source = getMappedPlayerPositionByNumber(snapshot, oppNumber);
     const dir = normalizeRuntimeAim(snapshot?.opponentActiveEffects?.chargeDirection, snapshot?.opponentAimDirection?.x || -1, snapshot?.opponentAimDirection?.y || 0);
@@ -3327,6 +3642,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
     }
   }
   if (myShield && !multiplayerArenaBridgeState.lastMyShieldActive) {
+    playMultiplayerAbilitySound('shield', 'activate');
     const source = getMappedPlayerPositionByNumber(snapshot, myNumber);
     if (source) {
       const shieldStyle = getAbilityFeedbackPalette('shield', 'cast');
@@ -3342,6 +3658,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
     }
   }
   if (oppShield && !multiplayerArenaBridgeState.lastOppShieldActive) {
+    playMultiplayerAbilitySound('shield', 'activate');
     const source = getMappedPlayerPositionByNumber(snapshot, oppNumber);
     if (source) {
       const shieldStyle = getAbilityFeedbackPalette('shield', 'cast');
@@ -3461,6 +3778,9 @@ function syncMultiplayerArenaEmbodiment() {
 }
 
 function update(dt) {
+  if (window.outraPhaseAssets && typeof window.outraPhaseAssets.tick === 'function') {
+    window.outraPhaseAssets.tick();
+  }
   updateMusic(dt);
   const multiplayerDraftSnapshot = getMultiplayerDraftPresentationSnapshot();
 

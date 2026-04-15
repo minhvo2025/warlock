@@ -357,8 +357,17 @@ canvas.addEventListener('mousedown', (e) => {
     ? window.outraMultiplayer.getPresentationSnapshot()
     : null;
   const multiplayerDraftActive = !!(mpSnapshot && mpSnapshot.active && mpSnapshot.isDraftActive);
+  const multiplayerArenaActive = !!(mpSnapshot && mpSnapshot.active && mpSnapshot.isArenaActive);
   if ((gameState === 'draft' || multiplayerDraftActive) && e.button === 0) {
     tryDraftPickAtCursor();
+    return;
+  }
+
+  if (multiplayerArenaActive) {
+    if (e.button === 0 && window.outraMultiplayer && typeof window.outraMultiplayer.castFireblast === 'function') {
+      startMusicIfNeeded();
+      window.outraMultiplayer.castFireblast();
+    }
     return;
   }
 
@@ -421,6 +430,37 @@ function toggleMenu() {
 
 function playMenuClickSound() {
   // Menu clicks are intentionally silent.
+}
+
+function tryEnableGodMode() {
+  if (godModeEnabled) {
+    if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugToolsEnabled === 'function') {
+      window.outraMultiplayer.setDebugToolsEnabled(true);
+    }
+    if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugPanelVisible === 'function') {
+      window.outraMultiplayer.setDebugPanelVisible(true);
+    }
+    updateGodModeMenuState();
+    updateHud();
+    return;
+  }
+
+  const entered = window.prompt('Enter GOD MODE password:');
+  if (entered === null) return;
+  if (String(entered).trim() !== 'iddqd') {
+    window.alert('Wrong GOD MODE password.');
+    return;
+  }
+
+  godModeEnabled = true;
+  updateGodModeMenuState();
+  if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugToolsEnabled === 'function') {
+    window.outraMultiplayer.setDebugToolsEnabled(true);
+  }
+  if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugPanelVisible === 'function') {
+    window.outraMultiplayer.setDebugPanelVisible(true);
+  }
+  updateHud();
 }
 
 document.addEventListener('pointerdown', (e) => {
@@ -510,6 +550,22 @@ toLobbyBtn.addEventListener('click', () => {
   enterLobby();
 });
 
+if (leaveGameBtn) {
+  leaveGameBtn.addEventListener('click', () => {
+    playMenuClickSound();
+    closeMenu();
+    const api = getQuickMatchApi();
+    if (api && typeof api.leaveGame === 'function') {
+      const requested = api.leaveGame();
+      if (requested !== false) {
+        enterLobby();
+      }
+      return;
+    }
+    enterLobby();
+  });
+}
+
 if (resetBtn) {
   resetBtn.addEventListener('click', () => {
     playMenuClickSound();
@@ -524,6 +580,13 @@ musicToggleBtn.addEventListener('click', () => {
   setMusicMuted(!musicMuted);
   updateHud();
 });
+
+if (godModeBtn) {
+  godModeBtn.addEventListener('click', () => {
+    playMenuClickSound();
+    tryEnableGodMode();
+  });
+}
 
 standingDummyBtn.addEventListener('click', () => {
   playMenuClickSound();
@@ -746,3 +809,9 @@ window.addEventListener('resize', () => {
   refreshMobileControls();
   drawLobbyPreview();
 });
+
+// Enforce normal-user defaults on boot; admin actions unlock via GOD MODE only.
+updateGodModeMenuState();
+if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugToolsEnabled === 'function') {
+  window.outraMultiplayer.setDebugToolsEnabled(!!godModeEnabled);
+}

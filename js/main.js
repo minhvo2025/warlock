@@ -43,6 +43,9 @@ setMusicMuted(musicMuted);
 if (window.outraMultiplayer && typeof window.outraMultiplayer.connect === 'function') {
   window.outraMultiplayer.connect();
 }
+if (window.outraPhaseAssets && typeof window.outraPhaseAssets.init === 'function') {
+  window.outraPhaseAssets.init();
+}
 drawLobbyPreview();
 updateHud();
 resetMoveStick();

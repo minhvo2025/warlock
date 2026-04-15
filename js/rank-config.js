@@ -31,7 +31,7 @@
     const rank = Number(rankNumber);
     if (rank >= 16) return 2;
     if (rank >= 11) return 3;
-    if (rank >= 1) return 5;
+    if (rank >= 1) return 4;
     return 0;
   }
 

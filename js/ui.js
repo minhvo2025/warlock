@@ -464,6 +464,7 @@ function syncDraftStateFromMultiplayer(multiplayerSnapshot) {
   const spellPool = draft.spellPool && typeof draft.spellPool === 'object'
     ? draft.spellPool
     : {};
+  let playedPickSoundThisSync = false;
 
   draftState.order = order;
   draftState.activeIndex = activeIndex;
@@ -500,6 +501,10 @@ function syncDraftStateFromMultiplayer(multiplayerSnapshot) {
       const nextSpellId = toUiSpellFromMultiplayer(nextPicks[index]);
       if (!nextSpellId || prevSpellId === nextSpellId) continue;
       queueDraftPickFxFromSync(playerId, index, nextSpellId);
+      if (!playedPickSoundThisSync && typeof soundDraftPick === 'function') {
+        soundDraftPick();
+        playedPickSoundThisSync = true;
+      }
       if (
         draftUiSpellFxState.pendingSpellId
         && draftUiSpellFxState.pendingPlayerId === playerId
@@ -510,6 +515,9 @@ function syncDraftStateFromMultiplayer(multiplayerSnapshot) {
         draftUiSpellFxState.pendingStartedAt = 0;
       }
     }
+  }
+  if (playedPickSoundThisSync && typeof stopDraftSpellHoverSound === 'function') {
+    stopDraftSpellHoverSound();
   }
 
   if (
@@ -1389,7 +1397,7 @@ function buildRankedPanel() {
     : 'MASTER';
   const tierStars = Math.max(0, Number(snapshot?.tier?.stars) || 0);
   const starProgressText = tierStars > 0
-    ? (snapshot.promo ? 'Rank Up Match' : `${snapshot.stars}/${tierStars} stars`)
+    ? `${snapshot.stars}/${tierStars} stars`
     : 'Master tier';
   const rankBadgePath = getRankBadgeAssetPath(snapshot.tier);
   const renderSignature = JSON.stringify({
@@ -1399,7 +1407,7 @@ function buildRankedPanel() {
     rankBadgePath,
     stars: Number(snapshot.stars) || 0,
     tierStars,
-    promo: !!snapshot.promo,
+    winStreak: Number(snapshot.winStreak) || 0,
     wins: Number(snapshot.wins) || 0,
     losses: Number(snapshot.losses) || 0,
   });
@@ -1438,6 +1446,7 @@ function buildRankedPanel() {
           </div>
 
 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
+  <div style="font-size:12px; opacity:.78;">Streak ${snapshot.winStreak || 0}</div>
   <div style="font-size:12px; opacity:.78;">W ${snapshot.wins} • L ${snapshot.losses}</div>
 </div>
       </div>
@@ -1928,7 +1937,7 @@ function updateSkillCooldownButtons(multiplayerSnapshot = null) {
       el.textContent = mappedKey;
     });
     const fireKeyEl = document.querySelector('#dspell-fire .deskSpellKey');
-    if (fireKeyEl) fireKeyEl.textContent = 'Space';
+    if (fireKeyEl) fireKeyEl.textContent = 'M1';
   } else {
     Object.entries(keyMap).forEach(([skill, elId]) => {
       const el = document.getElementById(elId);
@@ -1981,6 +1990,37 @@ function syncArenaSpellBarLayout(multiplayerSnapshot = null) {
   spellBar.classList.toggle('draftSpellBarOnlyPicks', inArenaPhase && isDraftLoadout);
 }
 
+function updateGodModeMenuState() {
+  const devButtons = [
+    standingDummyBtn,
+    activeDummyBtn,
+    removeDummyBtn,
+    toArenaBtn,
+    draftRoomBtn,
+  ];
+  for (const button of devButtons) {
+    if (!button) continue;
+    button.hidden = !godModeEnabled;
+  }
+
+  if (godModeBtn) {
+    const labelEl = godModeBtn.querySelector('.menuBtnLabel');
+    if (labelEl) {
+      labelEl.textContent = godModeEnabled ? 'GOD MODE: ON' : 'GOD MODE';
+    } else {
+      godModeBtn.textContent = godModeEnabled ? 'GOD MODE: ON' : 'GOD MODE';
+    }
+  }
+}
+
+function updateLeaveGameMenuState(multiplayerSnapshot = null) {
+  if (!leaveGameBtn) return;
+  const snapshot = multiplayerSnapshot || getMultiplayerPresentationSnapshot();
+  const showLeaveGame = !!snapshot?.active
+    && (snapshot.isDraftActive || snapshot.isArenaActive);
+  leaveGameBtn.hidden = !showLeaveGame;
+}
+
 function updateHud() {
   const multiplayerSnapshot = getMultiplayerPresentationSnapshot();
   const multiplayerMatchFlowActive = !!multiplayerSnapshot?.active
@@ -1995,13 +2035,22 @@ function updateHud() {
 
   applySpellIconsDesktop();
 
-  hpEl.textContent = `HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
-
-  dummyHpEl.textContent = !dummyEnabled
-    ? 'Dummy HP: removed'
-    : dummy.alive
-      ? `${dummyBehavior === 'standing' ? 'Standing Dummy' : 'Active Dummy'} HP: ${Math.ceil(dummy.hp)}`
-      : `Dummy HP: dead (${dummy.deadReason})`;
+  const multiplayerArenaActive = !!multiplayerSnapshot?.active && !!multiplayerSnapshot?.isArenaActive;
+  if (multiplayerArenaActive) {
+    hpEl.textContent = `Your HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
+    dummyHpEl.textContent = !dummyEnabled
+      ? 'Opponent HP: -'
+      : dummy.alive
+        ? `Opponent HP: ${Math.ceil(dummy.hp)}`
+        : 'Opponent HP: 0 (dead)';
+  } else {
+    hpEl.textContent = `HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
+    dummyHpEl.textContent = !dummyEnabled
+      ? 'Dummy HP: removed'
+      : dummy.alive
+        ? `${dummyBehavior === 'standing' ? 'Standing Dummy' : 'Active Dummy'} HP: ${Math.ceil(dummy.hp)}`
+        : `Dummy HP: dead (${dummy.deadReason})`;
+  }
 
   if (standingDummyBtn) {
     standingDummyBtn.textContent = dummyEnabled && dummyBehavior === 'standing'
@@ -2049,6 +2098,8 @@ function updateHud() {
   if (gameState === 'lobby') {
     buildRankedPanel();
   }
+  updateGodModeMenuState();
+  updateLeaveGameMenuState(multiplayerSnapshot);
 }
 
 // ── Aim Sensitivity UI ────────────────────────────────────────

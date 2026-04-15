@@ -1291,6 +1291,8 @@ function render() {
 
   const shouldRenderDraft = gameState === 'draft' || isMultiplayerDraftVisualPhase();
   const multiplayerArenaActive = !!getMultiplayerArenaRuntimeVisualState();
+  const shouldRenderArenaVisuals = !shouldRenderDraft
+    && (gameState === 'playing' || gameState === 'result' || multiplayerArenaActive);
   const shouldShake = !shouldRenderDraft && (gameState === 'playing' || gameState === 'result' || multiplayerArenaActive);
   const shakeOffset = shouldShake && typeof getCombatScreenShakeOffset === 'function'
     ? getCombatScreenShakeOffset()
@@ -1325,6 +1327,17 @@ function render() {
       fxCtx.restore();
       bgCtx.restore();
     }
+    return;
+  }
+
+  // Performance guard: skip expensive arena/background rendering while we're in non-arena phases
+  // (e.g. lobby/menu/store overlays) where these layers are not visible to the player.
+  if (!shouldRenderArenaVisuals) {
+    if (hasShake) {
+      fxCtx.restore();
+      bgCtx.restore();
+    }
+    ctx = bgCtx;
     return;
   }
 

@@ -254,6 +254,7 @@ let lavaSoundTimer = 0;
 let musicMuted = false;
 let activeMenuTab = 'main';
 let activeLobbyTab = 'play';
+let godModeEnabled = false;
 let dummyEnabled = false;
 let dummyBehavior = 'active'; // 'active' | 'standing'
 let hudVisible = false;
@@ -350,11 +351,11 @@ arenaCharacter: {
 
 
   // Manual import orientation for the raw GLB.
-  // Start with this to fix the current bottom-up issue.
+  // Keep Z at 0 so arena avatars stay upright in top-down combat.
  importRotation: {
   x: 0,
   y: 0,
-  z: Math.PI,
+  z: 0,
 },
 
   // Only used for aim/facing alignment after the model stands correctly.
@@ -363,7 +364,7 @@ facingOffsetY: Math.PI,
 stateRotationOffsets: {
   idle: { x: 0, y: 0, z: 0 },
   walk: { x: 0, y: 0, z: 0 },
-  run: { x: 0, y: 0, z: Math.PI },
+  run: { x: 0, y: 0, z: 0 },
   cast: { x: 0, y: 0, z: 0 },
   dash: { x: 0, y: 0, z: 0 },
   hit: { x: 0, y: 0, z: 0 },
@@ -530,10 +531,14 @@ const profile = {
   aimSensitivity: 0.7,
   performanceMode: true,
   ranked: {
-    mmr: 0,
+    currentRank: 20,
+    currentStars: 0,
+    winStreak: 0,
     wins: 0,
     losses: 0,
-    zeroStarLossBuffer: 0,
+    totalMatches: 0,
+    highestRank: 20,
+    lastProcessedMatchId: '',
   },
   store: {
     potionBoost: false,
@@ -753,11 +758,13 @@ const draftHelperTextEl = document.getElementById('draftHelperText');
 
 const resumeBtn = document.getElementById('resumeBtn');
 const musicToggleBtn = document.getElementById('musicToggleBtn');
+const godModeBtn = document.getElementById('godModeBtn');
 const standingDummyBtn = document.getElementById('standingDummyBtn');
 const activeDummyBtn = document.getElementById('activeDummyBtn');
 const removeDummyBtn = document.getElementById('removeDummyBtn');
 const toArenaBtn = document.getElementById('toArenaBtn');
 const toLobbyBtn = document.getElementById('toLobbyBtn');
+const leaveGameBtn = document.getElementById('leaveGameBtn');
 const resetBtn = document.getElementById('resetBtn');
 const menuResetBindsBtn = document.getElementById('menuResetBindsBtn');
 

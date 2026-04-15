@@ -56,6 +56,10 @@ const MATCH_STATE_BROADCAST_MS = 33; // ~30 network snapshots/sec while sim runs
 const MATCH_MAX_DELTA_MS = 100;
 const ARENA_BOUNDARY_CENTER = Object.freeze({ x: 0, y: 0 });
 const ARENA_BOUNDARY_RADIUS = 12;
+const ARENA_HARD_OUT_OF_BOUNDS_RADIUS = ARENA_BOUNDARY_RADIUS + 4.8;
+const LAVA_DAMAGE_INTERVAL_MS = 250;
+const LAVA_DAMAGE_PER_TICK = 10;
+const PLAYER_MAX_HEALTH = 100;
 const PLAYER_RADIUS = 0.72;
 const PLAYER_KNOCKBACK_DAMPING_PER_SECOND = 6.9;
 const ABILITY_REQUEST_MIN_INTERVAL_MS = 70;
@@ -68,6 +72,8 @@ const MATCH_HIT_EVENT_HISTORY_LIMIT = 18;
 const RECONNECT_GRACE_MS = 25000;
 const DRAFT_TURN_MS = 12000;
 const ENABLE_TUNING_ADMIN = process.env.OUTRA_ENABLE_TUNING_ADMIN === '1' || process.env.NODE_ENV !== 'production';
+// Keeps detailed per-tick/per-input logs in development while allowing quiet production runtime.
+const ENABLE_VERBOSE_RUNTIME_LOGS = process.env.OUTRA_VERBOSE_RUNTIME_LOGS === '1' || process.env.NODE_ENV !== 'production';
 const KILL_CREDIT_TIMEOUT_MS = 2600;
 const DRAFT_SPELL_POOL = Object.freeze([
   'charge',
@@ -177,6 +183,10 @@ function getAbilityRole(abilityId) {
   return role || 'utility';
 }
 
+function getAbilityDamage(abilityId) {
+  return getAbilityNumber(abilityId, 'damage', 0, 0);
+}
+
 function getWallHalfLengthDefault() {
   return getAbilityNumber(ABILITY_IDS.WALL, 'halfLength', 1.9, 0.05);
 }
@@ -236,6 +246,11 @@ function logLifecycle(scope, event, fields = {}) {
     return;
   }
   console.log(`[${scope}] ${event}`);
+}
+
+function logRuntimeVerbose(message) {
+  if (!ENABLE_VERBOSE_RUNTIME_LOGS) return;
+  console.log(message);
 }
 
 function getQuickMatchQueueIndexBySocketId(socketId) {
@@ -878,6 +893,21 @@ function isOutsideArenaBoundary(position) {
   return (dx * dx + dy * dy) > (ARENA_BOUNDARY_RADIUS * ARENA_BOUNDARY_RADIUS);
 }
 
+function getDistanceFromArenaCenter(position) {
+  const pos = clonePosition(position) || { x: 0, y: 0 };
+  const dx = pos.x - ARENA_BOUNDARY_CENTER.x;
+  const dy = pos.y - ARENA_BOUNDARY_CENTER.y;
+  return Math.hypot(dx, dy);
+}
+
+function isInLavaHazard(position) {
+  return getDistanceFromArenaCenter(position) > ARENA_BOUNDARY_RADIUS;
+}
+
+function isBeyondHardOutOfBounds(position) {
+  return getDistanceFromArenaCenter(position) > ARENA_HARD_OUT_OF_BOUNDS_RADIUS;
+}
+
 function clampPositionInsideArena(position, padding = 0) {
   const pos = clonePosition(position) || { x: 0, y: 0 };
   const safePadding = Math.max(0, Number(padding) || 0);
@@ -895,6 +925,18 @@ function clampPositionInsideArena(position, padding = 0) {
     x: ARENA_BOUNDARY_CENTER.x + (dx * scale),
     y: ARENA_BOUNDARY_CENTER.y + (dy * scale)
   };
+}
+
+function getPlayerMaxHealth(matchPlayer) {
+  const parsed = Number(matchPlayer?.maxHealth);
+  return Math.max(1, Number.isFinite(parsed) ? parsed : PLAYER_MAX_HEALTH);
+}
+
+function getPlayerCurrentHealth(matchPlayer) {
+  const maxHealth = getPlayerMaxHealth(matchPlayer);
+  const parsed = Number(matchPlayer?.currentHealth);
+  const resolved = Number.isFinite(parsed) ? parsed : maxHealth;
+  return Math.max(0, Math.min(maxHealth, resolved));
 }
 
 
@@ -1167,6 +1209,7 @@ function transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, reason, time
   match.winnerPlayerNumber = winnerNumber;
   match.endedAt = endedAt;
   match.matchEndReason = String(reason || 'match_end');
+  match.eliminationCause = String(reason || 'match_end');
   match.projectiles = [];
   match.walls = [];
   match.pendingAbilityCasts = [];
@@ -1197,13 +1240,14 @@ function transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, reason, time
     code: room.code,
     winner: winnerNumber,
     eliminated: eliminatedNumber,
+    reason: match.eliminationCause,
     endedAt
   });
   logMatchAnalyticsSummary(room, match, endedAt, reason);
   return true;
 }
 
-function createFireblastHitEvent(match, projectile, targetPlayer, now) {
+function createFireblastHitEvent(match, projectile, targetPlayer, now, metadata = null) {
   const fireblastKnockbackImpulse = getAbilityNumber(ABILITY_IDS.FIREBLAST, 'knockbackImpulse', 10.2, 0);
   const knockback = {
     x: projectile.direction.x * fireblastKnockbackImpulse,
@@ -1217,7 +1261,8 @@ function createFireblastHitEvent(match, projectile, targetPlayer, now) {
     projectileId: projectile.projectileId,
     sourcePlayerNumber: projectile.ownerPlayerNumber,
     targetPlayerNumber: targetPlayer.matchPlayerNumber,
-    knockback
+    knockback,
+    metadata: metadata && typeof metadata === 'object' ? metadata : null
   };
 }
 
@@ -1268,6 +1313,173 @@ function pushMatchHitEvent(match, hitEvent) {
   if (match.hitEvents.length > MATCH_HIT_EVENT_HISTORY_LIMIT) {
     match.hitEvents.splice(0, match.hitEvents.length - MATCH_HIT_EVENT_HISTORY_LIMIT);
   }
+}
+
+function applyDamageToPlayer({
+  room,
+  match,
+  targetPlayer,
+  sourcePlayer = null,
+  sourcePlayerNumber = null,
+  abilityId = '',
+  amount = 0,
+  cause = 'spell_damage',
+  timestamp = Date.now()
+} = {}) {
+  if (!room || !match || !targetPlayer) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth: 0,
+      afterHealth: 0,
+      eliminated: false
+    };
+  }
+
+  const damageAmount = Math.max(0, Number(amount) || 0);
+  if (damageAmount <= 0) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth: getPlayerCurrentHealth(targetPlayer),
+      afterHealth: getPlayerCurrentHealth(targetPlayer),
+      eliminated: false
+    };
+  }
+
+  const now = Number(timestamp) || Date.now();
+  const maxHealth = getPlayerMaxHealth(targetPlayer);
+  const beforeHealth = getPlayerCurrentHealth(targetPlayer);
+  if (beforeHealth <= 0) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth,
+      afterHealth: beforeHealth,
+      eliminated: false
+    };
+  }
+
+  const afterHealth = Math.max(0, beforeHealth - damageAmount);
+  const normalizedAbilityId = normalizeSpellId(abilityId) || '';
+  const resolvedSourceNumber = Number(sourcePlayerNumber)
+    || Number(sourcePlayer?.matchPlayerNumber)
+    || 0;
+
+  targetPlayer.maxHealth = maxHealth;
+  targetPlayer.currentHealth = afterHealth;
+  targetPlayer.lastDamagedAt = now;
+  targetPlayer.lastDamageCause = String(cause || 'spell_damage');
+  targetPlayer.lastDamageAbilityId = normalizedAbilityId;
+  targetPlayer.lastDamageSourcePlayerNumber = resolvedSourceNumber;
+
+  logLifecycle('damage', 'applied', {
+    code: room.code,
+    target: targetPlayer.matchPlayerNumber,
+    source: resolvedSourceNumber || '-',
+    cause: targetPlayer.lastDamageCause,
+    ability: normalizedAbilityId || '-',
+    amount: damageAmount,
+    before: beforeHealth,
+    after: afterHealth
+  });
+
+  if (afterHealth > 0 || match.phase !== MATCH_PHASE_COMBAT) {
+    return {
+      applied: true,
+      amount: damageAmount,
+      beforeHealth,
+      afterHealth,
+      eliminated: false
+    };
+  }
+
+  logLifecycle('damage', 'health_zero', {
+    code: room.code,
+    target: targetPlayer.matchPlayerNumber,
+    cause: targetPlayer.lastDamageCause
+  });
+
+  const winnerPlayer = resolvedSourceNumber > 0
+    ? getMatchPlayerByNumber(match, resolvedSourceNumber)
+    : getOpponentPlayer(match, targetPlayer.matchPlayerNumber);
+  const eliminated = transitionMatchToEnd(
+    room,
+    targetPlayer,
+    winnerPlayer,
+    targetPlayer.lastDamageCause || 'spell_damage',
+    now
+  );
+  if (eliminated) {
+    logLifecycle('damage', 'eliminated_by_health', {
+      code: room.code,
+      target: targetPlayer.matchPlayerNumber,
+      winner: Number(winnerPlayer?.matchPlayerNumber) || 0,
+      cause: targetPlayer.lastDamageCause
+    });
+  }
+
+  return {
+    applied: true,
+    amount: damageAmount,
+    beforeHealth,
+    afterHealth,
+    eliminated
+  };
+}
+
+function applyLavaDamageTick(room, match, tickTimestamp) {
+  if (!room || !match || match.phase !== MATCH_PHASE_COMBAT) return false;
+  const now = Number(tickTimestamp) || Date.now();
+  let appliedAnyDamage = false;
+
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    if (!player || player.connected === false) return;
+    if (getPlayerCurrentHealth(player) <= 0) return;
+    if (!isInLavaHazard(player.position)) return;
+
+    const lastLavaDamageAt = Number(player.lastLavaDamageAt) || 0;
+    if (lastLavaDamageAt > 0 && (now - lastLavaDamageAt) < LAVA_DAMAGE_INTERVAL_MS) return;
+
+    player.lastLavaDamageAt = now;
+    logLifecycle('lava', 'tick', {
+      code: room.code,
+      target: player.matchPlayerNumber,
+      intervalMs: LAVA_DAMAGE_INTERVAL_MS,
+      damage: LAVA_DAMAGE_PER_TICK
+    });
+
+    const damageResult = applyDamageToPlayer({
+      room,
+      match,
+      targetPlayer: player,
+      sourcePlayer: null,
+      sourcePlayerNumber: 0,
+      abilityId: '',
+      amount: LAVA_DAMAGE_PER_TICK,
+      cause: 'lava_damage',
+      timestamp: now
+    });
+    if (damageResult.applied) {
+      appliedAnyDamage = true;
+      const lavaEvent = createCombatEvent(match, {
+        type: 'lava_damage',
+        abilityId: '',
+        sourcePlayerNumber: 0,
+        targetPlayerNumber: player.matchPlayerNumber,
+        timestamp: now,
+        knockback: { x: 0, y: 0 },
+        metadata: {
+          damage: damageResult.amount,
+          healthBefore: damageResult.beforeHealth,
+          healthAfter: damageResult.afterHealth
+        }
+      });
+      pushMatchHitEvent(match, lavaEvent);
+    }
+  });
+
+  return appliedAnyDamage;
 }
 
 function getRoomReconnectStatus(room, now = Date.now()) {
@@ -1397,6 +1609,13 @@ function createMatchForRoom(room) {
     lastAimUpdated: startedAt,
     lastHitAt: 0,
     hitInvulnerableUntil: 0,
+    currentHealth: PLAYER_MAX_HEALTH,
+    maxHealth: PLAYER_MAX_HEALTH,
+    lastDamagedAt: 0,
+    lastDamageCause: '',
+    lastDamageAbilityId: '',
+    lastDamageSourcePlayerNumber: 0,
+    lastLavaDamageAt: 0,
     eliminated: false,
     connected: player.connected !== false,
     disconnectedAt: null,
@@ -1468,6 +1687,7 @@ function createMatchForRoom(room) {
     },
     eliminatedPlayerNumber: null,
     winnerPlayerNumber: null,
+    eliminationCause: null,
     endedAt: null,
     isPaused: false,
     pauseReason: '',
@@ -1529,6 +1749,13 @@ function serializeMatch(match) {
       lastAimUpdated: player.lastAimUpdated,
       lastHitAt: Number(player.lastHitAt) || 0,
       hitInvulnerableUntil: Number(player.hitInvulnerableUntil) || 0,
+      currentHealth: getPlayerCurrentHealth(player),
+      maxHealth: getPlayerMaxHealth(player),
+      lastDamagedAt: Number(player.lastDamagedAt) || 0,
+      lastDamageCause: String(player.lastDamageCause || ''),
+      lastDamageAbilityId: normalizeSpellId(player.lastDamageAbilityId) || '',
+      lastDamageSourcePlayerNumber: Number(player.lastDamageSourcePlayerNumber) || 0,
+      lastLavaDamageAt: Number(player.lastLavaDamageAt) || 0,
       eliminated: Boolean(player.eliminated),
       connected: player.connected !== false,
       disconnectedAt: Number(player.disconnectedAt) || null,
@@ -1614,6 +1841,7 @@ function serializeMatch(match) {
     abilityAnalytics: buildAbilityAnalyticsSnapshot(match),
     eliminatedPlayerNumber: Number(match.eliminatedPlayerNumber) || null,
     winnerPlayerNumber: Number(match.winnerPlayerNumber) || null,
+    eliminationCause: String(match.eliminationCause || match.matchEndReason || ''),
     endedAt: Number(match.endedAt) || null,
     draft: match.draft
       ? {
@@ -2297,7 +2525,7 @@ function executeFireblastAbility(room, matchPlayer, payload, now) {
 
   const projectile = createFireblastProjectile(room.match, matchPlayer, castDirection, now);
   room.match.projectiles.push(projectile);
-  console.log(`[match] projectile_spawned code=${room.code} projectileId=${projectile.projectileId} owner=${projectile.ownerPlayerNumber}`);
+  logRuntimeVerbose(`[match] projectile_spawned code=${room.code} projectileId=${projectile.projectileId} owner=${projectile.ownerPlayerNumber}`);
 
   return {
     ok: true,
@@ -2331,7 +2559,7 @@ function executeShieldAbility(room, matchPlayer, now) {
   const shieldDurationMs = getAbilityNumber(ABILITY_IDS.SHIELD, 'durationMs', 1200, 50);
   const shieldUntil = now + shieldDurationMs;
   setPlayerActiveShieldUntil(matchPlayer, shieldUntil);
-  console.log(`[match] shield_activated code=${room.code} player=${matchPlayer.matchPlayerNumber} until=${shieldUntil}`);
+  logRuntimeVerbose(`[match] shield_activated code=${room.code} player=${matchPlayer.matchPlayerNumber} until=${shieldUntil}`);
 
   return {
     ok: true,
@@ -2377,6 +2605,18 @@ function executeGustAbility(room, matchPlayer, payload, now) {
   opponent.velocity.x += knockback.x;
   opponent.velocity.y += knockback.y;
   opponent.lastHitAt = now;
+  const gustDamage = getAbilityDamage(ABILITY_IDS.GUST);
+  const gustDamageResult = applyDamageToPlayer({
+    room,
+    match: room.match,
+    targetPlayer: opponent,
+    sourcePlayer: matchPlayer,
+    sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+    abilityId: ABILITY_IDS.GUST,
+    amount: gustDamage,
+    cause: 'spell_damage',
+    timestamp: now
+  });
 
   const gustEvent = createCombatEvent(room.match, {
     type: 'gust_hit',
@@ -2386,13 +2626,16 @@ function executeGustAbility(room, matchPlayer, payload, now) {
     timestamp: now,
     knockback,
     metadata: {
-      range: Number(distance.toFixed(2))
+      range: Number(distance.toFixed(2)),
+      damage: Number(gustDamageResult.amount) || 0,
+      healthBefore: Number(gustDamageResult.beforeHealth) || 0,
+      healthAfter: Number(gustDamageResult.afterHealth) || 0
     }
   });
   pushMatchHitEvent(room.match, gustEvent);
 
-  console.log(`[match] gust_hit code=${room.code} source=${matchPlayer.matchPlayerNumber} target=${opponent.matchPlayerNumber} distance=${distance.toFixed(2)}`);
-  console.log(`[match] knockback_applied code=${room.code} target=${opponent.matchPlayerNumber} vx=${opponent.velocity.x.toFixed(2)} vy=${opponent.velocity.y.toFixed(2)}`);
+  logRuntimeVerbose(`[match] gust_hit code=${room.code} source=${matchPlayer.matchPlayerNumber} target=${opponent.matchPlayerNumber} distance=${distance.toFixed(2)}`);
+  logRuntimeVerbose(`[match] knockback_applied code=${room.code} target=${opponent.matchPlayerNumber} vx=${opponent.velocity.x.toFixed(2)} vy=${opponent.velocity.y.toFixed(2)}`);
 
   return {
     ok: true,
@@ -2484,6 +2727,18 @@ function executeShockAbility(room, matchPlayer, payload, now) {
   opponent.velocity.x += knockback.x;
   opponent.velocity.y += knockback.y;
   opponent.lastHitAt = now;
+  const shockDamage = getAbilityDamage(ABILITY_IDS.SHOCK);
+  const shockDamageResult = applyDamageToPlayer({
+    room,
+    match: room.match,
+    targetPlayer: opponent,
+    sourcePlayer: matchPlayer,
+    sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+    abilityId: ABILITY_IDS.SHOCK,
+    amount: shockDamage,
+    cause: 'spell_damage',
+    timestamp: now
+  });
 
   const shockEvent = createCombatEvent(room.match, {
     type: 'shock_hit',
@@ -2494,7 +2749,10 @@ function executeShockAbility(room, matchPlayer, payload, now) {
     knockback,
     metadata: {
       distance: Number(distance.toFixed(2)),
-      dot: Number(facingDot.toFixed(3))
+      dot: Number(facingDot.toFixed(3)),
+      damage: Number(shockDamageResult.amount) || 0,
+      healthBefore: Number(shockDamageResult.beforeHealth) || 0,
+      healthAfter: Number(shockDamageResult.afterHealth) || 0
     }
   });
   pushMatchHitEvent(room.match, shockEvent);
@@ -2840,6 +3098,18 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
   targetPlayer.velocity.x += knockback.x;
   targetPlayer.velocity.y += knockback.y;
   targetPlayer.lastHitAt = tickTimestamp;
+  const chargeDamage = getAbilityDamage(ABILITY_IDS.CHARGE);
+  const chargeDamageResult = applyDamageToPlayer({
+    room,
+    match,
+    targetPlayer,
+    sourcePlayer: player,
+    sourcePlayerNumber: player.matchPlayerNumber,
+    abilityId: ABILITY_IDS.CHARGE,
+    amount: chargeDamage,
+    cause: 'spell_damage',
+    timestamp: tickTimestamp
+  });
 
   const settleDistance = (PLAYER_RADIUS * 2) + 0.14;
   const desiredChargerPosition = {
@@ -2861,7 +3131,12 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
     sourcePlayerNumber: player.matchPlayerNumber,
     targetPlayerNumber: targetPlayer.matchPlayerNumber,
     timestamp: tickTimestamp,
-    knockback
+    knockback,
+    metadata: {
+      damage: Number(chargeDamageResult.amount) || 0,
+      healthBefore: Number(chargeDamageResult.beforeHealth) || 0,
+      healthAfter: Number(chargeDamageResult.afterHealth) || 0
+    }
   });
   pushMatchHitEvent(match, chargeEvent);
   logLifecycle('ability', 'charge_collision', {
@@ -2906,7 +3181,7 @@ function handleHookProjectileBlockedByWall({ room, projectile, wall }) {
 }
 
 function handleFireblastProjectileExpired({ room, projectile }) {
-  console.log(`[match] projectile_expired code=${room.code} projectileId=${projectile.projectileId}`);
+  logRuntimeVerbose(`[match] projectile_expired code=${room.code} projectileId=${projectile.projectileId}`);
 }
 
 function handleHookProjectileExpired({ room, projectile }) {
@@ -2928,7 +3203,7 @@ function handleFireblastProjectileHit({ room, match, projectile, targetPlayer, t
       timestamp: tickTimestamp
     });
     pushMatchHitEvent(match, shieldBlockEvent);
-    console.log(`[match] projectile_blocked code=${room.code} projectileId=${projectile.projectileId} by=${targetPlayer.matchPlayerNumber}`);
+    logRuntimeVerbose(`[match] projectile_blocked code=${room.code} projectileId=${projectile.projectileId} by=${targetPlayer.matchPlayerNumber}`);
     return { resolved: true };
   }
 
@@ -2944,12 +3219,29 @@ function handleFireblastProjectileHit({ room, match, projectile, targetPlayer, t
   targetPlayer.velocity.y += projectile.direction.y * fireblastKnockbackImpulse;
   targetPlayer.lastHitAt = tickTimestamp;
   targetPlayer.hitInvulnerableUntil = tickTimestamp + fireblastHitInvulnMs;
+  const sourcePlayer = getMatchPlayerByNumber(match, projectile.ownerPlayerNumber);
+  const fireblastDamage = getAbilityDamage(ABILITY_IDS.FIREBLAST);
+  const fireblastDamageResult = applyDamageToPlayer({
+    room,
+    match,
+    targetPlayer,
+    sourcePlayer,
+    sourcePlayerNumber: projectile.ownerPlayerNumber,
+    abilityId: ABILITY_IDS.FIREBLAST,
+    amount: fireblastDamage,
+    cause: 'spell_damage',
+    timestamp: tickTimestamp
+  });
 
-  const hitEvent = createFireblastHitEvent(match, projectile, targetPlayer, tickTimestamp);
+  const hitEvent = createFireblastHitEvent(match, projectile, targetPlayer, tickTimestamp, {
+    damage: Number(fireblastDamageResult.amount) || 0,
+    healthBefore: Number(fireblastDamageResult.beforeHealth) || 0,
+    healthAfter: Number(fireblastDamageResult.afterHealth) || 0
+  });
   pushMatchHitEvent(match, hitEvent);
-  console.log(`[match] projectile_hit code=${room.code} projectileId=${projectile.projectileId} source=${projectile.ownerPlayerNumber} target=${targetPlayer.matchPlayerNumber}`);
-  console.log(`[match] projectile_removed_on_hit code=${room.code} projectileId=${projectile.projectileId}`);
-  console.log(`[match] knockback_applied code=${room.code} target=${targetPlayer.matchPlayerNumber} vx=${targetPlayer.velocity.x.toFixed(2)} vy=${targetPlayer.velocity.y.toFixed(2)}`);
+  logRuntimeVerbose(`[match] projectile_hit code=${room.code} projectileId=${projectile.projectileId} source=${projectile.ownerPlayerNumber} target=${targetPlayer.matchPlayerNumber}`);
+  logRuntimeVerbose(`[match] projectile_removed_on_hit code=${room.code} projectileId=${projectile.projectileId}`);
+  logRuntimeVerbose(`[match] knockback_applied code=${room.code} target=${targetPlayer.matchPlayerNumber} vx=${targetPlayer.velocity.x.toFixed(2)} vy=${targetPlayer.velocity.y.toFixed(2)}`);
   return { resolved: true };
 }
 
@@ -2988,6 +3280,18 @@ function handleHookProjectileHit({ room, match, projectile, targetPlayer, tickTi
   targetPlayer.input = { x: 0, y: 0 };
   targetPlayer.lastUpdated = tickTimestamp;
   ensurePlayerPositionHistory(targetPlayer, tickTimestamp);
+  const hookDamage = getAbilityDamage(ABILITY_IDS.HOOK);
+  const hookDamageResult = applyDamageToPlayer({
+    room,
+    match,
+    targetPlayer,
+    sourcePlayer,
+    sourcePlayerNumber: sourcePlayer.matchPlayerNumber,
+    abilityId: ABILITY_IDS.HOOK,
+    amount: hookDamage,
+    cause: 'spell_damage',
+    timestamp: tickTimestamp
+  });
 
   const pullKnockback = {
     x: pulledTargetPosition.x - beforePullPosition.x,
@@ -3003,7 +3307,10 @@ function handleHookProjectileHit({ room, match, projectile, targetPlayer, tickTi
     knockback: pullKnockback,
     metadata: {
       from: beforePullPosition,
-      to: pulledTargetPosition
+      to: pulledTargetPosition,
+      damage: Number(hookDamageResult.amount) || 0,
+      healthBefore: Number(hookDamageResult.beforeHealth) || 0,
+      healthAfter: Number(hookDamageResult.afterHealth) || 0
     }
   });
   pushMatchHitEvent(match, hookHitEvent);
@@ -3069,6 +3376,7 @@ function processMatchTickForRoom(room, tickTimestamp) {
   match.lastTickAt = tickTimestamp;
   let movedPlayers = 0;
   let eliminatedThisTick = false;
+  let lavaDamagedThisTick = false;
 
   if (match.phase === MATCH_PHASE_DRAFT) {
     let didDraftUpdate = false;
@@ -3241,12 +3549,21 @@ function processMatchTickForRoom(room, tickTimestamp) {
 
     runPostMovementAbilityHandlers(room, match, tickTimestamp);
 
-    const eliminatedPlayer = (Array.isArray(match.players) ? match.players : []).find((player) =>
-      isOutsideArenaBoundary(player.position)
-    );
+    if (match.phase === MATCH_PHASE_COMBAT) {
+      lavaDamagedThisTick = applyLavaDamageTick(room, match, tickTimestamp);
+      if (match.phase !== MATCH_PHASE_COMBAT) {
+        eliminatedThisTick = true;
+      }
+    }
+
+    const eliminatedPlayer = (!eliminatedThisTick && match.phase === MATCH_PHASE_COMBAT)
+      ? (Array.isArray(match.players) ? match.players : []).find((player) =>
+        isBeyondHardOutOfBounds(player.position)
+      )
+      : null;
     if (eliminatedPlayer) {
       const winnerPlayer = getOpponentPlayer(match, eliminatedPlayer.matchPlayerNumber);
-      console.log(`[match] player_eliminated_out_of_bounds code=${room.code} player=${eliminatedPlayer.matchPlayerNumber} x=${eliminatedPlayer.position.x.toFixed(2)} y=${eliminatedPlayer.position.y.toFixed(2)} radius=${ARENA_BOUNDARY_RADIUS}`);
+      console.log(`[match] player_eliminated_out_of_bounds code=${room.code} player=${eliminatedPlayer.matchPlayerNumber} x=${eliminatedPlayer.position.x.toFixed(2)} y=${eliminatedPlayer.position.y.toFixed(2)} hardRadius=${ARENA_HARD_OUT_OF_BOUNDS_RADIUS}`);
       eliminatedThisTick = transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, 'out_of_bounds', tickTimestamp);
     }
 
@@ -3339,11 +3656,11 @@ function processMatchTickForRoom(room, tickTimestamp) {
     const compactPlayers = match.players
       .map((player) => `p${player.matchPlayerNumber}=(${player.position.x.toFixed(2)},${player.position.y.toFixed(2)})`)
       .join(' ');
-    console.log(`[match] tick code=${room.code} ${compactPlayers} projectiles=${match.projectiles.length}`);
+    logRuntimeVerbose(`[match] tick code=${room.code} ${compactPlayers} projectiles=${match.projectiles.length}`);
     match.lastMoveLogAt = tickTimestamp;
   }
 
-  emitMatchStateThrottled(room, tickTimestamp, eliminatedThisTick);
+  emitMatchStateThrottled(room, tickTimestamp, eliminatedThisTick || lavaDamagedThisTick);
 }
 
 function runMatchSimulationTick() {
@@ -3730,6 +4047,12 @@ function cleanupRoomMatchState(room, reason = 'cleanup', timestamp = Date.now())
       player.eliminated = false;
       player.lastHitAt = 0;
       player.hitInvulnerableUntil = 0;
+      player.currentHealth = getPlayerMaxHealth(player);
+      player.lastDamagedAt = 0;
+      player.lastDamageCause = '';
+      player.lastDamageAbilityId = '';
+      player.lastDamageSourcePlayerNumber = 0;
+      player.lastLavaDamageAt = 0;
       setAbilityReadyAt(player, ABILITY_IDS.FIREBLAST, 0);
       setAbilityReadyAt(player, ABILITY_IDS.BLINK, 0);
       setAbilityReadyAt(player, ABILITY_IDS.SHIELD, 0);
@@ -3754,6 +4077,7 @@ function cleanupRoomMatchState(room, reason = 'cleanup', timestamp = Date.now())
     match.analytics.playerLastImpactByNumber = {};
     match.analytics.lastUpdatedAt = now;
   }
+  match.eliminationCause = null;
   match.cleanupAt = now;
   room.match = null;
 
@@ -3832,16 +4156,28 @@ function leaveRoomForSocket(socket, reason = 'leave_room', notifySelf = true) {
   }
 
   if (!deleteRoomIfEmpty(room)) {
-    if (room.match) {
+    const preserveMatchEndForfeit = reason === 'leave_game_forfeit'
+      && room.match
+      && room.match.phase === MATCH_PHASE_MATCH_END;
+    if (room.match && !preserveMatchEndForfeit) {
       cleanupRoomMatchState(room, 'player_left', Date.now());
     }
     normalizePlayerSlots(room);
-    resetReadyAndMatchRole(room);
-    logLifecycle('room', 'ready_reset', {
-      code: roomCode,
-      reason: 'player_left'
-    });
-    refreshRoomState(room, 'player_left');
+    if (preserveMatchEndForfeit) {
+      setRoomState(room, ROOM_STATES.MATCH_END, 'player_forfeit_left');
+      logLifecycle('room', 'match_end_preserved_after_forfeit', {
+        code: roomCode,
+        reason,
+        remainingPlayers: room.players.length
+      });
+    } else {
+      resetReadyAndMatchRole(room);
+      logLifecycle('room', 'ready_reset', {
+        code: roomCode,
+        reason: 'player_left'
+      });
+      refreshRoomState(room, 'player_left');
+    }
     emitRoomUpdate(room);
   }
 
@@ -3850,6 +4186,91 @@ function leaveRoomForSocket(socket, reason = 'leave_room', notifySelf = true) {
   }
 
   return { roomCode, room };
+}
+
+function handleLeaveGameRequest(socket, ack) {
+  const respond = typeof ack === 'function'
+    ? (payload) => ack(payload)
+    : () => {};
+
+  function fail(message, code = 'LEAVE_GAME_FAILED') {
+    emitRoomError(socket, message, code);
+    respond({ ok: false, code, message });
+  }
+
+  const roomCode = playerRoomBySocketId.get(socket.id);
+  if (!roomCode) {
+    fail('Join a game before leaving.', 'NOT_IN_ROOM');
+    return;
+  }
+
+  const room = rooms.get(roomCode);
+  if (!room) {
+    fail('Room is no longer available.', 'ROOM_NOT_FOUND');
+    return;
+  }
+
+  const roomPlayer = getPlayerBySocketId(room, socket.id);
+  if (!roomPlayer) {
+    fail('You are not in this room.', 'NOT_IN_ROOM');
+    return;
+  }
+
+  let forfeitApplied = false;
+  let winnerPlayerNumber = null;
+  let eliminatedPlayerNumber = null;
+  let matchId = '';
+  let matchEndReason = '';
+
+  const match = room.match;
+  const phase = String(match?.phase || '').trim().toLowerCase();
+  const canForfeit = match
+    && (phase === MATCH_PHASE_DRAFT || phase === MATCH_PHASE_COMBAT_COUNTDOWN || phase === MATCH_PHASE_COMBAT);
+
+  if (canForfeit) {
+    const leaverMatchPlayer = getMatchPlayerByPlayerId(match, roomPlayer.playerId);
+    const winnerMatchPlayer = getOpponentPlayer(match, leaverMatchPlayer?.matchPlayerNumber);
+
+    if (leaverMatchPlayer && winnerMatchPlayer) {
+      const endedAt = Date.now();
+      forfeitApplied = transitionMatchToEnd(
+        room,
+        leaverMatchPlayer,
+        winnerMatchPlayer,
+        'player_forfeit',
+        endedAt
+      );
+
+      if (forfeitApplied) {
+        setRoomState(room, ROOM_STATES.MATCH_END, 'player_forfeit');
+        winnerPlayerNumber = Number(winnerMatchPlayer.matchPlayerNumber) || null;
+        eliminatedPlayerNumber = Number(leaverMatchPlayer.matchPlayerNumber) || null;
+        matchId = String(match.matchId || '');
+        matchEndReason = String(match.matchEndReason || 'player_forfeit');
+        emitRoomUpdate(room);
+        emitMatchState(room, endedAt);
+        logLifecycle('match', 'forfeit_applied', {
+          code: room.code,
+          socket: socket.id,
+          winner: winnerPlayerNumber || 0,
+          eliminated: eliminatedPlayerNumber || 0,
+          reason: matchEndReason
+        });
+      }
+    }
+  }
+
+  leaveRoomForSocket(socket, forfeitApplied ? 'leave_game_forfeit' : 'leave_game', true);
+  respond({
+    ok: true,
+    roomCode,
+    forfeitApplied,
+    winnerPlayerNumber,
+    eliminatedPlayerNumber,
+    matchId,
+    reason: forfeitApplied ? 'player_forfeit' : 'leave_game',
+    matchEndReason
+  });
 }
 
 app.get('/', (_req, res) => {
@@ -4267,6 +4688,10 @@ io.on('connection', (socket) => {
     leaveRoomForSocket(socket, 'leave_room', true);
   });
 
+  socket.on('leave_game', (ack) => {
+    handleLeaveGameRequest(socket, ack);
+  });
+
   socket.on('return_to_room', (ack) => {
     const respond = typeof ack === 'function'
       ? (payload) => ack(payload)
@@ -4537,7 +4962,7 @@ io.on('connection', (socket) => {
     matchPlayer.lastUpdated = Date.now();
 
     if (!inputsEqual(previousInput, nextInput)) {
-      console.log(`[match] player_input code=${roomCode} socket=${socket.id} x=${nextInput.x.toFixed(2)} y=${nextInput.y.toFixed(2)}`);
+      logRuntimeVerbose(`[match] player_input code=${roomCode} socket=${socket.id} x=${nextInput.x.toFixed(2)} y=${nextInput.y.toFixed(2)}`);
     }
   });
 
@@ -4561,7 +4986,7 @@ io.on('connection', (socket) => {
 
     matchPlayer.aim = nextAim;
     matchPlayer.lastAimUpdated = Date.now();
-    console.log(`[match] player_aim code=${roomCode} socket=${socket.id} x=${nextAim.x.toFixed(2)} y=${nextAim.y.toFixed(2)}`);
+    logRuntimeVerbose(`[match] player_aim code=${roomCode} socket=${socket.id} x=${nextAim.x.toFixed(2)} y=${nextAim.y.toFixed(2)}`);
   });
 
   socket.on('cast_ability', (payloadOrAck, maybeAck) => {

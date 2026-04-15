@@ -10,98 +10,117 @@ const ABILITY_IDS = Object.freeze({
   REWIND: 'rewind'
 });
 
+// Offline arena uses pixels with player radius 18.
+// Multiplayer arena uses world units with player radius 0.72.
+// 0.72 / 18 = 0.04 world-units per offline pixel.
+const OFFLINE_PX_TO_WORLD = 0.04;
+const toWorldUnits = (pixels) => Number((Number(pixels) * OFFLINE_PX_TO_WORLD).toFixed(4));
+// Small compensation so multiplayer authoritative updates feel as snappy as offline local sim.
+const MULTIPLAYER_SPEED_COMPENSATION = 1.22;
+const toWorldUnitsCompensated = (pixels) =>
+  Number((Number(pixels) * MULTIPLAYER_SPEED_COMPENSATION * OFFLINE_PX_TO_WORLD).toFixed(4));
+
 const DEFAULT_SPELL_TUNING = Object.freeze({
   [ABILITY_IDS.FIREBLAST]: Object.freeze({
     role: 'aggression',
-    cooldownMs: 700,
+    cooldownMs: 450,
     castDelayMs: 0,
-    range: 19.6,
+    range: toWorldUnitsCompensated(620 * 1.3),
     durationMs: 0,
-    speed: 14,
-    lifetimeMs: 1400,
-    spawnOffset: 0.9,
-    hitRadius: 0.34,
-    knockbackImpulse: 10.2,
+    damage: 6,
+    speed: toWorldUnitsCompensated(620),
+    lifetimeMs: 1300,
+    spawnOffset: toWorldUnits(28), // player.r + 10 in offline mode
+    hitRadius: toWorldUnits(7),
+    knockbackImpulse: toWorldUnits(360),
     hitInvulnMs: 120
   }),
   [ABILITY_IDS.BLINK]: Object.freeze({
     role: 'mobility',
-    cooldownMs: 5200,
+    cooldownMs: 2500,
     castDelayMs: 0,
-    range: 3.2,
+    range: toWorldUnits(150),
+    damage: 0,
     knockbackImpulse: 0,
     durationMs: 0,
-    distance: 3.2
+    distance: toWorldUnits(150)
   }),
   [ABILITY_IDS.SHIELD]: Object.freeze({
     role: 'defense',
-    cooldownMs: 6000,
+    cooldownMs: 4500,
     castDelayMs: 0,
     range: 0,
+    damage: 0,
     knockbackImpulse: 0,
-    durationMs: 1200
+    durationMs: 1000
   }),
   [ABILITY_IDS.GUST]: Object.freeze({
     role: 'control',
-    cooldownMs: 3600,
-    castDelayMs: 70,
-    range: 3.4,
+    cooldownMs: 6000,
+    castDelayMs: 0,
+    range: toWorldUnits(120),
+    damage: 6,
     durationMs: 0,
-    knockbackImpulse: 8.8
+    knockbackImpulse: toWorldUnits(540)
   }),
   [ABILITY_IDS.CHARGE]: Object.freeze({
     role: 'aggression',
-    cooldownMs: 5400,
-    castDelayMs: 120,
-    range: 4.8,
-    durationMs: 220,
-    speed: 22,
-    distance: 4.8,
-    hitRadius: 0.76,
-    knockbackImpulse: 13.2
+    cooldownMs: 5500,
+    castDelayMs: 0,
+    range: toWorldUnits(150),
+    damage: 8,
+    durationMs: Math.round((150 / (760 * MULTIPLAYER_SPEED_COMPENSATION)) * 1000),
+    speed: toWorldUnitsCompensated(760),
+    distance: toWorldUnits(150),
+    hitRadius: toWorldUnits(26), // offline hit threshold: player.r + target.r + 8
+    knockbackImpulse: toWorldUnits(720)
   }),
   [ABILITY_IDS.SHOCK]: Object.freeze({
     role: 'aggression',
-    cooldownMs: 4200,
-    castDelayMs: 90,
-    range: 2.9,
+    cooldownMs: 3200,
+    castDelayMs: 0,
+    range: toWorldUnits(115),
+    damage: 10,
     durationMs: 0,
-    halfAngleDeg: 40,
-    knockbackImpulse: 11.2
+    halfAngleDeg: 30,
+    knockbackImpulse: toWorldUnits(680)
   }),
   [ABILITY_IDS.HOOK]: Object.freeze({
     role: 'control',
-    cooldownMs: 5200,
-    castDelayMs: 80,
-    range: 16.2,
-    durationMs: 900,
-    speed: 18,
-    lifetimeMs: 900,
-    spawnOffset: 0.92,
-    hitRadius: 0.38,
-    pullTargetDistance: 1.55
+    cooldownMs: 1800,
+    castDelayMs: 0,
+    range: toWorldUnits(150),
+    damage: 8,
+    durationMs: Math.round((1 / 3.5) * 1000), // offline hook flight: progress += dt * 3.5
+    speed: toWorldUnits(150 * 3.5),
+    lifetimeMs: Math.round((1 / 3.5) * 1000),
+    spawnOffset: 0,
+    hitRadius: toWorldUnits(6),
+    pullTargetDistance: toWorldUnits(42) // caster.r + target.r + 6 in offline mode
   }),
   [ABILITY_IDS.WALL]: Object.freeze({
     role: 'control',
-    cooldownMs: 7000,
-    castDelayMs: 110,
-    range: 1.6,
+    cooldownMs: 8000,
+    castDelayMs: 0,
+    range: toWorldUnits(60),
+    damage: 0,
     knockbackImpulse: 0,
-    durationMs: 4500,
-    spawnOffset: 1.6,
-    halfLength: 1.9,
-    halfThickness: 0.36
+    durationMs: 3500,
+    spawnOffset: toWorldUnits(60),
+    halfLength: toWorldUnits(87), // wallLength/2 + segmentRadius
+    halfThickness: toWorldUnits(12)
   }),
   [ABILITY_IDS.REWIND]: Object.freeze({
     role: 'mobility',
-    cooldownMs: 7800,
+    cooldownMs: 9000,
     castDelayMs: 0,
     range: 0,
+    damage: 0,
     knockbackImpulse: 0,
     durationMs: 0,
     lookbackMs: 1000,
-    historyMs: 2200,
-    historyIntervalMs: 70
+    historyMs: 1350,
+    historyIntervalMs: 30
   })
 });
 

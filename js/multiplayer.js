@@ -70,19 +70,25 @@
     hook: 'hook'
   });
   const ABILITY_HUD_SLOTS = Object.freeze([
-    Object.freeze({ key: 'Space', slotType: 'base', fixedAbilityId: ABILITY_IDS.FIREBLAST }),
+    Object.freeze({ key: 'M1', slotType: 'base', fixedAbilityId: ABILITY_IDS.FIREBLAST }),
     Object.freeze({ key: 'Q', slotType: 'drafted', draftedIndex: 0 }),
     Object.freeze({ key: 'E', slotType: 'drafted', draftedIndex: 1 }),
     Object.freeze({ key: 'R', slotType: 'drafted', draftedIndex: 2 })
   ]);
   const MOVEMENT_KEY_CODES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD']);
   const AIM_KEY_CODES = new Set(['KeyI', 'KeyJ', 'KeyK', 'KeyL']);
+  const DRAFT_SLOT_KEY_TO_INDEX = Object.freeze({
+    KeyQ: 0,
+    KeyE: 1,
+    KeyR: 2
+  });
   const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
 
   let socket = null;
   let roomHandlersBound = false;
   let panel = null;
   let panelToggleButton = null;
+  let debugToolsEnabled = typeof godModeEnabled === 'boolean' ? godModeEnabled : false;
   let abilityHud = null;
   let abilityHudSlots = [];
   let abilityStateBar = null;
@@ -126,6 +132,7 @@
   let reconnectUiTimer = null;
   let clientActionSequence = 0;
   const pendingAbilityRequests = new Map();
+  let heldWallCastSlotIndex = null;
   let pendingDraftRequestAt = 0;
   let tuningSnapshot = null;
   let tuningIdentitySnapshot = null;
@@ -135,6 +142,7 @@
   let quickMatchSnapshot = createInitialQuickMatchSnapshot();
   let quickMatchHeartbeatTimer = null;
   let quickMatchHeartbeatLastAt = 0;
+  let lastAppliedRankedMatchId = '';
 
   function createInitialRoomSnapshot(state = ROOM_STATE_IDLE) {
     return {
@@ -172,6 +180,10 @@
       opponentVelocity: null,
       myAimDirection: null,
       opponentAimDirection: null,
+      myCurrentHealth: null,
+      myMaxHealth: null,
+      opponentCurrentHealth: null,
+      opponentMaxHealth: null,
       myLoadout: [],
       opponentLoadout: [],
       myDraftedLoadout: [],
@@ -475,6 +487,64 @@
     pendingDraftRequestAt = 0;
   }
 
+  function setWallAimPreviewState(active, direction = null) {
+    const preview = (typeof skillAimPreview === 'object' && skillAimPreview !== null)
+      ? skillAimPreview
+      : null;
+    if (!preview) return;
+
+    if (!active) {
+      preview.active = false;
+      preview.type = null;
+      return;
+    }
+
+    const resolvedDirection = normalizeDirectionInput(direction)
+      || normalizeDirectionInput(roomSnapshot.myAimDirection)
+      || { x: 1, y: 0 };
+    preview.active = true;
+    preview.type = ABILITY_IDS.WALL;
+    preview.dx = resolvedDirection.x;
+    preview.dy = resolvedDirection.y;
+  }
+
+  function updateHeldWallAimPreview(direction = null) {
+    if (heldWallCastSlotIndex === null) return;
+    const nextDirection = normalizeDirectionInput(direction)
+      || computeAimInputFromMouse()
+      || computeAimInputFromKeyboard()
+      || normalizeDirectionInput(roomSnapshot.myAimDirection)
+      || { x: 1, y: 0 };
+    setWallAimPreviewState(true, nextDirection);
+  }
+
+  function beginHeldWallCast(slotIndex) {
+    const numericIndex = Number(slotIndex);
+    if (!Number.isInteger(numericIndex) || numericIndex < 0) return false;
+    if (!isRoomInMatchFlow(roomSnapshot.state) || !roomSnapshot.matchId) return false;
+    if (roomSnapshot.matchPhase !== DEFAULT_MATCH_PHASE || roomSnapshot.matchPaused) return false;
+    const abilityId = getDraftedAbilityBySlotIndex(numericIndex);
+    if (abilityId !== ABILITY_IDS.WALL) return false;
+    heldWallCastSlotIndex = numericIndex;
+    updateHeldWallAimPreview();
+    return true;
+  }
+
+  function releaseHeldWallCast(slotIndex, options = {}) {
+    const numericIndex = Number(slotIndex);
+    if (!Number.isInteger(numericIndex) || numericIndex < 0) return false;
+    if (heldWallCastSlotIndex !== numericIndex) return false;
+
+    const shouldCast = options.cast !== false;
+    heldWallCastSlotIndex = null;
+    setWallAimPreviewState(false);
+
+    if (shouldCast) {
+      castDraftedAbilityBySlot(numericIndex);
+    }
+    return true;
+  }
+
   function resetRealtimeInputState(options = {}) {
     const emitNeutral = Boolean(options.emitNeutral);
     pressedMovementKeys.clear();
@@ -482,6 +552,11 @@
     lastSentInput = { x: 0, y: 0 };
     lastSentAim = { x: 0, y: 0 };
     clearPendingActionRequests();
+    if (heldWallCastSlotIndex !== null) {
+      releaseHeldWallCast(heldWallCastSlotIndex, { cast: false });
+    } else {
+      setWallAimPreviewState(false);
+    }
 
     if (emitNeutral && socket?.connected) {
       socket.emit('player_input', { x: 0, y: 0 });
@@ -905,6 +980,10 @@
         loadout: uiLoadout,
         cooldownSecondsBySpell,
         availabilityBySpell,
+        myHealth: Math.max(0, Number(roomSnapshot.myCurrentHealth) || 0),
+        myMaxHealth: Math.max(1, Number(roomSnapshot.myMaxHealth) || 100),
+        opponentHealth: Math.max(0, Number(roomSnapshot.opponentCurrentHealth) || 0),
+        opponentMaxHealth: Math.max(0, Number(roomSnapshot.opponentMaxHealth) || 0),
         shieldActive: Boolean(roomSnapshot.myActiveEffects?.shieldActive),
         shieldRemainingSeconds: Math.max(0, Number(roomSnapshot.myActiveEffects?.shieldRemainingMs || 0) / 1000),
         hitEvent: roomSnapshot.lastHitEvent || null,
@@ -1033,6 +1112,10 @@
       opponentVelocity: cloneVectorSafe(roomSnapshot.opponentVelocity),
       myAimDirection: cloneVectorSafe(roomSnapshot.myAimDirection),
       opponentAimDirection: cloneVectorSafe(roomSnapshot.opponentAimDirection),
+      myCurrentHealth: parseNumber(roomSnapshot.myCurrentHealth),
+      myMaxHealth: parseNumber(roomSnapshot.myMaxHealth),
+      opponentCurrentHealth: parseNumber(roomSnapshot.opponentCurrentHealth),
+      opponentMaxHealth: parseNumber(roomSnapshot.opponentMaxHealth),
       myActiveEffects: cloneEffectsSafe(roomSnapshot.myActiveEffects),
       opponentActiveEffects: cloneEffectsSafe(roomSnapshot.opponentActiveEffects),
       projectiles,
@@ -1160,6 +1243,88 @@
     if (Number.isFinite(eliminated) && Number.isFinite(mine) && eliminated === mine) return 'You lose';
     if (Number.isFinite(winner)) return `Player ${winner} wins`;
     return 'Match ended';
+  }
+
+  function resolveMyMatchPlayerNumberFromSnapshot() {
+    const direct = Number(roomSnapshot.myMatchPlayerNumber);
+    if (Number.isFinite(direct) && direct > 0) return direct;
+
+    const socketId = trimString(socket?.id);
+    if (socketId) {
+      const fromRoomPlayers = (Array.isArray(roomSnapshot.players) ? roomSnapshot.players : [])
+        .find((entry) => trimString(entry?.socketId) === socketId);
+      const fromRoomPlayersNumber = Number(fromRoomPlayers?.matchPlayerNumber);
+      if (Number.isFinite(fromRoomPlayersNumber) && fromRoomPlayersNumber > 0) {
+        return fromRoomPlayersNumber;
+      }
+    }
+
+    const reconnectPlayerId = trimString(roomSnapshot.reconnectPlayerId);
+    if (reconnectPlayerId) {
+      const fromReconnectPlayer = (Array.isArray(roomSnapshot.players) ? roomSnapshot.players : [])
+        .find((entry) => trimString(entry?.playerId) === reconnectPlayerId);
+      const fromReconnectNumber = Number(fromReconnectPlayer?.matchPlayerNumber);
+      if (Number.isFinite(fromReconnectNumber) && fromReconnectNumber > 0) {
+        return fromReconnectNumber;
+      }
+    }
+
+    const fromSlot = Number(roomSnapshot.slot);
+    if (Number.isFinite(fromSlot) && fromSlot > 0) return fromSlot;
+    return null;
+  }
+
+  function applyLocalRankedProgressFromMatchEnd() {
+    if (roomSnapshot.matchPhase !== MATCH_PHASE_END) return;
+    const matchId = trimString(roomSnapshot.matchId);
+    if (!matchId) return;
+    if (lastAppliedRankedMatchId === matchId) return;
+
+    const myPlayerNumber = resolveMyMatchPlayerNumberFromSnapshot();
+    const winnerPlayerNumber = Number(roomSnapshot.winnerPlayerNumber);
+    const eliminatedPlayerNumber = Number(roomSnapshot.eliminatedPlayerNumber);
+    if (!Number.isFinite(myPlayerNumber)) {
+      console.info(
+        `${LOG_PREFIX} ranked_progress_pending match=${matchId} reason=missing_player_number `
+        + `winner=${winnerPlayerNumber || '-'} eliminated=${eliminatedPlayerNumber || '-'} `
+        + `slot=${roomSnapshot.slot || '-'} reconnectPlayerId=${trimString(roomSnapshot.reconnectPlayerId) || '-'} `
+        + `players=${(Array.isArray(roomSnapshot.players) ? roomSnapshot.players : []).map((entry) => `${entry.playerId || '?'}:${entry.matchPlayerNumber || '-'}:${entry.socketId || '-'}`).join(',') || '-'}`
+      );
+      return;
+    }
+
+    let didWin = null;
+    if (Number.isFinite(winnerPlayerNumber)) {
+      didWin = winnerPlayerNumber === myPlayerNumber;
+    } else if (Number.isFinite(eliminatedPlayerNumber)) {
+      didWin = eliminatedPlayerNumber !== myPlayerNumber;
+    }
+    if (didWin === null) {
+      console.info(
+        `${LOG_PREFIX} ranked_progress_pending match=${matchId} reason=missing_winner_and_eliminated `
+        + `myPlayer=${myPlayerNumber} winner=${winnerPlayerNumber || '-'} eliminated=${eliminatedPlayerNumber || '-'}`
+      );
+      return;
+    }
+
+    const applyFn = typeof applyRankedMatchResult === 'function'
+      ? applyRankedMatchResult
+      : (typeof window.applyRankedMatchResult === 'function' ? window.applyRankedMatchResult : null);
+    if (!applyFn) {
+      console.warn(`${LOG_PREFIX} ranked_progress_skipped match=${matchId} reason=ranked_apply_function_missing`);
+      return;
+    }
+
+    const summary = String(applyFn(didWin, { matchId, source: 'multiplayer' }) || '').trim();
+    lastAppliedRankedMatchId = matchId;
+    if (typeof buildRankedPanel === 'function') {
+      buildRankedPanel();
+    }
+
+    if (summary && !summary.toLowerCase().includes('already processed')) {
+      setStatusMessage(`Ranked ${didWin ? 'win' : 'loss'}: ${summary}`);
+    }
+    console.info(`${LOG_PREFIX} ranked_progress_applied match=${matchId} result=${didWin ? 'win' : 'loss'} summary="${summary || '-'}"`);
   }
 
   function getStateMessage() {
@@ -1967,12 +2132,54 @@
   }
 
   function applyDebugPanelVisibility() {
+    if (!debugToolsEnabled) {
+      isDebugVisible = false;
+    }
+    const canShowPanel = debugToolsEnabled && isDebugVisible;
+    const canShowToggle = debugToolsEnabled;
     if (panel && document.body.contains(panel)) {
-      panel.style.display = isDebugVisible ? '' : 'none';
+      panel.hidden = !canShowPanel;
+      panel.style.display = canShowPanel ? '' : 'none';
     }
     if (panelToggleButton && document.body.contains(panelToggleButton)) {
+      panelToggleButton.hidden = !canShowToggle;
+      panelToggleButton.style.display = canShowToggle ? '' : 'none';
       panelToggleButton.textContent = isDebugVisible ? 'Hide Debug' : 'Show Debug';
     }
+    if ((!debugToolsEnabled || !isDebugVisible) && abilityHud && document.body.contains(abilityHud)) {
+      abilityHud.style.display = 'none';
+    }
+  }
+
+  function setDebugToolsEnabled(nextEnabled = false) {
+    debugToolsEnabled = !!nextEnabled;
+    if (!debugToolsEnabled) {
+      isDebugVisible = false;
+    }
+    ensureDebugPanel();
+    applyDebugPanelVisibility();
+    renderDebugPanel();
+    return debugToolsEnabled;
+  }
+
+  function getDebugToolsEnabled() {
+    return !!debugToolsEnabled;
+  }
+
+  function setDebugPanelVisible(nextVisible = true) {
+    ensureDebugPanel();
+    if (!debugToolsEnabled) {
+      isDebugVisible = false;
+    } else {
+      isDebugVisible = !!nextVisible;
+    }
+    applyDebugPanelVisibility();
+    renderDebugPanel();
+    return isDebugVisible;
+  }
+
+  function getDebugPanelVisible() {
+    return !!isDebugVisible;
   }
 
   function isSnapshotInDraftPhase(snapshot) {
@@ -2002,6 +2209,7 @@
       isDebugVisible = !isDebugVisible;
       applyDebugPanelVisibility();
     });
+    panelToggleButton.hidden = !debugToolsEnabled;
     document.body.appendChild(panelToggleButton);
     applyDebugPanelVisibility();
     return panelToggleButton;
@@ -2090,11 +2298,12 @@
           <button class="mpDebugBtn" type="button" data-mp-action="tune-set">Set Tuning</button>
           <button class="mpDebugBtn" type="button" data-mp-action="tune-reset">Reset Tuning</button>
           <button class="mpDebugBtn" type="button" data-mp-action="tune-log">Log Tuning</button>
+          <button class="mpDebugBtn" type="button" data-mp-action="ranked-reset">Reset Local Rank</button>
         </div>
       </div>
       <button class="mpDebugBtn mpDebugBtnReady" type="button" data-mp-action="ready" disabled>Toggle Ready</button>
       <div class="mpDebugRow">
-        <button class="mpDebugBtn mpDebugBtnBlink" type="button" data-mp-action="ability-fireblast" disabled>Fireblast (Space)</button>
+        <button class="mpDebugBtn mpDebugBtnBlink" type="button" data-mp-action="ability-fireblast" disabled>Fireblast (M1)</button>
         <button class="mpDebugBtn mpDebugBtnBlink" type="button" data-mp-action="ability-q" disabled>Slot 1 (Q)</button>
       </div>
       <div class="mpDebugRow">
@@ -2199,6 +2408,23 @@
     });
     panel.querySelector('[data-mp-action="tune-log"]')?.addEventListener('click', () => {
       requestTuningSnapshot({ silent: false });
+    });
+    panel.querySelector('[data-mp-action="ranked-reset"]')?.addEventListener('click', () => {
+      const resetFn = typeof window.resetLocalRankedProfile === 'function'
+        ? window.resetLocalRankedProfile
+        : null;
+      if (!resetFn) {
+        setStatusMessage('Ranked reset helper is not available.');
+        return;
+      }
+      const snapshot = resetFn();
+      const rankNumber = Number(snapshot?.currentRank);
+      const stars = Number(snapshot?.stars);
+      const maxStars = Number(snapshot?.maxStars);
+      const rankText = Number.isFinite(rankNumber) ? `Rank ${rankNumber}` : 'Rank reset';
+      const starText = Number.isFinite(stars) && Number.isFinite(maxStars) ? `${stars}/${maxStars} stars` : '';
+      setStatusMessage(`Local rank reset. ${rankText}${starText ? ` (${starText})` : ''}.`);
+      renderDebugPanel();
     });
     panelInput?.addEventListener('keydown', (event) => {
       if (event.key !== 'Enter') return;
@@ -2669,7 +2895,11 @@
   }
 
   function refreshTransientDebugPanelValues() {
-    if (!panelFields) return;
+    if (!debugToolsEnabled || !isDebugVisible || !panelFields) {
+      if (abilityHud) abilityHud.style.display = 'none';
+      renderGameplayUi();
+      return;
+    }
     if (panelFields.reconnectSummary) {
       panelFields.reconnectSummary.textContent = getReconnectSummaryText();
     }
@@ -2770,6 +3000,31 @@
     return normalizeDirectionInput({ x: dx, y: dy });
   }
 
+  function normalizeBoundKey(keyValue) {
+    if (keyValue === ' ') return 'space';
+    return trimString(keyValue).toLowerCase();
+  }
+
+  function resolveWallDraftSlotIndex() {
+    const draftedLoadout = Array.isArray(roomSnapshot.myDraftedLoadout)
+      ? roomSnapshot.myDraftedLoadout
+      : [];
+    for (let index = 0; index < draftedLoadout.length; index += 1) {
+      if (trimString(draftedLoadout[index]).toLowerCase() === ABILITY_IDS.WALL) {
+        return index;
+      }
+    }
+    return null;
+  }
+
+  function isWallBindEvent(event) {
+    const wallBind = normalizeBoundKey(
+      typeof keybinds === 'object' && keybinds !== null ? keybinds.wall : ''
+    );
+    if (!wallBind) return false;
+    return normalizeBoundKey(event?.key) === wallBind;
+  }
+
   function shouldIgnoreKeyboardEvent(event) {
     const target = event?.target;
     if (!target || typeof target !== 'object') return false;
@@ -2799,39 +3054,60 @@
         pressedAimKeys.add(code);
       }
 
-      if (code === 'Space') {
-        event.preventDefault();
-        if (!event.repeat) {
-          castFireblast();
+      if (isWallBindEvent(event)) {
+        const wallSlotIndex = resolveWallDraftSlotIndex();
+        if (wallSlotIndex !== null) {
+          event.preventDefault();
+          if (!event.repeat) {
+            beginHeldWallCast(wallSlotIndex);
+          }
+          return;
         }
       }
 
-      if (code === 'KeyQ' || key === 'q') {
+      const slotIndex = Number.isInteger(DRAFT_SLOT_KEY_TO_INDEX[code])
+        ? DRAFT_SLOT_KEY_TO_INDEX[code]
+        : (
+          key === 'q' ? 0
+            : key === 'e' ? 1
+              : key === 'r' ? 2
+                : null
+        );
+      if (slotIndex !== null) {
         event.preventDefault();
-        if (!event.repeat) {
-          castDraftedAbilityBySlot(0);
+        if (event.repeat) {
+          return;
         }
-      }
-
-      if (code === 'KeyE' || key === 'e') {
-        event.preventDefault();
-        if (!event.repeat) {
-          castDraftedAbilityBySlot(1);
+        const slotAbilityId = getDraftedAbilityBySlotIndex(slotIndex);
+        if (slotAbilityId === ABILITY_IDS.WALL) {
+          beginHeldWallCast(slotIndex);
+          return;
         }
-      }
-
-      if (code === 'KeyR' || key === 'r') {
-        event.preventDefault();
-        if (!event.repeat) {
-          castDraftedAbilityBySlot(2);
-        }
+        castDraftedAbilityBySlot(slotIndex);
       }
     });
 
     window.addEventListener('keyup', (event) => {
       if (shouldIgnoreKeyboardEvent(event)) return;
       const code = trimString(event?.code);
-      if (!code) return;
+      if (!code && !trimString(event?.key)) return;
+
+      if (isWallBindEvent(event) && heldWallCastSlotIndex !== null) {
+        const released = releaseHeldWallCast(heldWallCastSlotIndex, { cast: true });
+        if (released) {
+          event.preventDefault();
+        }
+      }
+
+      const releasedSlotIndex = Number.isInteger(DRAFT_SLOT_KEY_TO_INDEX[code])
+        ? DRAFT_SLOT_KEY_TO_INDEX[code]
+        : null;
+      if (releasedSlotIndex !== null) {
+        const released = releaseHeldWallCast(releasedSlotIndex, { cast: true });
+        if (released) {
+          event.preventDefault();
+        }
+      }
 
       if (MOVEMENT_KEY_CODES.has(code)) {
         pressedMovementKeys.delete(code);
@@ -2839,6 +3115,11 @@
       if (AIM_KEY_CODES.has(code)) {
         pressedAimKeys.delete(code);
       }
+    });
+
+    window.addEventListener('mousemove', () => {
+      if (heldWallCastSlotIndex === null) return;
+      updateHeldWallAimPreview();
     });
 
     // Ensure keys do not remain stuck when the tab loses focus.
@@ -2875,6 +3156,9 @@
         socket.emit('player_aim', nextAim);
         lastSentAim = nextAim;
       }
+      if (heldWallCastSlotIndex !== null) {
+        updateHeldWallAimPreview(nextAim);
+      }
     }, INPUT_SEND_INTERVAL_MS);
   }
 
@@ -2910,8 +3194,14 @@
   function renderDebugPanel() {
     ensureDebugPanel();
     ensureGameplayUi();
+    const shouldRenderDebugDetails = debugToolsEnabled && isDebugVisible;
+    if (!shouldRenderDebugDetails || !panelFields) {
+      stopReconnectUiTimer();
+      if (abilityHud) abilityHud.style.display = 'none';
+      renderGameplayUi();
+      return;
+    }
     ensureAbilityHud();
-    if (!panelFields) return;
 
     panelFields.roomCode.textContent = roomSnapshot.code || '-';
     panelFields.playerCount.textContent = `${roomSnapshot.playerCount}/2`;
@@ -2999,7 +3289,7 @@
       && !roomSnapshot.matchPaused;
     if (panelFields.abilityFireblastButton) {
       panelFields.abilityFireblastButton.disabled = !canCastAnyAbility;
-      panelFields.abilityFireblastButton.textContent = `Fireblast (Space) - ${getAbilityAvailabilityText(ABILITY_IDS.FIREBLAST)}`;
+      panelFields.abilityFireblastButton.textContent = `Fireblast (M1) - ${getAbilityAvailabilityText(ABILITY_IDS.FIREBLAST)}`;
     }
     if (panelFields.abilityQButton) {
       const slotAbilityId = getDraftedAbilityBySlotIndex(0);
@@ -3154,6 +3444,7 @@
     invalidateRuntimeSnapshotCache();
     resetRealtimeInputState({ emitNeutral: false });
     roomSnapshot = createInitialRoomSnapshot(state);
+    lastAppliedRankedMatchId = '';
     matchEndPanelRevealAt = 0;
     if (phaseBannerHideTimer !== null) {
       window.clearTimeout(phaseBannerHideTimer);
@@ -3227,6 +3518,10 @@
       roomSnapshot.opponentVelocity = null;
       roomSnapshot.myAimDirection = null;
       roomSnapshot.opponentAimDirection = null;
+      roomSnapshot.myCurrentHealth = null;
+      roomSnapshot.myMaxHealth = null;
+      roomSnapshot.opponentCurrentHealth = null;
+      roomSnapshot.opponentMaxHealth = null;
       roomSnapshot.myLoadout = [];
       roomSnapshot.opponentLoadout = [];
       roomSnapshot.myDraftedLoadout = [];
@@ -3336,9 +3631,26 @@
     if (myNumberFromPayload !== null) {
       roomSnapshot.myMatchPlayerNumber = myNumberFromPayload;
     } else {
-      const selfPlayer = players.find((entry) => entry?.socketId === socket?.id);
-      const myNumberFromRoom = parseNumber(selfPlayer?.matchPlayerNumber);
-      roomSnapshot.myMatchPlayerNumber = myNumberFromRoom;
+      const socketId = trimString(socket?.id);
+      const rawMatchPlayers = Array.isArray(match?.players) ? match.players : [];
+      const selfPlayerFromRoom = (Array.isArray(players) ? players : [])
+        .find((entry) => trimString(entry?.socketId) === socketId);
+      const myNumberFromRoom = parseNumber(selfPlayerFromRoom?.matchPlayerNumber);
+      const selfPlayerFromMatch = rawMatchPlayers
+        .find((entry) => trimString(entry?.socketId) === socketId);
+      const myNumberFromMatch = parseNumber(selfPlayerFromMatch?.matchPlayerNumber);
+      const existingNumber = Number(roomSnapshot.myMatchPlayerNumber);
+      const fallbackFromExisting = Number.isFinite(existingNumber) && existingNumber > 0
+        ? existingNumber
+        : null;
+      const slotNumber = Number(roomSnapshot.slot);
+      const fallbackFromSlot = Number.isFinite(slotNumber) && slotNumber > 0
+        ? slotNumber
+        : null;
+      roomSnapshot.myMatchPlayerNumber = myNumberFromRoom
+        ?? myNumberFromMatch
+        ?? fallbackFromExisting
+        ?? fallbackFromSlot;
     }
 
     const payloadMySpawn = normalizePosition(payload?.mySpawnPosition);
@@ -3414,6 +3726,28 @@
     roomSnapshot.opponentAimDirection = opponentAimFromNumber;
 
     const selfCombatState = selfMatchPlayer || selfMatchPlayerFromNumber;
+    const selfMaxHealthRaw = parseNumber(selfCombatState?.maxHealth);
+    const selfCurrentHealthRaw = parseNumber(selfCombatState?.currentHealth);
+    const resolvedSelfMaxHealth = selfMaxHealthRaw === null
+      ? Math.max(1, Number(roomSnapshot.myMaxHealth) || 100)
+      : Math.max(1, selfMaxHealthRaw);
+    const resolvedSelfCurrentHealth = selfCurrentHealthRaw === null
+      ? resolvedSelfMaxHealth
+      : clamp(selfCurrentHealthRaw, 0, resolvedSelfMaxHealth);
+    roomSnapshot.myCurrentHealth = resolvedSelfCurrentHealth;
+    roomSnapshot.myMaxHealth = resolvedSelfMaxHealth;
+
+    const opponentMaxHealthRaw = parseNumber(opponentMatchPlayer?.maxHealth);
+    const opponentCurrentHealthRaw = parseNumber(opponentMatchPlayer?.currentHealth);
+    const resolvedOpponentMaxHealth = opponentMaxHealthRaw === null
+      ? (opponentMatchPlayer ? Math.max(1, Number(roomSnapshot.opponentMaxHealth) || 100) : 0)
+      : Math.max(1, opponentMaxHealthRaw);
+    const resolvedOpponentCurrentHealth = opponentCurrentHealthRaw === null
+      ? resolvedOpponentMaxHealth
+      : clamp(opponentCurrentHealthRaw, 0, resolvedOpponentMaxHealth);
+    roomSnapshot.opponentCurrentHealth = opponentMatchPlayer ? resolvedOpponentCurrentHealth : 0;
+    roomSnapshot.opponentMaxHealth = opponentMatchPlayer ? resolvedOpponentMaxHealth : 0;
+
     const selfLoadout = normalizeSpellList(selfCombatState?.loadout?.length ? selfCombatState.loadout : selfCombatState?.loadoutSpells);
     const opponentLoadout = normalizeSpellList(opponentMatchPlayer?.loadout?.length ? opponentMatchPlayer.loadout : opponentMatchPlayer?.loadoutSpells);
     roomSnapshot.myLoadout = selfLoadout;
@@ -3571,7 +3905,15 @@
     const state = normalizeRoomState(stateValue, defaultState);
 
     const slotFromPayload = Number(payload?.playerSlot || payload?.slot);
-    const selfPlayer = players.find((entry) => entry?.socketId === socket?.id);
+    const socketId = trimString(socket?.id);
+    const reconnectPlayerId = trimString(roomSnapshot.reconnectPlayerId || payload?.reconnectPlayerId);
+    const selfPlayer = players.find((entry) => {
+      const entrySocketId = trimString(entry?.socketId);
+      const entryPlayerId = trimString(entry?.playerId);
+      if (socketId && entrySocketId === socketId) return true;
+      if (reconnectPlayerId && entryPlayerId === reconnectPlayerId) return true;
+      return false;
+    });
     const slotFromPlayers = Number(selfPlayer?.slot);
     const slotValue = Number.isFinite(slotFromPayload) && slotFromPayload > 0
       ? slotFromPayload
@@ -3733,6 +4075,7 @@
       showPhaseBanner('Reconnected', 1200);
       const resumedText = payload?.resumedMatch ? ' Match resumed.' : '';
       setStatusMessage(`Reconnected to room ${roomSnapshot.code}.${resumedText}`);
+      applyLocalRankedProgressFromMatchEnd();
       if (panelInput && roomSnapshot.code) panelInput.value = roomSnapshot.code;
       console.info(`${LOG_PREFIX} room_reconnected`, payload);
     });
@@ -3763,6 +4106,7 @@
         }
       }
       setStatusMessage(getStateMessage());
+      applyLocalRankedProgressFromMatchEnd();
       console.info(`${LOG_PREFIX} room_update`, payload);
     });
 
@@ -3920,6 +4264,7 @@
           setStatusMessage(`Draft turn: Player ${nextTurnPlayer}.`);
         }
       }
+      applyLocalRankedProgressFromMatchEnd();
     });
 
     socket.on('room_error', (payload) => {
@@ -4433,6 +4778,53 @@
     console.info(`${LOG_PREFIX} leave_room requested`);
   }
 
+  function leaveGame() {
+    const requested = emitWhenConnected(
+      'leave_game',
+      undefined,
+      'Leaving game...',
+      (response) => {
+        if (!response) return;
+        if (response.ok === false) {
+          const message = trimString(response?.message) || 'Unable to leave game.';
+          setStatusMessage(message);
+          return;
+        }
+
+        const matchId = trimString(response?.matchId);
+        const forfeitApplied = response?.forfeitApplied !== false;
+        if (forfeitApplied && matchId) {
+          const applyFn = typeof applyRankedMatchResult === 'function'
+            ? applyRankedMatchResult
+            : (typeof window.applyRankedMatchResult === 'function' ? window.applyRankedMatchResult : null);
+          if (applyFn) {
+            const summary = String(applyFn(false, { matchId, source: 'multiplayer_forfeit' }) || '').trim();
+            if (summary && !summary.toLowerCase().includes('already processed')) {
+              setStatusMessage(`Forfeit registered: ${summary}`);
+            } else {
+              setStatusMessage('Forfeit registered.');
+            }
+            lastAppliedRankedMatchId = matchId;
+            if (typeof buildRankedPanel === 'function') {
+              buildRankedPanel();
+            }
+          }
+        }
+      }
+    );
+    if (!requested) return false;
+    updateQuickMatchState({
+      status: QUICK_MATCH_STATUS_IDLE,
+      queueDepth: 0,
+      queuedAt: 0,
+      roomCode: '',
+      reason: 'leave_game'
+    });
+    setStatusMessage('Leaving game...');
+    console.info(`${LOG_PREFIX} leave_game requested`);
+    return true;
+  }
+
   function disconnect() {
     if (!socket) return;
     clearReconnectIdentity();
@@ -4469,6 +4861,7 @@
     queueQuickMatch,
     cancelQuickMatch,
     leaveRoom,
+    leaveGame,
     toggleReady,
     returnToRoom,
     resetRoomForRematch,
@@ -4486,6 +4879,10 @@
     requestDraftPick: draftPick,
     disconnect,
     getSocket,
+    setDebugToolsEnabled,
+    getDebugToolsEnabled,
+    setDebugPanelVisible,
+    getDebugPanelVisible,
     getQuickMatchState,
     getServerUrl: resolveServerUrl,
     getPresentationSnapshot: buildMultiplayerPresentationSnapshot,

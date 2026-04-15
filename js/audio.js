@@ -302,9 +302,135 @@ function stopDraftSpellHoverSound() {
   } catch {}
 }
 
-Object.keys(SOUND_FX_SOURCES).forEach((key) => {
-  loadSoundFxBuffer(key);
-});
+const SOUND_FX_PACKS = {
+  core: ['click'],
+  lobby: [],
+  draft: ['hover_spell', 'pick'],
+  arena: ['fireball', 'shield', 'charge'],
+};
+
+const soundFxPackState = Object.fromEntries(
+  Object.keys(SOUND_FX_PACKS).map((packId) => [
+    packId,
+    {
+      status: 'idle',
+      loaded: false,
+      loading: false,
+      error: '',
+      loadedAt: 0,
+      promise: null,
+    }
+  ])
+);
+
+function preloadSoundFxPack(packId = 'core') {
+  const normalizedPackId = String(packId || '').trim().toLowerCase();
+  const pack = soundFxPackState[normalizedPackId];
+  if (!pack) return Promise.resolve(false);
+  if (pack.loaded) return Promise.resolve(true);
+  if (pack.promise) return pack.promise;
+
+  pack.status = 'loading';
+  pack.loading = true;
+  pack.error = '';
+
+  const keys = Array.isArray(SOUND_FX_PACKS[normalizedPackId])
+    ? SOUND_FX_PACKS[normalizedPackId]
+    : [];
+  if (!keys.length) {
+    pack.status = 'ready';
+    pack.loaded = true;
+    pack.loading = false;
+    pack.loadedAt = Date.now();
+    return Promise.resolve(true);
+  }
+
+  pack.promise = Promise.allSettled(keys.map((key) => loadSoundFxBuffer(key)))
+    .then((results) => {
+      const ok = results.every((entry, index) => {
+        if (entry.status !== 'fulfilled') return false;
+        if (!entry.value) return false;
+        const key = keys[index];
+        return soundFxBufferCache.has(key);
+      });
+
+      pack.status = ok ? 'ready' : 'error';
+      pack.loaded = ok;
+      pack.loading = false;
+      pack.loadedAt = ok ? Date.now() : 0;
+      pack.error = ok ? '' : 'pack_load_incomplete';
+      return ok;
+    })
+    .catch((error) => {
+      pack.status = 'error';
+      pack.loaded = false;
+      pack.loading = false;
+      pack.error = String(error?.message || error || 'unknown_error');
+      return false;
+    })
+    .finally(() => {
+      pack.promise = null;
+    });
+
+  return pack.promise;
+}
+
+function unloadSoundFxPack(packId = 'core', options = {}) {
+  const normalizedPackId = String(packId || '').trim().toLowerCase();
+  const pack = soundFxPackState[normalizedPackId];
+  if (!pack) return false;
+
+  const releaseBuffers = !!options.releaseBuffers;
+  const keys = Array.isArray(SOUND_FX_PACKS[normalizedPackId]) ? SOUND_FX_PACKS[normalizedPackId] : [];
+  if (normalizedPackId === 'draft') {
+    stopDraftSpellHoverSound();
+  }
+
+  if (releaseBuffers) {
+    keys.forEach((key) => {
+      soundFxBufferCache.delete(key);
+      soundFxLoadCache.delete(key);
+    });
+    pack.status = 'idle';
+    pack.loaded = false;
+    pack.loadedAt = 0;
+  } else if (pack.loaded) {
+    pack.status = 'ready';
+  } else {
+    pack.status = 'idle';
+  }
+  pack.loading = false;
+  pack.error = '';
+  pack.promise = null;
+  return true;
+}
+
+function preloadLobbyMusicAsset() {
+  ensureLobbyMusicElement();
+  return Promise.resolve(true);
+}
+
+function getSoundFxPackState() {
+  const snapshot = {};
+  Object.keys(soundFxPackState).forEach((packId) => {
+    const pack = soundFxPackState[packId];
+    snapshot[packId] = {
+      status: String(pack.status || 'idle'),
+      loaded: !!pack.loaded,
+      loading: !!pack.loading,
+      error: String(pack.error || ''),
+      loadedAt: Number(pack.loadedAt) || 0,
+    };
+  });
+  return snapshot;
+}
+
+window.outraAudioAssets = {
+  preloadSoundFxPack,
+  unloadSoundFxPack,
+  getSoundFxPackState,
+  preloadLobbyMusicAsset,
+};
 
 const soundClick     = () => playSoundFx('click', 0.82) || playTone('triangle', 560, 0.05, 0.02, 420);
 const soundFire      = () => playSoundFx('fireball', 0.96) || playTone('sawtooth', 320, 0.12, 0.050, 120);
