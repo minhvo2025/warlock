@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Outra Model Test Ground</title>
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: #0d1016;
+      color: #e8f0ff;
+    }
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      min-height: 100vh;
+    }
+    .panel {
+      padding: 16px;
+      border-right: 1px solid rgba(255, 255, 255, 0.12);
+      background: linear-gradient(180deg, #11182a 0%, #0b111d 100%);
+    }
+    .panel h1 {
+      margin: 0 0 10px;
+      font-size: 20px;
+    }
+    .panel p {
+      margin: 0 0 14px;
+      font-size: 13px;
+      color: #a8b8d8;
+    }
+    .field {
+      margin-bottom: 10px;
+      display: grid;
+      gap: 4px;
+    }
+    label {
+      font-size: 12px;
+      color: #bed0f2;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    input,
+    select,
+    button {
+      font: inherit;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      background: rgba(8, 13, 23, 0.9);
+      color: #e8f0ff;
+      padding: 8px 10px;
+      box-sizing: border-box;
+    }
+    input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      margin: 0;
+      padding: 0;
+      accent-color: #4db3ff;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .row-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .buttons {
+      display: grid;
+      gap: 8px;
+      margin: 12px 0;
+    }
+    button {
+      cursor: pointer;
+      background: #17243d;
+    }
+    button:hover {
+      background: #1f3151;
+    }
+    #viewportWrap {
+      position: relative;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+    #viewport {
+      position: absolute;
+      inset: 0;
+    }
+    #hud {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      min-width: 300px;
+      max-width: 44vw;
+      background: rgba(4, 8, 16, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    #log {
+      margin-top: 12px;
+      max-height: 280px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      color: #b8d9ff;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 8px;
+      padding: 10px;
+    }
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .panel {
+        border-right: none;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      }
+      #viewportWrap {
+        min-height: 62vh;
+      }
+      #hud {
+        max-width: calc(100vw - 32px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <aside class="panel">
+      <h1>Model Test Ground</h1>
+      <p>Isolates arena GLB transform rules so we can debug orientation and scale without gameplay.</p>
+
+      <div class="field">
+        <label for="glbPath">GLB Path</label>
+        <input id="glbPath" type="text" value="docs/art/character/Outron_arena.glb">
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label for="targetHeight">Target Height</label>
+          <input id="targetHeight" type="number" step="0.1" value="45">
+        </div>
+        <div class="field">
+          <label for="actorScale">Actor Scale</label>
+          <input id="actorScale" type="number" step="0.1" value="28">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="scaleMode">Scale Mode</label>
+        <select id="scaleMode">
+          <option value="absolute">absolute</option>
+          <option value="multiplier">multiplier</option>
+          <option value="auto_height">auto_height</option>
+        </select>
+      </div>
+
+      <div class="row-3">
+        <div class="field">
+          <label for="rotX">Import Rot X (deg)</label>
+          <input id="rotX" type="number" step="1" value="0">
+        </div>
+        <div class="field">
+          <label for="rotY">Import Rot Y (deg)</label>
+          <input id="rotY" type="number" step="1" value="0">
+        </div>
+        <div class="field">
+          <label for="rotZ">Import Rot Z (deg)</label>
+          <input id="rotZ" type="number" step="1" value="0">
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="autoNormalize">Auto Normalize Up Axis</label>
+        <input id="autoNormalize" type="checkbox" checked>
+      </div>
+
+      <div class="buttons">
+        <button id="loadBtn" type="button">Load / Apply Transform</button>
+        <button id="dumpBtn" type="button">Dump Snapshot</button>
+        <button id="viewBtn" type="button">Switch to Angled View</button>
+        <button id="resetCameraBtn" type="button">Reset Camera</button>
+      </div>
+
+      <div id="log"></div>
+    </aside>
+
+    <main id="viewportWrap">
+      <div id="viewport"></div>
+      <pre id="hud">No model loaded yet.</pre>
+    </main>
+  </div>
+
+  <script src="js/vendor/three.min.js"></script>
+  <script src="js/vendor/GLTFLoader.js"></script>
+  <script src="js/model-testground.js"></script>
+</body>
+</html>

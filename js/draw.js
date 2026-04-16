@@ -622,9 +622,9 @@ function drawPlayer() {
   const multiplayerArena = !!getMultiplayerArenaRuntimeVisualState();
 
   // Arena character rendering is 3D-only; keep HUD overlays on canvas.
-  if (!multiplayerArena) {
-    drawHealthBar(player, '#62f36d');
-  } else {
+  // Show HP bars in both practice and multiplayer arena for clear combat readability.
+  drawHealthBar(player, '#62f36d');
+  if (multiplayerArena) {
     drawActorReadabilityRing(player, '110, 228, 255', 0.72);
   }
   drawNameTag(player);
@@ -685,10 +685,10 @@ function drawPlayer() {
 function drawDummy() {
   const multiplayerArena = !!getMultiplayerArenaRuntimeVisualState();
 
-  // Arena dummy rendering is 3D-only; keep HUD overlays on canvas.
-  if (!multiplayerArena) {
-    drawHealthBar(dummy, '#ff8c5a');
-  } else {
+  // Arena opponent rendering is 3D-only; keep HUD overlays on canvas.
+  // Show HP bars in both practice and multiplayer arena for parity and readability.
+  drawHealthBar(dummy, '#ff8c5a');
+  if (multiplayerArena) {
     drawActorReadabilityRing(dummy, '255, 170, 108', 0.68);
   }
   drawNameTag(dummy);
@@ -881,7 +881,8 @@ function getRewindPreviewTarget() {
 }
 
 function drawSkillAimPreview() {
-  if (!skillAimPreview.active || gameState === 'lobby' || !player.alive) return;
+  const multiplayerArenaActive = !!getMultiplayerArenaRuntimeVisualState();
+  if (!skillAimPreview.active || (!multiplayerArenaActive && gameState === 'lobby') || !player.alive) return;
   const dir = normalized(skillAimPreview.dx, skillAimPreview.dy);
 
   ctx.save();
@@ -1051,7 +1052,8 @@ function drawDamageTexts() {
 
 // ── Crosshair ─────────────────────────────────────────────────
 function drawCrosshair() {
-  if (gameState === 'lobby' || isTouchDevice) return;
+  const multiplayerArenaActive = !!getMultiplayerArenaRuntimeVisualState();
+  if ((!multiplayerArenaActive && gameState === 'lobby') || isTouchDevice) return;
   ctx.strokeStyle = 'rgba(255,255,255,0.45)';
   ctx.lineWidth = 1;
   ctx.beginPath();

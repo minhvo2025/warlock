@@ -23,7 +23,7 @@
     <div id="hp">HP: 100</div>
     <div id="dummyHp">Dummy HP: 100</div>
     <div id="scoreHud">Score: 0</div>
-    <div id="wlkHud">WLK: 0</div>
+    <div id="wlkHud">OUT: 0</div>
     <div id="roundTimerHud">Shrink In: 20s</div>
     <div id="controlsHud" class="hint">Fire: Mouse1 | Hook: E | Teleport: Space / Mouse2</div>
     <div class="hint warn">You can walk into the lava outside the platform</div>
@@ -98,7 +98,7 @@
     <button id="menuBtn" class="secondary">Menu</button>
     <div id="topbarCurrency" class="topCurrencyCard topCurrencyCardCompact" aria-label="Currency">
       <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon topbarCurrencyIcon" />
-      <span id="wlkTopbar">0</span>
+      <span id="wlkTopbar" data-out-balance>0</span>
     </div>
   </div>
 
@@ -392,16 +392,17 @@
   <div class="lobbyTopLeft">
     <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
     <button id="lobbyStoreBtn" class="secondary lobbyStoreBtn" data-lobby-tab="store">Store</button>
+    <button id="identitySignOutBtn" class="secondary lobbySignOutBtn" type="button" hidden>Sign out</button>
   </div>
 
   <div class="lobbyBrandWrap">
-    <div class="lobbyBrand">Outra Lobby</div>
+    <div id="lobbyTopName" class="lobbyBrand">Player</div>
   </div>
 
   <div class="lobbyTopRight">
     <div class="topCurrencyCard">
       <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
-      <span id="wlkLobbyTop">0</span>
+      <span id="wlkLobbyTop" data-out-balance>0</span>
     </div>
   </div>
 </div>
@@ -409,8 +410,33 @@
       <div class="lobbyMainGrid immersiveLobbyGrid">
         <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
           <div class="sidePanelInner">
-            <div class="sectionTitle sectionCompact">Your Name</div>
-            <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" />
+            <div id="identityGuestBlock">
+              <div class="sectionTitle sectionCompact">Your Name</div>
+              <div class="nameFieldRow">
+                <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" readonly />
+              </div>
+              <div id="identityActionGroup" class="identityActionGroup">
+                <button
+                  id="claimNameBtn"
+                  class="secondary identityBtn identityBtnPrimary"
+                  type="button"
+                  title="Save your name, rank, and progress forever"
+                >
+                  Claim your name
+                </button>
+                <button
+                  id="continueJourneyBtn"
+                  class="secondary identityBtn identityBtnSecondary"
+                  type="button"
+                  title="Already claimed a name? Restore your progress"
+                >
+                  Continue your journey
+                </button>
+              </div>
+            </div>
+            <div id="identitySignedInBlock" class="identitySignedInBlock" hidden>
+              <div id="identitySignedInText" class="identitySignedInText">Signed in as Traveler</div>
+            </div>
 
             <div class="sectionTitle">Your Rankings</div>
             <div id="colorRow" class="colorRowAaa"></div>
@@ -422,12 +448,6 @@
         <section class="lobbyCenter immersiveLobbyCenter">
           <div class="heroStage immersiveHeroStage">
             <div class="heroStageBackdrop"></div>
-
-            <div class="heroStageHeader immersiveStageHeader">
-              <div>
-                <div id="lobbyHeroName" class="heroTitle">Player</div>
-              </div>
-            </div>
 
             <div id="previewViewport" class="heroViewport immersiveViewport">
               <canvas id="previewCanvas" width="320" height="240"></canvas>
@@ -483,7 +503,7 @@
         </div>
         <div id="wlkLobby" class="storeCurrencyLine" aria-label="Currency">
           <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon storeCurrencyIcon" />
-          <span class="storeCurrencyValue">0</span>
+          <span class="storeCurrencyValue" data-out-balance>0</span>
         </div>
       </div>
 
@@ -495,6 +515,9 @@
 
   <!-- Scripts: config first, main last -->
   <script src="js/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/lib/supabase.js"></script>
+  <script src="js/services/playerService.js"></script>
   <script src="js/rank-config.js"></script>
   <script src="js/audio.js"></script>
   <script src="js/vendor/three.min.js"></script>

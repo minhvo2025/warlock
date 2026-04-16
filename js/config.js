@@ -341,12 +341,12 @@ arenaCharacter: {
   glb: '/docs/art/character/Outron_arena.glb',
 
   animations: {
-    idle: 'Idle_4',
-    walk: 'Walking',
-    run: 'Running',
-    cast: 'mage_soell_cast_4',
-    dash: 'Shield_Push_Left',
-    hit: 'Hit_Reaction_1',
+    idle: 'mage_soell_cast_4',
+    walk: 'Running',
+    run: 'Hit_Reaction_1',
+    cast: 'Shield_Push_Left',
+    dash: 'Idle_11',
+    hit: 'Walking',
   },
 
 
@@ -381,7 +381,7 @@ stateRotationOffsets: {
 },
 
   arenaFloor: {
-    enabled: false,
+    enabled: true,
     glb: '/docs/Objects/floor.glb',
     yOffset: 1,
     opacity: 1,
@@ -476,7 +476,11 @@ stateRotationOffsets: {
   floorEnergyStrength: 1.0,
 
   worldScale: 1,
-  actorScale: 28,
+  // Arena model scale interpretation:
+  // - "absolute": actorScale is used directly as THREE scale scalar.
+  // - "multiplier": actorScale multiplies the auto target-height scale.
+  actorScaleMode: 'absolute',
+  actorScale: 42,
   hoverHeight: 0,
   shadowSize: 18,
   castHoldTime: 0.22,
@@ -791,7 +795,7 @@ const wlkLobbyTopEl = document.getElementById('wlkLobbyTop');
 const wlkTopbarEl = document.getElementById('wlkTopbar');
 
 const previewCanvas = document.getElementById('previewCanvas');
-const lobbyHeroNameEl = document.getElementById('lobbyHeroName');
+const lobbyTopNameEl = document.getElementById('lobbyTopName');
 const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
 
 // ── Mobile Controls ───────────────────────────────────────────

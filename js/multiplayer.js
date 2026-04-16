@@ -16,7 +16,7 @@
   const DEFAULT_MATCH_PHASE = 'combat';
   const MATCH_PHASE_END = 'match_end';
   const READY_TOGGLE_ACK_TIMEOUT_MS = 2200;
-  const INPUT_SEND_INTERVAL_MS = 50;
+  const INPUT_SEND_INTERVAL_MS = 16; // ~60 Hz input/aim updates for smoother local responsiveness
   const CLIENT_CAST_REQUEST_COALESCE_MS = 180;
   const CLIENT_DRAFT_REQUEST_COALESCE_MS = 150;
   const QUICK_MATCH_HEARTBEAT_MS = 3500;
@@ -83,6 +83,45 @@
     KeyR: 2
   });
   const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '::1']);
+  const VICTORY_REWARD_CONFIG = Object.freeze({
+    sequenceDurationMs: 1450,
+    cleanupBufferMs: 140,
+    layout: Object.freeze({
+      trackTopPx: 0
+    }),
+    defaults: Object.freeze({
+      starsGained: 1,
+      outGained: 1
+    }),
+    labels: Object.freeze({
+      star: 'STAR',
+      out: 'OUT'
+    }),
+    star: Object.freeze({
+      delayMs: 0,
+      durationMs: 560,
+      startX: 0,
+      startY: 10,
+      targetX: 0,
+      targetY: 0,
+      driftY: 0,
+      startScale: 0.86,
+      peakScale: 1.02,
+      settleScale: 1
+    }),
+    out: Object.freeze({
+      delayMs: 120,
+      durationMs: 560,
+      startX: 0,
+      startY: 10,
+      targetX: 0,
+      targetY: 0,
+      driftY: 0,
+      startScale: 0.86,
+      peakScale: 1.02,
+      settleScale: 1
+    })
+  });
 
   let socket = null;
   let roomHandlersBound = false;
@@ -107,15 +146,23 @@
   let gameplayEndPanel = null;
   let gameplayEndTitle = null;
   let gameplayEndSub = null;
-  let gameplayReturnBtn = null;
-  let gameplayRematchBtn = null;
-  let gameplayLeaveBtn = null;
+  let gameplayEndPointsDelta = null;
+  let gameplayLobbyBtn = null;
+  let gameplayVictoryRewardOverlay = null;
+  let gameplayVictoryStarItem = null;
+  let gameplayVictoryOutItem = null;
+  let gameplayVictoryOutIcon = null;
+  let gameplayVictoryStarCaption = null;
+  let gameplayVictoryOutCaption = null;
   let gameplayCountdownEl = null;
   let gameplayRoomBadge = null;
   let phaseBannerEl = null;
-  let phaseBannerState = { text: '', shownAt: 0, durationMs: 1400 };
+  let phaseBannerState = { text: '', shownAt: 0, durationMs: 1400, tone: 'default' };
   let phaseBannerHideTimer = null;
   let matchEndPanelRevealAt = 0;
+  let lastVictoryRewardMatchId = '';
+  let lastLossPointsMatchId = '';
+  let victoryRewardHideTimer = null;
   let panelFields = null;
   let panelInput = null;
   let isDebugVisible = false;
@@ -153,6 +200,7 @@
       selfReady: false,
       selfConnected: false,
       players: [],
+      matchPlayers: [],
       connectedPlayerCount: 0,
       reconnectInfo: {
         graceMs: 0,
@@ -265,6 +313,13 @@
 
   function trimString(value) {
     return typeof value === 'string' ? value.trim() : '';
+  }
+
+  function getLocalDisplayName() {
+    const profileName = trimString(window?.playerProfile?.display_name);
+    const runtimeName = trimString(typeof player !== 'undefined' ? player?.name : '');
+    const picked = profileName || runtimeName || 'Player';
+    return picked.slice(0, 16);
   }
 
   function parseNumber(value) {
@@ -462,7 +517,7 @@
       if ((now - quickMatchHeartbeatLastAt) < QUICK_MATCH_HEARTBEAT_MS) return;
       quickMatchHeartbeatLastAt = now;
       try {
-        socket.emit('queue_quick_match');
+        socket.emit('queue_quick_match', { displayName: getLocalDisplayName() });
       } catch (_error) {
         // Socket may have dropped between interval checks; next tick will recover.
       }
@@ -820,6 +875,10 @@
     const hasRoom = Boolean(roomSnapshot.code);
     const roomState = trimString(roomSnapshot.state);
     const matchPhase = trimString(roomSnapshot.matchPhase);
+    const phaseAssetApi = window.outraPhaseAssets;
+    const arenaAssetsReady = !phaseAssetApi || typeof phaseAssetApi.isArenaAssetsReady !== 'function'
+      ? true
+      : Boolean(phaseAssetApi.isArenaAssetsReady());
     const draftStatus = trimString(roomSnapshot.draft?.status).toLowerCase();
     let isDraftActive = hasRoom && (
       matchPhase === MATCH_PHASE_DRAFT
@@ -827,7 +886,7 @@
       || draftStatus === 'draft'
       || draftStatus === 'active'
     );
-    const isArenaActive = hasRoom && (
+    let isArenaActive = hasRoom && (
       matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN
       || matchPhase === DEFAULT_MATCH_PHASE
       || matchPhase === MATCH_PHASE_END
@@ -835,6 +894,10 @@
       || roomState === ROOM_STATE_MATCH_END
       || roomState === ROOM_STATE_IN_MATCH
     );
+    const isArenaPending = Boolean(isArenaActive) && !arenaAssetsReady;
+    if (isArenaPending) {
+      isArenaActive = false;
+    }
     // In combat/countdown/end, arena phase must take precedence even if draft status lingers.
     if (isArenaActive && matchPhase !== MATCH_PHASE_DRAFT) {
       isDraftActive = false;
@@ -958,6 +1021,8 @@
       matchPhase,
       isDraftActive,
       isArenaActive,
+      isArenaPending,
+      arenaAssetsReady,
       isCountdownActive: matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN,
       isMatchEnd: matchPhase === MATCH_PHASE_END,
       draft: {
@@ -1042,13 +1107,30 @@
         ? 1
         : null;
 
-    const players = Array.isArray(roomSnapshot.players) ? roomSnapshot.players : [];
+    const roomPlayers = Array.isArray(roomSnapshot.players) ? roomSnapshot.players : [];
+    const matchPlayers = Array.isArray(roomSnapshot.matchPlayers) ? roomSnapshot.matchPlayers : [];
+    const players = matchPlayers.length > 0 ? matchPlayers : roomPlayers;
     const selfPlayer = players.find((entry) => trimString(entry?.socketId) === socket?.id)
       || players.find((entry) => Number(entry?.matchPlayerNumber) === resolvedMyNumber)
       || null;
     const opponentPlayer = players.find((entry) => Number(entry?.matchPlayerNumber) === opponentNumber)
       || players.find((entry) => Number(entry?.slot) === opponentNumber)
       || null;
+    const fallbackSelfFromRoom = roomPlayers.find((entry) => trimString(entry?.socketId) === socket?.id)
+      || roomPlayers.find((entry) => Number(entry?.matchPlayerNumber) === resolvedMyNumber)
+      || null;
+    const fallbackOpponentFromRoom = roomPlayers.find((entry) => Number(entry?.matchPlayerNumber) === opponentNumber)
+      || roomPlayers.find((entry) => Number(entry?.slot) === opponentNumber)
+      || null;
+    const myDisplayName = trimString(selfPlayer?.name)
+      || trimString(fallbackSelfFromRoom?.name)
+      || getMatchPlayerDisplayName(resolvedMyNumber, '')
+      || trimString(window?.playerProfile?.display_name)
+      || trimString(typeof player !== 'undefined' ? player?.name : '')
+      || 'Player';
+    const opponentDisplayName = trimString(opponentPlayer?.name)
+      || trimString(fallbackOpponentFromRoom?.name)
+      || getMatchPlayerDisplayName(opponentNumber, 'Opponent');
 
     const projectiles = Array.isArray(roomSnapshot.projectiles)
       ? roomSnapshot.projectiles.map((projectile) => ({
@@ -1104,6 +1186,8 @@
       isMatchEnd: presentation.isMatchEnd,
       myPlayerNumber: resolvedMyNumber,
       opponentPlayerNumber: opponentNumber,
+      myDisplayName,
+      opponentDisplayName,
       myConnected: selfPlayer ? selfPlayer.connected !== false : false,
       opponentConnected: opponentPlayer ? opponentPlayer.connected !== false : false,
       myPosition: clonePositionSafe(roomSnapshot.myPosition),
@@ -1219,6 +1303,14 @@
     return Math.max(0, turnEndsAt - Date.now());
   }
 
+  function isGenericPlayerDisplayName(value) {
+    const normalized = trimString(value).toLowerCase();
+    if (!normalized) return true;
+    if (/^player(\s*\d+)?$/.test(normalized)) return true;
+    if (/^p\d+$/.test(normalized)) return true;
+    return false;
+  }
+
   function formatDraftPool() {
     const pool = roomSnapshot.draft?.pool && typeof roomSnapshot.draft.pool === 'object'
       ? roomSnapshot.draft.pool
@@ -1233,6 +1325,40 @@
     return parts.join(' | ');
   }
 
+  function getMatchPlayerDisplayName(playerNumber, fallback = '') {
+    const normalizedPlayerNumber = Number(playerNumber);
+    const safeFallback = trimString(fallback);
+    const myNumber = Number(roomSnapshot.myMatchPlayerNumber);
+    if (!Number.isFinite(normalizedPlayerNumber) || normalizedPlayerNumber <= 0) {
+      return safeFallback || 'Opponent';
+    }
+
+    const readName = (entries) => {
+      if (!Array.isArray(entries)) return '';
+      const matchEntry = entries.find((entry) => Number(entry?.matchPlayerNumber) === normalizedPlayerNumber);
+      const slotEntry = entries.find((entry) => Number(entry?.slot) === normalizedPlayerNumber);
+      const candidate = trimString(matchEntry?.name || slotEntry?.name);
+      return isGenericPlayerDisplayName(candidate) ? '' : candidate;
+    };
+
+    const fromMatchPlayers = readName(roomSnapshot.matchPlayers);
+    if (fromMatchPlayers) return fromMatchPlayers;
+
+    const fromRoomPlayers = readName(roomSnapshot.players);
+    if (fromRoomPlayers) return fromRoomPlayers;
+
+    if (Number.isFinite(myNumber) && myNumber === normalizedPlayerNumber) {
+      const profileName = trimString(window?.playerProfile?.display_name);
+      if (profileName) return profileName;
+      const runtimeName = trimString(typeof player !== 'undefined' ? player?.name : '');
+      if (runtimeName) return runtimeName;
+    }
+
+    if (safeFallback) return safeFallback;
+    if (Number.isFinite(myNumber) && myNumber === normalizedPlayerNumber) return 'You';
+    return 'Opponent';
+  }
+
   function getMatchResultText() {
     if (roomSnapshot.matchPhase !== MATCH_PHASE_END) return '';
     const winner = Number(roomSnapshot.winnerPlayerNumber);
@@ -1241,7 +1367,7 @@
 
     if (Number.isFinite(winner) && Number.isFinite(mine) && winner === mine) return 'You win';
     if (Number.isFinite(eliminated) && Number.isFinite(mine) && eliminated === mine) return 'You lose';
-    if (Number.isFinite(winner)) return `Player ${winner} wins`;
+    if (Number.isFinite(winner)) return `${getMatchPlayerDisplayName(winner, 'Opponent')} wins`;
     return 'Match ended';
   }
 
@@ -1280,42 +1406,42 @@
     if (!matchId) return;
     if (lastAppliedRankedMatchId === matchId) return;
 
-    const myPlayerNumber = resolveMyMatchPlayerNumberFromSnapshot();
     const winnerPlayerNumber = Number(roomSnapshot.winnerPlayerNumber);
     const eliminatedPlayerNumber = Number(roomSnapshot.eliminatedPlayerNumber);
-    if (!Number.isFinite(myPlayerNumber)) {
+    const myPlayerNumber = resolveMyMatchPlayerNumberFromSnapshot();
+    const resultText = `${trimString(roomSnapshot.matchResult)} ${trimString(getMatchResultText())}`
+      .trim()
+      .toLowerCase();
+    let didWin = null;
+    if (Number.isFinite(myPlayerNumber) && Number.isFinite(winnerPlayerNumber)) {
+      didWin = winnerPlayerNumber === myPlayerNumber;
+    } else if (Number.isFinite(myPlayerNumber) && Number.isFinite(eliminatedPlayerNumber)) {
+      didWin = eliminatedPlayerNumber !== myPlayerNumber;
+    } else if (resultText.includes('you win')) {
+      didWin = true;
+    } else if (resultText.includes('you lose')) {
+      didWin = false;
+    }
+
+    if (didWin === null) {
       console.info(
-        `${LOG_PREFIX} ranked_progress_pending match=${matchId} reason=missing_player_number `
-        + `winner=${winnerPlayerNumber || '-'} eliminated=${eliminatedPlayerNumber || '-'} `
-        + `slot=${roomSnapshot.slot || '-'} reconnectPlayerId=${trimString(roomSnapshot.reconnectPlayerId) || '-'} `
+        `${LOG_PREFIX} ranked_progress_pending match=${matchId} reason=insufficient_match_end_context `
+        + `myPlayer=${myPlayerNumber || '-'} winner=${winnerPlayerNumber || '-'} eliminated=${eliminatedPlayerNumber || '-'} `
+        + `result="${resultText || '-'}" slot=${roomSnapshot.slot || '-'} reconnectPlayerId=${trimString(roomSnapshot.reconnectPlayerId) || '-'} `
         + `players=${(Array.isArray(roomSnapshot.players) ? roomSnapshot.players : []).map((entry) => `${entry.playerId || '?'}:${entry.matchPlayerNumber || '-'}:${entry.socketId || '-'}`).join(',') || '-'}`
       );
       return;
     }
 
-    let didWin = null;
-    if (Number.isFinite(winnerPlayerNumber)) {
-      didWin = winnerPlayerNumber === myPlayerNumber;
-    } else if (Number.isFinite(eliminatedPlayerNumber)) {
-      didWin = eliminatedPlayerNumber !== myPlayerNumber;
-    }
-    if (didWin === null) {
-      console.info(
-        `${LOG_PREFIX} ranked_progress_pending match=${matchId} reason=missing_winner_and_eliminated `
-        + `myPlayer=${myPlayerNumber} winner=${winnerPlayerNumber || '-'} eliminated=${eliminatedPlayerNumber || '-'}`
-      );
-      return;
-    }
-
-    const applyFn = typeof applyRankedMatchResult === 'function'
-      ? applyRankedMatchResult
-      : (typeof window.applyRankedMatchResult === 'function' ? window.applyRankedMatchResult : null);
+    const applyFn = typeof window.applyRankedMatchResult === 'function'
+      ? window.applyRankedMatchResult
+      : null;
     if (!applyFn) {
       console.warn(`${LOG_PREFIX} ranked_progress_skipped match=${matchId} reason=ranked_apply_function_missing`);
       return;
     }
 
-    const summary = String(applyFn(didWin, { matchId, source: 'multiplayer' }) || '').trim();
+    const summary = String(applyFn(didWin, { matchId, source: 'multiplayer_match_end' }) || '').trim();
     lastAppliedRankedMatchId = matchId;
     if (typeof buildRankedPanel === 'function') {
       buildRankedPanel();
@@ -1332,7 +1458,9 @@
     if (isRoomInMatchFlow(roomSnapshot.state)) {
       if (roomSnapshot.matchPhase === MATCH_PHASE_DRAFT) {
         const currentTurnPlayerNumber = Number(roomSnapshot.draft?.currentTurnPlayerNumber);
-        const turnText = Number.isFinite(currentTurnPlayerNumber) ? ` Player ${currentTurnPlayerNumber} is picking.` : '';
+        const turnText = Number.isFinite(currentTurnPlayerNumber)
+          ? ` ${getMatchPlayerDisplayName(currentTurnPlayerNumber, 'Opponent')} is picking.`
+          : '';
         return `Draft phase.${turnText}`;
       }
       if (roomSnapshot.matchPaused) {
@@ -1799,6 +1927,20 @@
         transition: opacity 0.2s ease, transform 0.2s ease;
       }
 
+      .mpPhaseBanner.is-tone-danger {
+        border-color: rgba(255, 128, 142, 0.56);
+        background: linear-gradient(180deg, rgba(62, 15, 24, 0.9), rgba(34, 9, 14, 0.88));
+        color: #fff0f3;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42), 0 0 18px rgba(189, 62, 84, 0.34);
+      }
+
+      .mpPhaseBanner.is-tone-success {
+        border-color: rgba(132, 234, 185, 0.52);
+        background: linear-gradient(180deg, rgba(14, 45, 34, 0.9), rgba(9, 27, 21, 0.88));
+        color: #ecfff5;
+        box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42), 0 0 18px rgba(72, 178, 133, 0.3);
+      }
+
       .mpPhaseBanner.is-visible {
         opacity: 1;
         transform: translateX(-50%) translateY(0);
@@ -2060,6 +2202,58 @@
         gap: 8px;
       }
 
+      .mpMatchEndRewardArea {
+        margin-top: 12px;
+        min-height: 126px;
+        padding: 8px 10px;
+        border-radius: 12px;
+        border: 1px solid rgba(126, 158, 225, 0.26);
+        background: linear-gradient(180deg, rgba(14, 20, 36, 0.66), rgba(9, 14, 28, 0.62));
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .mpMatchEndPointDelta {
+        margin-top: 0;
+        min-height: 20px;
+        width: max-content;
+        max-width: calc(100% - 18px);
+        text-align: center;
+        color: #ff98a5;
+        font: 800 15px/1 'Segoe UI', Tahoma, sans-serif;
+        letter-spacing: 0.05em;
+        text-transform: uppercase;
+        opacity: 0;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, 8px);
+        pointer-events: none;
+        z-index: 2;
+      }
+
+      .mpMatchEndPointDelta.is-visible {
+        opacity: 1;
+      }
+
+      .mpMatchEndPointDelta.is-fade-in {
+        animation: mpMatchEndPointLossFade 460ms ease-out forwards;
+      }
+
+      @keyframes mpMatchEndPointLossFade {
+        0% {
+          opacity: 0;
+          transform: translate(-50%, 8px);
+        }
+        100% {
+          opacity: 1;
+          transform: translate(-50%, 0);
+        }
+      }
+
       .mpGameBtn {
         border-radius: 9px;
         border: 1px solid rgba(170, 196, 255, 0.4);
@@ -2097,7 +2291,159 @@
         background: linear-gradient(180deg, rgba(108, 38, 47, 0.9), rgba(82, 29, 36, 0.94));
       }
 
+      .mpVictoryRewardOverlay {
+        position: absolute;
+        inset: 0;
+        width: auto;
+        height: auto;
+        display: none;
+        pointer-events: none;
+        z-index: 1;
+      }
+
+      .mpVictoryRewardOverlay.is-playing {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .mpVictoryRewardTrack {
+        position: relative;
+        width: auto;
+        height: auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 26px;
+        margin: 0 auto;
+      }
+
+      .mpVictoryRewardItem {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        transform-origin: center center;
+        opacity: 0;
+        will-change: transform, opacity, filter;
+        backface-visibility: hidden;
+        transform: translateZ(0);
+      }
+
+      .mpVictoryRewardItem.is-star {
+        animation: mpVictoryStarFly var(--mp-victory-star-duration-ms, 920ms) cubic-bezier(0.16, 0.82, 0.24, 1) var(--mp-victory-star-delay-ms, 0ms) forwards;
+      }
+
+      .mpVictoryRewardItem.is-out {
+        animation: mpVictoryOutFly var(--mp-victory-out-duration-ms, 920ms) cubic-bezier(0.2, 0.84, 0.22, 1) var(--mp-victory-out-delay-ms, 250ms) forwards;
+      }
+
+      .mpVictoryToken {
+        width: 74px;
+        height: 74px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        user-select: none;
+      }
+
+      .mpVictoryTokenStar {
+        border-radius: 0;
+        background: transparent;
+        border: none;
+        color: rgba(255, 250, 236, 0.98);
+        font-size: 0;
+        position: relative;
+        text-shadow: 0 0 6px rgba(255, 206, 112, 0.46);
+        box-shadow: none;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: geometricPrecision;
+      }
+
+      .mpVictoryTokenStar::before {
+        content: '\\2605';
+        font: 900 42px/1 'Segoe UI', Tahoma, sans-serif;
+        color: rgba(255, 250, 236, 0.98);
+      }
+
+      .mpVictoryTokenOut {
+        border: none;
+        background: transparent;
+        overflow: hidden;
+        box-shadow: none;
+      }
+
+      .mpVictoryTokenOutImg {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        filter: none;
+        image-rendering: -webkit-optimize-contrast;
+        image-rendering: crisp-edges;
+        transform: translateZ(0);
+      }
+
+      .mpVictoryCaption {
+        margin-top: 6px;
+        text-align: center;
+        color: rgba(236, 245, 255, 0.96);
+        font: 800 11px/1.1 'Segoe UI', Tahoma, sans-serif;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        text-shadow: 0 0 10px rgba(155, 205, 255, 0.38);
+      }
+
+      @keyframes mpVictoryStarFly {
+        0% {
+          opacity: 0;
+          transform: translate(var(--mp-victory-star-target-x, 0px), calc(var(--mp-victory-star-target-y, 0px) + 10px)) scale(var(--mp-victory-star-start-scale, 0.86));
+        }
+        70% {
+          opacity: 1;
+          transform: translate(var(--mp-victory-star-target-x, 0px), var(--mp-victory-star-target-y, 0px)) scale(var(--mp-victory-star-peak-scale, 1.02));
+        }
+        100% {
+          opacity: 1;
+          transform: translate(var(--mp-victory-star-target-x, 0px), var(--mp-victory-star-target-y, 0px)) scale(var(--mp-victory-star-settle-scale, 1));
+        }
+      }
+
+      @keyframes mpVictoryOutFly {
+        0% {
+          opacity: 0;
+          transform: translate(var(--mp-victory-out-target-x, 0px), calc(var(--mp-victory-out-target-y, 0px) + 10px)) scale(var(--mp-victory-out-start-scale, 0.86));
+        }
+        70% {
+          opacity: 1;
+          transform: translate(var(--mp-victory-out-target-x, 0px), var(--mp-victory-out-target-y, 0px)) scale(var(--mp-victory-out-peak-scale, 1.02));
+        }
+        100% {
+          opacity: 1;
+          transform: translate(var(--mp-victory-out-target-x, 0px), var(--mp-victory-out-target-y, 0px)) scale(var(--mp-victory-out-settle-scale, 1));
+        }
+      }
+
       @media (max-width: 900px) {
+        .mpVictoryToken {
+          width: 68px;
+          height: 68px;
+        }
+
+        .mpVictoryTokenStar {
+          font-size: 0;
+        }
+
+        .mpVictoryTokenStar::before {
+          font-size: 39px;
+        }
+
+        .mpVictoryCaption {
+          font-size: 10px;
+        }
+
         .mpDraftPanel {
           top: 62px;
           width: calc(100vw - 20px);
@@ -2110,6 +2456,23 @@
       }
 
       @media (max-width: 620px) {
+        .mpVictoryToken {
+          width: 60px;
+          height: 60px;
+        }
+
+        .mpVictoryTokenStar {
+          font-size: 0;
+        }
+
+        .mpVictoryTokenStar::before {
+          font-size: 34px;
+        }
+
+        .mpVictoryCaption {
+          font-size: 10px;
+        }
+
         .mpDraftPicksWrap {
           grid-template-columns: 1fr;
         }
@@ -2155,8 +2518,9 @@
     debugToolsEnabled = !!nextEnabled;
     if (!debugToolsEnabled) {
       isDebugVisible = false;
+    } else {
+      ensureDebugPanel();
     }
-    ensureDebugPanel();
     applyDebugPanelVisibility();
     renderDebugPanel();
     return debugToolsEnabled;
@@ -2167,10 +2531,10 @@
   }
 
   function setDebugPanelVisible(nextVisible = true) {
-    ensureDebugPanel();
     if (!debugToolsEnabled) {
       isDebugVisible = false;
     } else {
+      ensureDebugPanel();
       isDebugVisible = !!nextVisible;
     }
     applyDebugPanelVisibility();
@@ -2199,6 +2563,7 @@
   }
 
   function ensureDebugToggleButton() {
+    if (!debugToolsEnabled) return null;
     if (panelToggleButton && document.body.contains(panelToggleButton)) return panelToggleButton;
     if (!document.body) return null;
 
@@ -2221,6 +2586,7 @@
       applyDebugPanelVisibility();
       return panel;
     }
+    if (!debugToolsEnabled) return null;
     if (!document.body) return null;
 
     ensureDebugPanelStyles();
@@ -2611,10 +2977,29 @@
     return Math.max(0, combatStartsAt - Date.now());
   }
 
-  function showPhaseBanner(text, durationMs = 1400) {
+  function normalizePhaseBannerTone(tone) {
+    const normalized = trimString(tone).toLowerCase();
+    if (normalized === 'danger' || normalized === 'success') {
+      return normalized;
+    }
+    return 'default';
+  }
+
+  function applyPhaseBannerToneClass(tone) {
+    if (!phaseBannerEl) return;
+    const normalizedTone = normalizePhaseBannerTone(tone);
+    const toneClassName = `is-tone-${normalizedTone}`;
+    if (phaseBannerEl.dataset.toneClassName === toneClassName) return;
+    phaseBannerEl.classList.remove('is-tone-default', 'is-tone-danger', 'is-tone-success');
+    phaseBannerEl.classList.add(toneClassName);
+    phaseBannerEl.dataset.toneClassName = toneClassName;
+  }
+
+  function showPhaseBanner(text, durationMs = 1400, tone = 'default') {
     const message = trimString(text);
     if (!message) return;
     ensureGameplayUi();
+    const bannerTone = normalizePhaseBannerTone(tone);
     if (phaseBannerHideTimer !== null) {
       window.clearTimeout(phaseBannerHideTimer);
       phaseBannerHideTimer = null;
@@ -2622,17 +3007,21 @@
     phaseBannerState = {
       text: message,
       shownAt: Date.now(),
-      durationMs: Math.max(300, Number(durationMs) || 1400)
+      durationMs: Math.max(300, Number(durationMs) || 1400),
+      tone: bannerTone
     };
     if (!phaseBannerEl) return;
     phaseBannerEl.textContent = message;
+    applyPhaseBannerToneClass(bannerTone);
     phaseBannerEl.classList.add('is-visible');
     phaseBannerHideTimer = window.setTimeout(() => {
       phaseBannerHideTimer = null;
       phaseBannerState.text = '';
+      phaseBannerState.tone = 'default';
       if (!phaseBannerEl) return;
       phaseBannerEl.classList.remove('is-visible');
       phaseBannerEl.textContent = '';
+      applyPhaseBannerToneClass('default');
     }, phaseBannerState.durationMs);
   }
 
@@ -2640,13 +3029,126 @@
     if (!phaseBannerEl) return;
     const now = Date.now();
     const bannerText = trimString(phaseBannerState.text);
+    const bannerTone = normalizePhaseBannerTone(phaseBannerState.tone);
     const shouldShow = Boolean(bannerText)
       && (now - Number(phaseBannerState.shownAt || 0)) < Number(phaseBannerState.durationMs || 0);
     phaseBannerEl.textContent = bannerText;
+    applyPhaseBannerToneClass(bannerTone);
     phaseBannerEl.classList.toggle('is-visible', shouldShow);
     if (!shouldShow && bannerText) {
       phaseBannerState.text = '';
+      phaseBannerState.tone = 'default';
+      applyPhaseBannerToneClass('default');
     }
+  }
+
+  function formatVictoryStarLabel(starsGained) {
+    const safeAmount = Math.max(0, Math.floor(Number(starsGained)));
+    const labelSuffix = safeAmount === 1 ? VICTORY_REWARD_CONFIG.labels.star : `${VICTORY_REWARD_CONFIG.labels.star}S`;
+    return `+${safeAmount} ${labelSuffix}`;
+  }
+
+  function getVictoryOutIconPath() {
+    return String(window.OUTRA_3D_CONFIG?.lobbyArt?.currency || '/docs/art/Lobby/Currency.png').trim();
+  }
+
+  function formatVictoryOutLabel(outGained) {
+    const safeAmount = Math.max(0, Math.floor(Number(outGained)));
+    return `+${safeAmount > 0 ? safeAmount : ''} ${VICTORY_REWARD_CONFIG.labels.out}`.replace(/\s+/g, ' ').trim();
+  }
+
+  function stopVictoryRewardAnimation() {
+    if (victoryRewardHideTimer !== null) {
+      window.clearTimeout(victoryRewardHideTimer);
+      victoryRewardHideTimer = null;
+    }
+    if (!gameplayVictoryRewardOverlay) return;
+    gameplayVictoryRewardOverlay.classList.remove('is-playing');
+    gameplayVictoryRewardOverlay.style.display = 'none';
+  }
+
+  // Reusable local-win reward celebration. Screen-space only and safe to cancel on fast state changes.
+  function playVictoryRewardAnimation({ starsGained, outGained } = {}) {
+    ensureGameplayUi();
+    if (!gameplayVictoryRewardOverlay) return;
+
+    const resolveNumber = (value, fallback) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+    };
+    const resolveMs = (value, fallback, min = 0) => Math.max(min, resolveNumber(value, fallback));
+
+    const resolvedStars = Math.max(0, Math.floor(Number(starsGained)));
+    const resolvedOut = Math.max(0, Math.floor(Number(outGained)));
+    const starAmount = Number.isFinite(resolvedStars)
+      ? resolvedStars
+      : VICTORY_REWARD_CONFIG.defaults.starsGained;
+    const outAmount = Number.isFinite(resolvedOut)
+      ? resolvedOut
+      : VICTORY_REWARD_CONFIG.defaults.outGained;
+
+    stopVictoryRewardAnimation();
+
+    if (gameplayVictoryStarCaption) {
+      gameplayVictoryStarCaption.textContent = formatVictoryStarLabel(starAmount);
+    }
+    if (gameplayVictoryOutCaption) {
+      gameplayVictoryOutCaption.textContent = formatVictoryOutLabel(outAmount);
+    }
+
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-delay-ms', `${resolveMs(VICTORY_REWARD_CONFIG.star.delayMs, 0)}ms`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-duration-ms', `${resolveMs(VICTORY_REWARD_CONFIG.star.durationMs, 560, 120)}ms`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-start-x', `${resolveNumber(VICTORY_REWARD_CONFIG.star.startX, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-start-y', `${resolveNumber(VICTORY_REWARD_CONFIG.star.startY, 10)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-target-x', `${resolveNumber(VICTORY_REWARD_CONFIG.star.targetX, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-target-y', `${resolveNumber(VICTORY_REWARD_CONFIG.star.targetY, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-start-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.star.startScale, 0.86))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-peak-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.star.peakScale, 1.02))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-settle-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.star.settleScale, 1))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-star-drift-y', `${resolveNumber(VICTORY_REWARD_CONFIG.star.driftY, 0)}px`);
+
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-delay-ms', `${resolveMs(VICTORY_REWARD_CONFIG.out.delayMs, 120)}ms`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-duration-ms', `${resolveMs(VICTORY_REWARD_CONFIG.out.durationMs, 560, 120)}ms`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-start-x', `${resolveNumber(VICTORY_REWARD_CONFIG.out.startX, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-start-y', `${resolveNumber(VICTORY_REWARD_CONFIG.out.startY, 10)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-target-x', `${resolveNumber(VICTORY_REWARD_CONFIG.out.targetX, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-target-y', `${resolveNumber(VICTORY_REWARD_CONFIG.out.targetY, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-start-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.out.startScale, 0.86))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-peak-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.out.peakScale, 1.02))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-settle-scale', String(Math.max(0.05, resolveNumber(VICTORY_REWARD_CONFIG.out.settleScale, 1))));
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-out-drift-y', `${resolveNumber(VICTORY_REWARD_CONFIG.out.driftY, 0)}px`);
+    gameplayVictoryRewardOverlay.style.setProperty('--mp-victory-track-top', `${resolveNumber(VICTORY_REWARD_CONFIG.layout?.trackTopPx, 0)}px`);
+
+    if (gameplayVictoryStarItem) gameplayVictoryStarItem.classList.remove('is-star');
+    if (gameplayVictoryOutItem) gameplayVictoryOutItem.classList.remove('is-out');
+
+    // Reflow to restart keyframes if a previous animation ended moments ago.
+    void gameplayVictoryRewardOverlay.offsetWidth;
+
+    gameplayVictoryRewardOverlay.style.removeProperty('display');
+    gameplayVictoryRewardOverlay.classList.add('is-playing');
+    if (gameplayVictoryStarItem) gameplayVictoryStarItem.classList.add('is-star');
+    if (gameplayVictoryOutItem) gameplayVictoryOutItem.classList.add('is-out');
+
+    // Keep reward icons visible on match end until room phase changes or a new reward sequence starts.
+    victoryRewardHideTimer = null;
+  }
+
+  function maybePlayVictoryRewardAnimationOnMatchEnd() {
+    const matchId = trimString(roomSnapshot.matchId);
+    if (!matchId || lastVictoryRewardMatchId === matchId) return;
+
+    const winnerPlayerNumber = Number(roomSnapshot.winnerPlayerNumber);
+    const myPlayerNumber = Number(roomSnapshot.myMatchPlayerNumber);
+    if (!Number.isFinite(winnerPlayerNumber) || !Number.isFinite(myPlayerNumber) || winnerPlayerNumber !== myPlayerNumber) {
+      return;
+    }
+
+    lastVictoryRewardMatchId = matchId;
+    playVictoryRewardAnimation({
+      starsGained: VICTORY_REWARD_CONFIG.defaults.starsGained,
+      outGained: VICTORY_REWARD_CONFIG.defaults.outGained
+    });
   }
 
   function renderDraftPickChips(container, spells) {
@@ -2706,11 +3208,40 @@
         <div class="mpMatchEndTitle" data-mp-game-end-title>Match End</div>
         <div class="mpMatchEndSub" data-mp-game-end-sub>Waiting for result...</div>
         <div class="mpMatchEndActions">
-          <button type="button" class="mpGameBtn mpGameBtnReturn" data-mp-game-action="return">Return to Room</button>
-          <button type="button" class="mpGameBtn mpGameBtnRematch" data-mp-game-action="rematch">Reset for Rematch</button>
-          <button type="button" class="mpGameBtn mpGameBtnLeave" data-mp-game-action="leave">Leave Room</button>
+          <button type="button" class="mpGameBtn mpGameBtnReturn" data-mp-game-action="lobby">Return to Lobby</button>
+        </div>
+        <div class="mpMatchEndRewardArea">
+          <section class="mpVictoryRewardOverlay" data-mp-game-victory-reward>
+            <div class="mpVictoryRewardTrack">
+              <div class="mpVictoryRewardItem" data-mp-victory-item="star">
+                <div class="mpVictoryToken mpVictoryTokenStar">★</div>
+                <div class="mpVictoryCaption" data-mp-victory-caption="star">+1 STAR</div>
+              </div>
+              <div class="mpVictoryRewardItem" data-mp-victory-item="out">
+                <div class="mpVictoryToken mpVictoryTokenOut">
+                  <img class="mpVictoryTokenOutImg" data-mp-victory-out-icon src="" alt="OUT" />
+                </div>
+                <div class="mpVictoryCaption" data-mp-victory-caption="out">+1 OUT</div>
+              </div>
+            </div>
+          </section>
+          <div class="mpMatchEndPointDelta" data-mp-game-end-points></div>
         </div>
       </section>
+      <template data-mp-game-victory-reward-legacy>
+        <div class="mpVictoryRewardTrack">
+          <div class="mpVictoryRewardItem" data-mp-victory-item="star">
+            <div class="mpVictoryToken mpVictoryTokenStar">★</div>
+            <div class="mpVictoryCaption" data-mp-victory-caption="star">+1 STAR</div>
+          </div>
+          <div class="mpVictoryRewardItem" data-mp-victory-item="out">
+            <div class="mpVictoryToken mpVictoryTokenOut">
+              <img class="mpVictoryTokenOutImg" data-mp-victory-out-icon src="" alt="OUT" />
+            </div>
+            <div class="mpVictoryCaption" data-mp-victory-caption="out">+1 OUT</div>
+          </div>
+        </div>
+      </template>
     `;
 
     gameplayRoomBadge = gameplayUiRoot.querySelector('[data-mp-game-room-badge]');
@@ -2726,17 +3257,19 @@
     gameplayEndPanel = gameplayUiRoot.querySelector('[data-mp-game-end]');
     gameplayEndTitle = gameplayUiRoot.querySelector('[data-mp-game-end-title]');
     gameplayEndSub = gameplayUiRoot.querySelector('[data-mp-game-end-sub]');
-    gameplayReturnBtn = gameplayUiRoot.querySelector('[data-mp-game-action="return"]');
-    gameplayRematchBtn = gameplayUiRoot.querySelector('[data-mp-game-action="rematch"]');
-    gameplayLeaveBtn = gameplayUiRoot.querySelector('[data-mp-game-action="leave"]');
+    gameplayEndPointsDelta = gameplayUiRoot.querySelector('[data-mp-game-end-points]');
+    gameplayLobbyBtn = gameplayUiRoot.querySelector('[data-mp-game-action="lobby"]');
+    gameplayVictoryRewardOverlay = gameplayUiRoot.querySelector('[data-mp-game-victory-reward]');
+    gameplayVictoryStarItem = gameplayUiRoot.querySelector('[data-mp-victory-item="star"]');
+    gameplayVictoryOutItem = gameplayUiRoot.querySelector('[data-mp-victory-item="out"]');
+    gameplayVictoryOutIcon = gameplayUiRoot.querySelector('[data-mp-victory-out-icon]');
+    gameplayVictoryStarCaption = gameplayUiRoot.querySelector('[data-mp-victory-caption="star"]');
+    gameplayVictoryOutCaption = gameplayUiRoot.querySelector('[data-mp-victory-caption="out"]');
+    if (gameplayVictoryOutIcon) {
+      gameplayVictoryOutIcon.src = getVictoryOutIconPath();
+    }
 
-    gameplayReturnBtn?.addEventListener('click', () => {
-      returnToRoom();
-    });
-    gameplayRematchBtn?.addEventListener('click', () => {
-      resetRoomForRematch();
-    });
-    gameplayLeaveBtn?.addEventListener('click', () => {
+    gameplayLobbyBtn?.addEventListener('click', () => {
       leaveRoom();
     });
 
@@ -2822,6 +3355,7 @@
     const winner = Number(roomSnapshot.winnerPlayerNumber);
     const eliminated = Number(roomSnapshot.eliminatedPlayerNumber);
     const myNumber = Number(roomSnapshot.myMatchPlayerNumber);
+    const matchId = trimString(roomSnapshot.matchId);
     const isWin = Number.isFinite(winner) && Number.isFinite(myNumber) && winner === myNumber;
     const isLoss = Number.isFinite(eliminated) && Number.isFinite(myNumber) && eliminated === myNumber;
 
@@ -2831,20 +3365,55 @@
       gameplayEndTitle.classList.toggle('is-loss', isLoss);
     }
     if (gameplayEndSub) {
-      const winnerText = Number.isFinite(winner) ? `Winner: Player ${winner}` : 'Winner pending';
-      const eliminatedText = Number.isFinite(eliminated) ? `Eliminated: Player ${eliminated}` : '';
+      const winnerText = Number.isFinite(winner)
+        ? `Winner: ${getMatchPlayerDisplayName(winner, 'Opponent')}`
+        : 'Winner pending';
+      const eliminatedText = Number.isFinite(eliminated)
+        ? `Eliminated: ${getMatchPlayerDisplayName(eliminated, 'Opponent')}`
+        : '';
       gameplayEndSub.textContent = eliminatedText ? `${winnerText} · ${eliminatedText}` : winnerText;
     }
 
+    if (gameplayEndPointsDelta) {
+      if (isLoss) {
+        gameplayEndPointsDelta.textContent = 'Lost -3 pts';
+        gameplayEndPointsDelta.classList.add('is-visible');
+        if (lastLossPointsMatchId !== matchId) {
+          lastLossPointsMatchId = matchId;
+          gameplayEndPointsDelta.classList.remove('is-fade-in');
+          void gameplayEndPointsDelta.offsetWidth;
+          gameplayEndPointsDelta.classList.add('is-fade-in');
+        }
+      } else {
+        gameplayEndPointsDelta.textContent = '';
+        gameplayEndPointsDelta.classList.remove('is-visible', 'is-fade-in');
+      }
+    }
+
     const canInteract = Boolean(socket?.connected) && Boolean(roomSnapshot.code);
-    if (gameplayReturnBtn) gameplayReturnBtn.disabled = !canInteract;
-    if (gameplayRematchBtn) gameplayRematchBtn.disabled = !canInteract || roomSnapshot.playerCount < 2;
-    if (gameplayLeaveBtn) gameplayLeaveBtn.disabled = !canInteract;
+    if (gameplayLobbyBtn) gameplayLobbyBtn.disabled = !canInteract;
+  }
+
+  function shouldShowMatchOverlayUi() {
+    const phase = trimString(roomSnapshot.matchPhase);
+    if (
+      phase === MATCH_PHASE_DRAFT
+      || phase === MATCH_PHASE_COMBAT_COUNTDOWN
+      || phase === DEFAULT_MATCH_PHASE
+      || phase === MATCH_PHASE_END
+    ) {
+      return true;
+    }
+
+    const state = trimString(roomSnapshot.state);
+    return state === ROOM_STATE_DRAFT
+      || state === ROOM_STATE_COMBAT
+      || state === ROOM_STATE_MATCH_END;
   }
 
   function renderGameplayRoomBadge() {
     if (!gameplayRoomBadge) return;
-    if (!roomSnapshot.code) {
+    if (!roomSnapshot.code || !shouldShowMatchOverlayUi()) {
       gameplayRoomBadge.style.display = 'none';
       return;
     }
@@ -2859,6 +3428,15 @@
   function renderGameplayUi() {
     ensureGameplayUi();
     if (!gameplayUiRoot) return;
+    const shouldShow = shouldShowMatchOverlayUi();
+    gameplayUiRoot.style.display = shouldShow ? 'block' : 'none';
+    if (!shouldShow) {
+      if (phaseBannerEl) {
+        phaseBannerEl.classList.remove('is-visible');
+        phaseBannerEl.textContent = '';
+      }
+      return;
+    }
     renderGameplayRoomBadge();
     renderGameplayDraftPanel();
     renderGameplayCountdown();
@@ -3147,13 +3725,13 @@
 
       const nextInput = computeMovementInputFromKeyboard();
       if (!movementInputEquals(nextInput, lastSentInput)) {
-        socket.emit('player_input', nextInput);
+        socket.volatile.emit('player_input', nextInput);
         lastSentInput = nextInput;
       }
 
       const nextAim = computeAimInputFromMouse() || computeAimInputFromKeyboard();
       if (nextAim && !movementInputEquals(nextAim, lastSentAim)) {
-        socket.emit('player_aim', nextAim);
+        socket.volatile.emit('player_aim', nextAim);
         lastSentAim = nextAim;
       }
       if (heldWallCastSlotIndex !== null) {
@@ -3192,7 +3770,7 @@
   }
 
   function renderDebugPanel() {
-    ensureDebugPanel();
+    if (debugToolsEnabled) ensureDebugPanel();
     ensureGameplayUi();
     const shouldRenderDebugDetails = debugToolsEnabled && isDebugVisible;
     if (!shouldRenderDebugDetails || !panelFields) {
@@ -3443,6 +4021,7 @@
   function clearRoomSnapshot(state = ROOM_STATE_IDLE) {
     invalidateRuntimeSnapshotCache();
     resetRealtimeInputState({ emitNeutral: false });
+    stopVictoryRewardAnimation();
     roomSnapshot = createInitialRoomSnapshot(state);
     lastAppliedRankedMatchId = '';
     matchEndPanelRevealAt = 0;
@@ -3451,7 +4030,9 @@
       phaseBannerHideTimer = null;
     }
     phaseBannerState.text = '';
+    phaseBannerState.tone = 'default';
     if (phaseBannerEl) {
+      applyPhaseBannerToneClass('default');
       phaseBannerEl.classList.remove('is-visible');
       phaseBannerEl.textContent = '';
     }
@@ -3556,6 +4137,7 @@
       roomSnapshot.hitEvents = [];
       roomSnapshot.lastHitEvent = null;
       roomSnapshot.matchResult = '';
+      roomSnapshot.matchPlayers = [];
       roomSnapshot.draft = {
         status: '',
         currentTurnIndex: 0,
@@ -3595,37 +4177,42 @@
     roomSnapshot.matchStateTimestamp = parseNumber(payload?.timestamp) || roomSnapshot.matchStateTimestamp;
     roomSnapshot.spawnPositions = resolveSpawnPositions(match, payload?.spawnPositions);
     roomSnapshot.arenaBoundary = normalizeArenaBoundary(match?.arenaBoundary || payload?.arenaBoundary);
-    const draftPayload = match?.draft && typeof match.draft === 'object' ? match.draft : null;
-    const draftPool = draftPayload?.pool && typeof draftPayload.pool === 'object'
-      ? draftPayload.pool
-      : {};
-    const picksByPlayer = draftPayload?.picksByPlayerNumber && typeof draftPayload.picksByPlayerNumber === 'object'
-      ? draftPayload.picksByPlayerNumber
-      : {};
-    roomSnapshot.draft = {
-      status: trimString(draftPayload?.status),
-      currentTurnIndex: parseNumber(draftPayload?.currentTurnIndex) || 0,
-      currentTurnPlayerNumber: parseNumber(draftPayload?.currentTurnPlayerNumber),
-      turnDurationMs: parseNumber(draftPayload?.turnDurationMs) || 0,
-      turnStartedAt: parseNumber(draftPayload?.turnStartedAt),
-      turnEndsAt: parseNumber(draftPayload?.turnEndsAt),
-      turnRemainingMs: parseNumber(draftPayload?.turnRemainingMs) || 0,
-      turnOrder: Array.isArray(draftPayload?.turnOrder)
-        ? draftPayload.turnOrder.map((value) => parseNumber(value) || 0)
-        : [],
-      pool: DRAFT_SPELL_LIST.reduce((acc, spellId) => {
-        const entry = draftPool?.[spellId];
-        acc[spellId] = {
-          totalCopies: parseNumber(entry?.totalCopies) || 0,
-          remainingCopies: parseNumber(entry?.remainingCopies) || 0
-        };
-        return acc;
-      }, {}),
-      picksByPlayerNumber: {
-        1: Array.isArray(picksByPlayer?.[1]) ? picksByPlayer[1].map((spellId) => trimString(spellId)).filter(Boolean) : [],
-        2: Array.isArray(picksByPlayer?.[2]) ? picksByPlayer[2].map((spellId) => trimString(spellId)).filter(Boolean) : []
-      }
-    };
+    const hasDraftPayload = payloadMatch
+      ? Object.prototype.hasOwnProperty.call(payloadMatch, 'draft')
+      : Boolean(payloadObject && Object.prototype.hasOwnProperty.call(payloadObject, 'draft'));
+    if (hasDraftPayload) {
+      const draftPayload = match?.draft && typeof match.draft === 'object' ? match.draft : null;
+      const draftPool = draftPayload?.pool && typeof draftPayload.pool === 'object'
+        ? draftPayload.pool
+        : {};
+      const picksByPlayer = draftPayload?.picksByPlayerNumber && typeof draftPayload.picksByPlayerNumber === 'object'
+        ? draftPayload.picksByPlayerNumber
+        : {};
+      roomSnapshot.draft = {
+        status: trimString(draftPayload?.status),
+        currentTurnIndex: parseNumber(draftPayload?.currentTurnIndex) || 0,
+        currentTurnPlayerNumber: parseNumber(draftPayload?.currentTurnPlayerNumber),
+        turnDurationMs: parseNumber(draftPayload?.turnDurationMs) || 0,
+        turnStartedAt: parseNumber(draftPayload?.turnStartedAt),
+        turnEndsAt: parseNumber(draftPayload?.turnEndsAt),
+        turnRemainingMs: parseNumber(draftPayload?.turnRemainingMs) || 0,
+        turnOrder: Array.isArray(draftPayload?.turnOrder)
+          ? draftPayload.turnOrder.map((value) => parseNumber(value) || 0)
+          : [],
+        pool: DRAFT_SPELL_LIST.reduce((acc, spellId) => {
+          const entry = draftPool?.[spellId];
+          acc[spellId] = {
+            totalCopies: parseNumber(entry?.totalCopies) || 0,
+            remainingCopies: parseNumber(entry?.remainingCopies) || 0
+          };
+          return acc;
+        }, {}),
+        picksByPlayerNumber: {
+          1: Array.isArray(picksByPlayer?.[1]) ? picksByPlayer[1].map((spellId) => trimString(spellId)).filter(Boolean) : [],
+          2: Array.isArray(picksByPlayer?.[2]) ? picksByPlayer[2].map((spellId) => trimString(spellId)).filter(Boolean) : []
+        }
+      };
+    }
 
     const myNumberFromPayload = parseNumber(payload?.matchPlayerNumber);
     if (myNumberFromPayload !== null) {
@@ -3671,6 +4258,53 @@
     roomSnapshot.opponentSpawnPosition = payloadOpponentSpawn || opponentSpawnFromMap;
 
     const matchPlayers = Array.isArray(match?.players) ? match.players : [];
+    roomSnapshot.matchPlayers = matchPlayers
+      .map((entry, index) => {
+        const slot = parseNumber(entry?.slot);
+        const matchPlayerNumber = parseNumber(entry?.matchPlayerNumber);
+        const roomFallback = (Array.isArray(players) ? players : []).find((candidate) => {
+          const candidateMatchNumber = parseNumber(candidate?.matchPlayerNumber);
+          const candidateSlot = parseNumber(candidate?.slot);
+          if (matchPlayerNumber !== null && candidateMatchNumber !== null && candidateMatchNumber === matchPlayerNumber) {
+            return true;
+          }
+          if (slot !== null && candidateSlot !== null && candidateSlot === slot) {
+            return true;
+          }
+          const candidateSocket = trimString(candidate?.socketId);
+          const entrySocket = trimString(entry?.socketId);
+          return Boolean(candidateSocket) && Boolean(entrySocket) && candidateSocket === entrySocket;
+        }) || null;
+        const entrySocketId = trimString(entry?.socketId);
+        const directDisplayName = trimString(entry?.name || entry?.displayName || entry?.display_name);
+        const roomFallbackName = trimString(roomFallback?.name);
+        let resolvedDisplayName = !isGenericPlayerDisplayName(directDisplayName)
+          ? directDisplayName
+          : (!isGenericPlayerDisplayName(roomFallbackName) ? roomFallbackName : '');
+        if (!resolvedDisplayName) {
+          const localSocketId = trimString(socket?.id);
+          const isLocalEntry = (localSocketId && entrySocketId && localSocketId === entrySocketId)
+            || (Number.isFinite(Number(myNumber)) && Number(myNumber) > 0 && Number(matchPlayerNumber) === Number(myNumber));
+          if (isLocalEntry) {
+            resolvedDisplayName = getLocalDisplayName();
+          }
+        }
+        return {
+          playerId: trimString(entry?.playerId),
+          name: resolvedDisplayName,
+          slot: slot ?? matchPlayerNumber ?? (index + 1),
+          socketId: trimString(entry?.socketId),
+          ready: Boolean(entry?.ready),
+          matchPlayerNumber,
+          connected: entry?.connected !== false
+        };
+      })
+      .filter((entry) => Number.isFinite(entry.slot) || Number.isFinite(entry.matchPlayerNumber))
+      .sort((a, b) => {
+        const aKey = Number.isFinite(a.matchPlayerNumber) ? a.matchPlayerNumber : a.slot;
+        const bKey = Number.isFinite(b.matchPlayerNumber) ? b.matchPlayerNumber : b.slot;
+        return aKey - bKey;
+      });
     const selfMatchPlayer = matchPlayers.find((entry) => trimString(entry?.socketId) === socket?.id);
     const player1MatchState = matchPlayers.find((entry) => Number(entry?.matchPlayerNumber) === 1) || null;
     const player2MatchState = matchPlayers.find((entry) => Number(entry?.matchPlayerNumber) === 2) || null;
@@ -3780,6 +4414,9 @@
     const activeEffectsPayload = selfCombatState?.activeEffects && typeof selfCombatState.activeEffects === 'object'
       ? selfCombatState.activeEffects
       : {};
+    const selfChargePayload = activeEffectsPayload?.charge && typeof activeEffectsPayload.charge === 'object'
+      ? activeEffectsPayload.charge
+      : null;
     const shieldUntil = parseNumber(activeEffectsPayload?.shieldUntil) || 0;
     const shieldRemainingMs = parseNumber(activeEffectsPayload?.shieldRemainingMs);
     const resolvedShieldRemainingMs = shieldRemainingMs !== null
@@ -3789,14 +4426,22 @@
       shieldUntil,
       shieldRemainingMs: resolvedShieldRemainingMs,
       shieldActive: Boolean(activeEffectsPayload?.shieldActive) || resolvedShieldRemainingMs > 0,
-      chargeActive: Boolean(activeEffectsPayload?.charge?.active),
-      chargeRemainingDistance: Math.max(0, parseNumber(activeEffectsPayload?.charge?.remainingDistance) || 0),
-      chargeDirection: normalizePosition(activeEffectsPayload?.charge?.direction)
+      chargeActive: Boolean(selfChargePayload?.active) || Boolean(activeEffectsPayload?.chargeActive),
+      chargeRemainingDistance: Math.max(
+        0,
+        parseNumber(selfChargePayload?.remainingDistance)
+        || parseNumber(activeEffectsPayload?.chargeRemainingDistance)
+        || 0
+      ),
+      chargeDirection: normalizePosition(selfChargePayload?.direction || activeEffectsPayload?.chargeDirection)
     };
 
     const opponentEffectsPayload = opponentMatchPlayer?.activeEffects && typeof opponentMatchPlayer.activeEffects === 'object'
       ? opponentMatchPlayer.activeEffects
       : {};
+    const opponentChargePayload = opponentEffectsPayload?.charge && typeof opponentEffectsPayload.charge === 'object'
+      ? opponentEffectsPayload.charge
+      : null;
     const opponentShieldUntil = parseNumber(opponentEffectsPayload?.shieldUntil) || 0;
     const opponentShieldRemainingMs = parseNumber(opponentEffectsPayload?.shieldRemainingMs);
     const resolvedOpponentShieldRemainingMs = opponentShieldRemainingMs !== null
@@ -3806,9 +4451,14 @@
       shieldUntil: opponentShieldUntil,
       shieldRemainingMs: resolvedOpponentShieldRemainingMs,
       shieldActive: Boolean(opponentEffectsPayload?.shieldActive) || resolvedOpponentShieldRemainingMs > 0,
-      chargeActive: Boolean(opponentEffectsPayload?.charge?.active),
-      chargeRemainingDistance: Math.max(0, parseNumber(opponentEffectsPayload?.charge?.remainingDistance) || 0),
-      chargeDirection: normalizePosition(opponentEffectsPayload?.charge?.direction)
+      chargeActive: Boolean(opponentChargePayload?.active) || Boolean(opponentEffectsPayload?.chargeActive),
+      chargeRemainingDistance: Math.max(
+        0,
+        parseNumber(opponentChargePayload?.remainingDistance)
+        || parseNumber(opponentEffectsPayload?.chargeRemainingDistance)
+        || 0
+      ),
+      chargeDirection: normalizePosition(opponentChargePayload?.direction || opponentEffectsPayload?.chargeDirection)
     };
 
     const nextBlinkAt = parseNumber(selfCombatState?.nextBlinkAt) || parseNumber(normalizedReadyAt[ABILITY_IDS.BLINK]) || 0;
@@ -3867,14 +4517,30 @@
     invalidateRuntimeSnapshotCache();
     const room = payload && typeof payload === 'object' ? payload.room : null;
     const code = normalizeRoomCode(payload?.roomCode || room?.code || '');
+    const previousPlayers = Array.isArray(roomSnapshot.players) ? roomSnapshot.players : [];
 
     const players = (Array.isArray(room?.players) ? room.players : [])
       .map((entry, index) => {
         const slotValue = Number(entry?.slot);
+        const incomingName = trimString(entry?.name || entry?.displayName || entry?.display_name);
+        const entryPlayerId = trimString(entry?.playerId);
+        const entrySocketId = trimString(entry?.socketId);
+        const previousPlayer = previousPlayers.find((candidate) => {
+          const candidatePlayerId = trimString(candidate?.playerId);
+          const candidateSocketId = trimString(candidate?.socketId);
+          if (entryPlayerId && candidatePlayerId && entryPlayerId === candidatePlayerId) return true;
+          if (entrySocketId && candidateSocketId && entrySocketId === candidateSocketId) return true;
+          return Number(candidate?.slot) === (Number.isFinite(slotValue) && slotValue > 0 ? slotValue : index + 1);
+        }) || null;
+        const previousName = trimString(previousPlayer?.name);
+        const resolvedName = !isGenericPlayerDisplayName(incomingName)
+          ? incomingName
+          : (!isGenericPlayerDisplayName(previousName) ? previousName : '');
         return {
-          playerId: trimString(entry?.playerId),
+          playerId: entryPlayerId,
+          name: resolvedName,
           slot: Number.isFinite(slotValue) && slotValue > 0 ? slotValue : index + 1,
-          socketId: trimString(entry?.socketId),
+          socketId: entrySocketId,
           ready: Boolean(entry?.ready),
           matchPlayerNumber: parseNumber(entry?.matchPlayerNumber),
           connected: entry?.connected !== false,
@@ -4112,35 +4778,48 @@
 
     socket.on('reconnect_grace_started', (payload) => {
       const playerNumber = Number(payload?.matchPlayerNumber) || Number(payload?.playerSlot) || '?';
+      const playerName = Number.isFinite(Number(playerNumber))
+        ? getMatchPlayerDisplayName(Number(playerNumber), 'Opponent')
+        : 'Opponent';
       const graceMs = parseNumber(payload?.reconnectGraceMs) || 0;
-      setStatusMessage(`Player ${playerNumber} disconnected. Reconnect window: ${formatDurationMs(graceMs)}.`);
+      setStatusMessage(`${playerName} disconnected. Reconnect window: ${formatDurationMs(graceMs)}.`);
       renderDebugPanel();
       console.info(`${LOG_PREFIX} reconnect_grace_started`, payload);
     });
 
     socket.on('player_disconnected', (payload) => {
       const playerNumber = Number(payload?.matchPlayerNumber) || Number(payload?.playerSlot) || '?';
+      const playerName = Number.isFinite(Number(playerNumber))
+        ? getMatchPlayerDisplayName(Number(playerNumber), 'Opponent')
+        : 'Opponent';
       const graceMs = parseNumber(payload?.reconnectGraceMs) || 0;
-      setStatusMessage(`Opponent disconnected (P${playerNumber}). Waiting ${formatDurationMs(graceMs)}.`);
+      setStatusMessage(`${playerName} disconnected. Waiting ${formatDurationMs(graceMs)}.`);
       renderDebugPanel();
-      showPhaseBanner('Opponent Disconnected', 1200);
+      showPhaseBanner('Opponent Disconnected', 1200, 'danger');
       console.info(`${LOG_PREFIX} player_disconnected`, payload);
     });
 
     socket.on('player_reconnected', (payload) => {
       const playerNumber = Number(payload?.matchPlayerNumber) || Number(payload?.playerSlot) || '?';
+      const playerName = Number.isFinite(Number(playerNumber))
+        ? getMatchPlayerDisplayName(Number(playerNumber), 'Opponent')
+        : 'Opponent';
       const resumedText = payload?.resumedMatch ? ' Match resumed.' : '';
-      setStatusMessage(`Player ${playerNumber} reconnected.${resumedText}`);
+      setStatusMessage(`${playerName} reconnected.${resumedText}`);
       renderDebugPanel();
-      showPhaseBanner('Opponent Reconnected', 1100);
+      showPhaseBanner('Opponent Reconnected', 1100, 'success');
       console.info(`${LOG_PREFIX} player_reconnected`, payload);
     });
 
     socket.on('reconnect_timeout_forfeit', (payload) => {
       const winner = Number(payload?.winnerPlayerNumber);
       const disconnected = Number(payload?.disconnectedPlayerNumber);
-      const winnerText = Number.isFinite(winner) ? `Player ${winner}` : 'Opponent';
-      const disconnectedText = Number.isFinite(disconnected) ? `Player ${disconnected}` : 'A player';
+      const winnerText = Number.isFinite(winner)
+        ? getMatchPlayerDisplayName(winner, 'Opponent')
+        : 'Opponent';
+      const disconnectedText = Number.isFinite(disconnected)
+        ? getMatchPlayerDisplayName(disconnected, 'Opponent')
+        : 'A player';
       setStatusMessage(`${disconnectedText} did not reconnect. ${winnerText} wins by forfeit.`);
       renderDebugPanel();
       console.info(`${LOG_PREFIX} reconnect_timeout_forfeit`, payload);
@@ -4159,6 +4838,7 @@
     socket.on('room_reset_for_rematch', (payload) => {
       clearReadyToggleAckTimer();
       resetRealtimeInputState({ emitNeutral: true });
+      stopVictoryRewardAnimation();
       applyRoomPayload(payload, ROOM_STATE_WAITING);
       renderDebugPanel();
       showPhaseBanner('Room Reset', 1000);
@@ -4194,7 +4874,7 @@
       console.info(`${LOG_PREFIX} match_started`, payload);
     });
 
-    socket.on('match_state', (payload) => {
+    const processRealtimeMatchStatePayload = (payload) => {
       const previousHitId = trimString(roomSnapshot.lastHitEvent?.hitId);
       const previousPhase = roomSnapshot.matchPhase;
       const previousPaused = roomSnapshot.matchPaused;
@@ -4227,17 +4907,23 @@
         console.info(`${LOG_PREFIX} hit_event ${nextHitId}`, nextHit);
       }
       if (previousPhase !== roomSnapshot.matchPhase) {
+        if (roomSnapshot.matchPhase !== MATCH_PHASE_END) {
+          stopVictoryRewardAnimation();
+        }
         if (roomSnapshot.matchPhase === MATCH_PHASE_END) {
           matchEndPanelRevealAt = Date.now() + 420;
           resetRealtimeInputState({ emitNeutral: true });
           const resultText = getMatchResultText() || 'Match ended';
           showPhaseBanner(resultText, 1800);
           setStatusMessage(resultText);
+          maybePlayVictoryRewardAnimationOnMatchEnd();
           console.info(`${LOG_PREFIX} match_end winner=P${roomSnapshot.winnerPlayerNumber || '?'} eliminated=P${roomSnapshot.eliminatedPlayerNumber || '?'}`);
         } else if (roomSnapshot.matchPhase === MATCH_PHASE_DRAFT) {
           matchEndPanelRevealAt = 0;
           const currentTurn = Number(roomSnapshot.draft?.currentTurnPlayerNumber);
-          const turnText = Number.isFinite(currentTurn) ? ` Player ${currentTurn} picking.` : '';
+          const turnText = Number.isFinite(currentTurn)
+            ? ` ${getMatchPlayerDisplayName(currentTurn, 'Opponent')} picking.`
+            : '';
           showPhaseBanner('Draft Phase', 1200);
           setStatusMessage(`Draft phase.${turnText}`);
         } else if (roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN) {
@@ -4261,10 +4947,18 @@
       } else if (roomSnapshot.matchPhase === MATCH_PHASE_DRAFT) {
         const nextTurnPlayer = Number(roomSnapshot.draft?.currentTurnPlayerNumber);
         if (Number.isFinite(nextTurnPlayer) && nextTurnPlayer !== previousDraftTurnPlayer) {
-          setStatusMessage(`Draft turn: Player ${nextTurnPlayer}.`);
+          setStatusMessage(`Draft turn: ${getMatchPlayerDisplayName(nextTurnPlayer, 'Opponent')}.`);
         }
       }
       applyLocalRankedProgressFromMatchEnd();
+    };
+
+    socket.on('combat_state', (payload) => {
+      processRealtimeMatchStatePayload(payload);
+    });
+
+    socket.on('match_state', (payload) => {
+      processRealtimeMatchStatePayload(payload);
     });
 
     socket.on('room_error', (payload) => {
@@ -4295,7 +4989,6 @@
   }
 
   function connect() {
-    ensureDebugPanel();
     bindKeyboardHandlers();
     startMovementInputLoop();
     startQuickMatchHeartbeatLoop();
@@ -4413,7 +5106,11 @@
   }
 
   function createRoom() {
-    const requested = emitWhenConnected('create_room', undefined, 'Connecting and creating room...');
+    const requested = emitWhenConnected(
+      'create_room',
+      { displayName: getLocalDisplayName() },
+      'Connecting and creating room...'
+    );
     if (!requested) return;
     updateQuickMatchState({
       status: QUICK_MATCH_STATUS_IDLE,
@@ -4435,7 +5132,14 @@
     }
 
     if (panelInput) panelInput.value = normalizedCode;
-    const requested = emitWhenConnected('join_room', { roomCode: normalizedCode }, `Connecting and joining ${normalizedCode}...`);
+    const requested = emitWhenConnected(
+      'join_room',
+      {
+        roomCode: normalizedCode,
+        displayName: getLocalDisplayName(),
+      },
+      `Connecting and joining ${normalizedCode}...`
+    );
     if (!requested) return;
     updateQuickMatchState({
       status: QUICK_MATCH_STATUS_IDLE,
@@ -4451,7 +5155,7 @@
   function queueQuickMatch() {
     const requested = emitWhenConnected(
       'queue_quick_match',
-      undefined,
+      { displayName: getLocalDisplayName() },
       'Connecting and queueing quick match...',
       (response) => {
         if (!response) return;
@@ -4694,7 +5398,9 @@
           return;
         }
         if (response.hit === true && Number.isFinite(Number(response.targetPlayerNumber))) {
-          setStatusMessage(`${abilityLabel} hit Player ${Number(response.targetPlayerNumber)}`);
+          setStatusMessage(
+            `${abilityLabel} hit ${getMatchPlayerDisplayName(Number(response.targetPlayerNumber), 'Opponent')}`
+          );
           return;
         }
         if (response.hit === false && response.reason) {
@@ -4794,9 +5500,9 @@
         const matchId = trimString(response?.matchId);
         const forfeitApplied = response?.forfeitApplied !== false;
         if (forfeitApplied && matchId) {
-          const applyFn = typeof applyRankedMatchResult === 'function'
-            ? applyRankedMatchResult
-            : (typeof window.applyRankedMatchResult === 'function' ? window.applyRankedMatchResult : null);
+          const applyFn = typeof window.applyRankedMatchResult === 'function'
+            ? window.applyRankedMatchResult
+            : null;
           if (applyFn) {
             const summary = String(applyFn(false, { matchId, source: 'multiplayer_forfeit' }) || '').trim();
             if (summary && !summary.toLowerCase().includes('already processed')) {
@@ -4848,10 +5554,12 @@
     };
   }
 
-  if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', ensureDebugPanel, { once: true });
-  } else {
-    ensureDebugPanel();
+  if (debugToolsEnabled) {
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', ensureDebugPanel, { once: true });
+    } else {
+      ensureDebugPanel();
+    }
   }
 
   window.outraMultiplayer = {
@@ -4876,6 +5584,7 @@
     castWall,
     castRewind,
     castFireblast,
+    playVictoryRewardAnimation,
     requestDraftPick: draftPick,
     disconnect,
     getSocket,

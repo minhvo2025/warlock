@@ -258,37 +258,76 @@
           position: fixed;
           inset: 0;
           display: none;
-          align-items: flex-start;
+          align-items: center;
           justify-content: center;
           pointer-events: none;
           z-index: 2400;
-          padding-top: 88px;
+          padding: 28px;
+          background:
+            radial-gradient(ellipse at top, rgba(255, 173, 99, 0.08), transparent 58%),
+            linear-gradient(180deg, rgba(6, 10, 18, 0.72), rgba(4, 7, 12, 0.82));
+          opacity: 0;
+          transition: opacity 0.18s ease;
         }
         .phaseAssetLoadingOverlay.show {
           display: flex;
+          pointer-events: auto;
+          opacity: 1;
         }
         .phaseAssetLoadingCard {
-          min-width: 280px;
-          max-width: min(86vw, 560px);
-          border-radius: 14px;
-          border: 1px solid rgba(255,255,255,0.16);
-          background: linear-gradient(180deg, rgba(22, 30, 44, 0.92) 0%, rgba(10, 16, 26, 0.94) 100%);
-          box-shadow: 0 12px 38px rgba(0, 0, 0, 0.42);
-          backdrop-filter: blur(10px);
+          min-width: min(420px, calc(100vw - 36px));
+          max-width: min(90vw, 560px);
+          border-radius: 16px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background: linear-gradient(180deg, rgba(20, 28, 43, 0.93) 0%, rgba(9, 14, 24, 0.95) 100%);
+          box-shadow:
+            0 18px 46px rgba(0, 0, 0, 0.52),
+            inset 0 0 0 1px rgba(255, 185, 123, 0.12),
+            0 0 26px rgba(255, 169, 92, 0.16);
+          backdrop-filter: blur(12px);
           color: #eef6ff;
           text-align: center;
-          padding: 12px 16px;
+          padding: 18px 20px 16px;
+        }
+        .phaseAssetLoadingPulse {
+          width: 56px;
+          height: 56px;
+          margin: 0 auto 10px;
+          border-radius: 50%;
+          border: 2px solid rgba(255, 201, 148, 0.9);
+          box-shadow:
+            0 0 0 4px rgba(255, 168, 95, 0.14),
+            0 0 22px rgba(255, 170, 102, 0.34);
+          position: relative;
+          overflow: hidden;
+        }
+        .phaseAssetLoadingPulse::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          background: linear-gradient(180deg, rgba(255, 182, 120, 0.96), rgba(255, 138, 52, 0.78));
+          transform-origin: 50% 50%;
+          animation: phaseAssetLoadingSpin 1s linear infinite;
+          clip-path: polygon(50% 50%, 50% -14%, 118% -14%, 118% 118%, 50% 118%);
+          opacity: 0.9;
         }
         .phaseAssetLoadingTitle {
-          font: 800 17px/1.2 "Segoe UI", Arial, sans-serif;
-          letter-spacing: 0.04em;
-          color: #f7fbff;
+          font: 800 18px/1.2 "Segoe UI", Arial, sans-serif;
+          letter-spacing: 0.07em;
+          color: #f7f3ea;
           text-transform: uppercase;
+          text-shadow: 0 0 16px rgba(255, 175, 106, 0.28);
         }
         .phaseAssetLoadingDetail {
-          margin-top: 6px;
-          font: 500 13px/1.3 "Segoe UI", Arial, sans-serif;
-          color: rgba(230, 241, 255, 0.92);
+          margin-top: 7px;
+          font: 600 13px/1.35 "Segoe UI", Arial, sans-serif;
+          color: rgba(231, 240, 255, 0.92);
+          letter-spacing: 0.02em;
+        }
+        @keyframes phaseAssetLoadingSpin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
         }
       `;
       document.head.appendChild(style);
@@ -298,6 +337,7 @@
     loadingOverlay.className = 'phaseAssetLoadingOverlay';
     loadingOverlay.innerHTML = `
       <div class="phaseAssetLoadingCard" role="status" aria-live="polite">
+        <div class="phaseAssetLoadingPulse" aria-hidden="true"></div>
         <div class="phaseAssetLoadingTitle" data-phase-loading-title>Loading</div>
         <div class="phaseAssetLoadingDetail" data-phase-loading-detail>Preparing assets...</div>
       </div>
@@ -338,7 +378,7 @@
       ? multiplayerApi.getPresentationSnapshot()
       : null;
     if (presentation?.active) {
-      if (presentation.isArenaActive) {
+      if (presentation.isArenaActive || presentation.isArenaPending) {
         return presentation.isMatchEnd ? PHASES.MATCH_END : PHASES.ARENA;
       }
       if (presentation.isDraftActive) {

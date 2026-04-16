@@ -1482,15 +1482,42 @@ function buildKeybindsUI() {
 
 // ── Leaderboard ───────────────────────────────────────────────
 function renderLeaderboard() {
-  const entries = getLeaderboard();
-  const topEntries = entries.slice(0, 5);
-  const signature = topEntries.map((entry, i) => `${i + 1}:${entry.name}:${entry.points}`).join('|') || '__empty__';
+  const entries = getLeaderboard().slice().sort((a, b) => {
+    const pointsDiff = (Number(b?.points) || 0) - (Number(a?.points) || 0);
+    if (pointsDiff !== 0) return pointsDiff;
+    const winsDiff = (Number(b?.wins) || 0) - (Number(a?.wins) || 0);
+    if (winsDiff !== 0) return winsDiff;
+    const createdA = Date.parse(String(a?.created_at || '')) || Number.MAX_SAFE_INTEGER;
+    const createdB = Date.parse(String(b?.created_at || '')) || Number.MAX_SAFE_INTEGER;
+    if (createdA !== createdB) return createdA - createdB;
+    return String(a?.name || '').localeCompare(String(b?.name || ''));
+  });
+  const profileUserId = String(window.playerProfile?.user_id || '').trim();
+  const profileDisplayName = String(window.playerProfile?.display_name || player?.name || '').trim().toLowerCase();
+  let myIndex = -1;
+  if (profileUserId) {
+    myIndex = entries.findIndex((entry) => String(entry?.user_id || '').trim() === profileUserId);
+  }
+  if (myIndex < 0 && profileDisplayName) {
+    myIndex = entries.findIndex((entry) => String(entry?.name || '').trim().toLowerCase() === profileDisplayName);
+  }
+
+  const visibleRows = entries.map((entry, index) => ({
+    index,
+    rank: index + 1,
+    entry,
+    isMe: index === myIndex,
+  }));
+
+  const signature = visibleRows
+    .map((row) => `${row.rank}:${row.entry?.user_id || ''}:${row.entry?.name}:${row.entry?.points}:${row.entry?.wins || 0}:${row.entry?.losses || 0}:${row.isMe ? 1 : 0}`)
+    .join('|') || '__empty__';
 
   if (signature === leaderboardLastSignature) return;
   leaderboardLastSignature = signature;
 
   if (!entries.length) {
-    leaderboardList.innerHTML = '<div class="subtle">No entries yet. Win a match to get 3 points.</div>';
+    leaderboardList.innerHTML = '<div class="subtle">No leaderboard entries yet.</div>';
     return;
   }
 
@@ -1527,14 +1554,20 @@ function renderLeaderboard() {
     `;
   };
 
-  leaderboardList.innerHTML = topEntries.map((entry, i) => {
-    const rowClass = i === 0 ? 'aaaLbRow aaaLbRow--top1' : 'aaaLbRow';
+  leaderboardList.innerHTML = visibleRows.map((row) => {
+    const rowClass = [
+      'aaaLbRow',
+      row.rank === 1 ? 'aaaLbRow--top1' : '',
+      row.isMe ? 'aaaLbRow--me' : '',
+    ].filter(Boolean).join(' ');
+    const entry = row.entry || {};
     return `
       <div class="${rowClass}">
-        ${getRankBadgeHtml(i + 1)}
+        ${getRankBadgeHtml(row.rank)}
         <div class="lbMeta">
-          <div class="lbName">${escapeHtml(entry.name)}</div>
-          <div class="lbPoints">${entry.points} pts</div>
+          <div class="lbName">${escapeHtml(entry.name)}${row.isMe ? ' <span class="lbYouTag">YOU</span>' : ''}</div>
+          <div class="lbPoints">${Number(entry.points) || 0} pts</div>
+          <div class="lbRecord">${Number(entry.wins) || 0}W • ${Number(entry.losses) || 0}L</div>
         </div>
       </div>
     `;
@@ -1695,7 +1728,7 @@ function renderStore() {
   if (wlkLobbyEl) {
     wlkLobbyEl.innerHTML = `
       <img src="${currencyIconPath}" alt="" class="currencyIcon storeCurrencyIcon" />
-      <span class="storeCurrencyValue">${profile.wlk}</span>
+      <span class="storeCurrencyValue" data-out-balance>${profile.wlk}</span>
     `;
   }
   if (wlkLobbyTopEl) wlkLobbyTopEl.textContent = String(profile.wlk);
@@ -2037,12 +2070,13 @@ function updateHud() {
 
   const multiplayerArenaActive = !!multiplayerSnapshot?.active && !!multiplayerSnapshot?.isArenaActive;
   if (multiplayerArenaActive) {
+    const opponentLabel = String(dummy?.name || '').trim() || 'Opponent';
     hpEl.textContent = `Your HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
     dummyHpEl.textContent = !dummyEnabled
-      ? 'Opponent HP: -'
+      ? `${opponentLabel} HP: -`
       : dummy.alive
-        ? `Opponent HP: ${Math.ceil(dummy.hp)}`
-        : 'Opponent HP: 0 (dead)';
+        ? `${opponentLabel} HP: ${Math.ceil(dummy.hp)}`
+        : `${opponentLabel} HP: 0 (dead)`;
   } else {
     hpEl.textContent = `HP: ${Math.ceil(player.hp)}` + (player.alive ? '' : ' (dead)');
     dummyHpEl.textContent = !dummyEnabled
@@ -2072,12 +2106,18 @@ function updateHud() {
     hudToggleBtn.textContent = hudVisible ? 'Hide Info' : 'Show Info';
   }
   playerNameHudEl.textContent = `Name: ${player.name}`;
-  if (lobbyHeroNameEl) {
-    lobbyHeroNameEl.textContent = player.name || 'Player';
+  if (lobbyTopNameEl) {
+    lobbyTopNameEl.textContent = player.name || 'Player';
   }
   scoreHudEl.textContent = `Score: ${player.score}`;
-  wlkHudEl.textContent = `WLK: ${profile.wlk}`;
-  if (wlkTopbarEl) wlkTopbarEl.textContent = String(profile.wlk);
+  const currencyValueText = String(Math.max(0, Math.floor(Number(profile.wlk) || 0)));
+  wlkHudEl.textContent = `OUT: ${currencyValueText}`;
+  if (wlkTopbarEl) wlkTopbarEl.textContent = currencyValueText;
+  if (wlkLobbyTopEl) wlkLobbyTopEl.textContent = currencyValueText;
+  if (wlkLobbyEl) {
+    const storeValueEl = wlkLobbyEl.querySelector('.storeCurrencyValue');
+    if (storeValueEl) storeValueEl.textContent = currencyValueText;
+  }
   roundTimerHudEl.textContent = `Shrink In: ${Math.ceil(arena.shrinkTimer)}s`;
 
   controlsHudEl.textContent = isTouchDevice

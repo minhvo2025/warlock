@@ -4,6 +4,7 @@
   "private": true,
   "description": "Frontend dependencies for Outra.",
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.2",
     "socket.io-client": "^4.8.1"
   }
 }

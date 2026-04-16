@@ -239,60 +239,260 @@ function initCustomMouseCursor() {
   img.src = CUSTOM_MOUSE_CURSOR_SRC;
 }
 
-function getLeaderboard() {
+const LEADERBOARD_POINT_DELTA = 3;
+const LEADERBOARD_MAX_ENTRIES = 1000;
+const LEADERBOARD_FETCH_COOLDOWN_MS = 15000;
+let leaderboardEntriesCache = [];
+let leaderboardCacheInitialized = false;
+let leaderboardFetchPromise = null;
+let leaderboardHasSupabaseHydrated = false;
+let leaderboardLastFetchAt = 0;
+
+function normalizeLeaderboardName(name, fallback = 'Player') {
+  const base = String(name || '').replace(/\s+/g, ' ').trim();
+  const picked = base || String(fallback || '').trim() || 'Player';
+  return picked.slice(0, 16);
+}
+
+function normalizeLeaderboardEntry(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const displayName = normalizeLeaderboardName(raw.display_name ?? raw.name, 'Player');
+  const userId = String(raw.user_id ?? raw.userId ?? '').trim();
+  const points = Math.max(0, Math.floor(Number(raw.leaderboard_points ?? raw.points) || 0));
+  const wins = Math.max(0, Math.floor(Number(raw.wins) || 0));
+  const losses = Math.max(0, Math.floor(Number(raw.losses) || 0));
+  const createdAt = String(raw.created_at ?? raw.createdAt ?? '').trim();
+  const updatedAt = String(raw.updated_at ?? raw.updatedAt ?? '').trim();
+  return {
+    user_id: userId,
+    name: displayName,
+    points,
+    wins,
+    losses,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  };
+}
+
+function sortLeaderboardEntries(entries) {
+  entries.sort((a, b) => {
+    const pointsDiff = (b.points || 0) - (a.points || 0);
+    if (pointsDiff !== 0) return pointsDiff;
+    const winsDiff = (b.wins || 0) - (a.wins || 0);
+    if (winsDiff !== 0) return winsDiff;
+    const createdA = Date.parse(a.created_at || '') || Number.MAX_SAFE_INTEGER;
+    const createdB = Date.parse(b.created_at || '') || Number.MAX_SAFE_INTEGER;
+    if (createdA !== createdB) return createdA - createdB;
+    return String(a.name || '').localeCompare(String(b.name || ''));
+  });
+  return entries;
+}
+
+function ensureLeaderboardCacheInitialized() {
+  if (leaderboardCacheInitialized) return;
+  leaderboardCacheInitialized = true;
   try {
     let raw = localStorage.getItem(STORAGE_KEY);
     let usedLegacy = false;
-
     if (!raw) {
       raw = localStorage.getItem(LEGACY_STORAGE_KEY);
       usedLegacy = !!raw;
     }
 
-    if (!raw) return [];
-
-    const parsed = JSON.parse(raw);
-    const entries = Array.isArray(parsed) ? parsed : [];
-
+    const parsed = raw ? JSON.parse(raw) : [];
+    const entries = Array.isArray(parsed)
+      ? parsed.map((entry) => normalizeLeaderboardEntry(entry)).filter(Boolean)
+      : [];
+    leaderboardEntriesCache = sortLeaderboardEntries(entries);
     if (usedLegacy) {
-      saveLeaderboard(entries);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(leaderboardEntriesCache));
     }
-
-    return entries;
-  } catch {
-    return [];
+  } catch (_error) {
+    leaderboardEntriesCache = [];
   }
 }
 
 function saveLeaderboard(entries) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
+  ensureLeaderboardCacheInitialized();
+  const normalized = (Array.isArray(entries) ? entries : [])
+    .map((entry) => normalizeLeaderboardEntry(entry))
+    .filter(Boolean);
+  leaderboardEntriesCache = sortLeaderboardEntries(normalized);
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(leaderboardEntriesCache));
+  } catch (_error) {
+    // ignore storage failures
+  }
+}
+
+function getLeaderboard() {
+  ensureLeaderboardCacheInitialized();
+  refreshLeaderboardFromSupabase();
+  return leaderboardEntriesCache.slice();
+}
+
+function getCurrentLeaderboardIdentity() {
+  const userId = String(window.playerProfile?.user_id || '').trim();
+  const displayName = normalizeLeaderboardName(player?.name || window.playerProfile?.display_name || 'Player', 'Player');
+  return { userId, displayName };
+}
+
+function findLeaderboardEntry(entries, userId, displayName) {
+  if (!Array.isArray(entries)) return null;
+  if (userId) {
+    const byUserId = entries.find((entry) => String(entry.user_id || '').trim() === userId);
+    if (byUserId) return byUserId;
+  }
+  const normalizedName = normalizeLeaderboardName(displayName, 'Player').toLowerCase();
+  return entries.find((entry) => normalizeLeaderboardName(entry.name, 'Player').toLowerCase() === normalizedName) || null;
+}
+
+function mergeLeaderboardRow(row) {
+  const normalized = normalizeLeaderboardEntry(row);
+  if (!normalized) return null;
+
+  const entries = getLeaderboard();
+  const existing = findLeaderboardEntry(entries, normalized.user_id, normalized.name);
+  if (existing) {
+    existing.user_id = normalized.user_id || existing.user_id;
+    existing.name = normalized.name || existing.name;
+    existing.points = normalized.points;
+    existing.wins = normalized.wins;
+    existing.losses = normalized.losses;
+    existing.created_at = normalized.created_at || existing.created_at;
+    existing.updated_at = normalized.updated_at || existing.updated_at;
+  } else {
+    entries.push(normalized);
+  }
+  saveLeaderboard(entries);
+  return normalized;
+}
+
+function refreshLeaderboardFromSupabase(options = {}) {
+  const force = !!options.force;
+  if (!force && leaderboardFetchPromise) return leaderboardFetchPromise;
+  if (!force && leaderboardHasSupabaseHydrated && (Date.now() - leaderboardLastFetchAt) < LEADERBOARD_FETCH_COOLDOWN_MS) {
+    return Promise.resolve(leaderboardEntriesCache.slice());
+  }
+
+  const playerService = window.outraPlayerService;
+  const fetchFn = typeof playerService?.fetchLeaderboard === 'function'
+    ? playerService.fetchLeaderboard
+    : null;
+  if (!fetchFn) return Promise.resolve(leaderboardEntriesCache.slice());
+
+  leaderboardFetchPromise = (async () => {
+    try {
+      const rows = await fetchFn({ limit: LEADERBOARD_MAX_ENTRIES });
+      if (Array.isArray(rows)) {
+        saveLeaderboard(rows);
+        leaderboardHasSupabaseHydrated = true;
+        leaderboardLastFetchAt = Date.now();
+        const { userId, displayName } = getCurrentLeaderboardIdentity();
+        const myEntry = findLeaderboardEntry(leaderboardEntriesCache, userId, displayName);
+        player.score = myEntry ? myEntry.points : 0;
+        if (typeof renderLeaderboard === 'function') {
+          renderLeaderboard();
+        }
+      }
+      return leaderboardEntriesCache.slice();
+    } catch (error) {
+      console.warn('[leaderboard] failed to refresh from Supabase:', error);
+      return leaderboardEntriesCache.slice();
+    } finally {
+      leaderboardFetchPromise = null;
+    }
+  })();
+
+  return leaderboardFetchPromise;
+}
+
+async function applyLeaderboardMatchResult(didWin, options = {}) {
+  didWin = !!didWin;
+  ensureLeaderboardCacheInitialized();
+
+  const { userId, displayName } = getCurrentLeaderboardIdentity();
+  const nowIso = new Date().toISOString();
+  const entries = getLeaderboard();
+  let entry = findLeaderboardEntry(entries, userId, displayName);
+  if (!entry) {
+    entry = {
+      user_id: userId,
+      name: displayName,
+      points: 0,
+      wins: 0,
+      losses: 0,
+      created_at: nowIso,
+      updated_at: nowIso,
+    };
+    entries.push(entry);
+  }
+
+  entry.user_id = userId || entry.user_id || '';
+  entry.name = displayName;
+  entry.wins = Math.max(0, Math.floor(Number(entry.wins) || 0) + (didWin ? 1 : 0));
+  entry.losses = Math.max(0, Math.floor(Number(entry.losses) || 0) + (didWin ? 0 : 1));
+  entry.points = Math.max(0, Math.floor(Number(entry.points) || 0) + (didWin ? LEADERBOARD_POINT_DELTA : -LEADERBOARD_POINT_DELTA));
+  entry.updated_at = nowIso;
+  if (!entry.created_at) entry.created_at = nowIso;
+
+  saveLeaderboard(entries);
+  player.score = entry.points;
+  if (typeof saveProfile === 'function') saveProfile();
+  if (typeof renderLeaderboard === 'function') renderLeaderboard();
+  if (typeof updateHud === 'function') updateHud();
+
+  const playerService = window.outraPlayerService;
+  const applyFn = typeof playerService?.applyLeaderboardMatchResult === 'function'
+    ? playerService.applyLeaderboardMatchResult
+    : null;
+  if (!applyFn) return entry;
+
+  try {
+    const persisted = await applyFn(didWin ? 'win' : 'loss', {
+      displayName,
+      matchId: String(options?.matchId || '').trim(),
+      source: String(options?.source || '').trim(),
+    });
+    if (!persisted) return entry;
+    const merged = mergeLeaderboardRow({
+      user_id: persisted.user_id,
+      display_name: persisted.display_name,
+      leaderboard_points: persisted.leaderboard_points,
+      wins: persisted.wins,
+      losses: persisted.losses,
+      created_at: persisted.created_at,
+      updated_at: persisted.updated_at,
+    });
+    if (merged) {
+      player.score = merged.points;
+      if (typeof saveProfile === 'function') saveProfile();
+      if (typeof renderLeaderboard === 'function') renderLeaderboard();
+      if (typeof updateHud === 'function') updateHud();
+    }
+    return merged || entry;
+  } catch (error) {
+    console.warn('[leaderboard] Supabase apply failed, kept local session values:', error);
+    return entry;
+  }
 }
 
 function awardWinRewards(name) {
-  const entries = getLeaderboard();
-  const existing = entries.find(e => e.name.toLowerCase() === name.toLowerCase());
-
-  if (existing) {
-    existing.points += 3;
-  } else {
-    entries.push({ name, points: 3 });
+  const safeName = normalizeLeaderboardName(name, player?.name || 'Player');
+  if (safeName && player && typeof player === 'object') {
+    player.name = safeName;
   }
-
-  entries.sort((a, b) => b.points - a.points || a.name.localeCompare(b.name));
-  saveLeaderboard(entries.slice(0, 20));
-
-  player.score = (entries.find(e => e.name.toLowerCase() === name.toLowerCase()) || { points: 0 }).points;
-  profile.wlk += 1;
-  saveProfile();
-  renderLeaderboard();
-  renderStore();
-  renderInventory();
+  void applyLeaderboardMatchResult(true, { source: 'offline_win' });
 }
 
 function getPlayerPoints(name) {
-  const entry = getLeaderboard().find(e => e.name.toLowerCase() === name.toLowerCase());
-  return entry ? entry.points : 0;
+  const entries = getLeaderboard();
+  const userId = String(window.playerProfile?.user_id || '').trim();
+  const entry = findLeaderboardEntry(entries, userId, name || player?.name || '');
+  return entry ? Math.max(0, Math.floor(Number(entry.points) || 0)) : 0;
 }
+
+window.refreshLeaderboardFromSupabase = refreshLeaderboardFromSupabase;
 
 // ── Ranked Helpers ────────────────────────────────────────────
 function getRankedResultSummaryLegacyMmr(didWin, before, after, forcedDerank) {
@@ -369,11 +569,13 @@ function applyRankedMatchResultLegacyMmr(didWin) {
 }
 
 // ── Math Helpers ──────────────────────────────────────────────
-// Local-only ranked progression (temporary until backend persistence).
+// Ranked progression uses local runtime state and persists to Supabase when available.
 const RANKED_MIN_RANK = 1;
 const RANKED_MAX_RANK = 20;
 const RANKED_DEFAULT_START_RANK = 20;
 const RANKED_WIN_STREAK_BONUS_THRESHOLD = 3;
+const RANKED_MULTIPLAYER_WIN_OUT_REWARD = 1;
+const RANKED_MULTIPLAYER_LOSS_OUT_REWARD = 0;
 
 function clampRankNumber(rankNumber) {
   return Math.max(RANKED_MIN_RANK, Math.min(RANKED_MAX_RANK, Math.floor(Number(rankNumber) || RANKED_DEFAULT_START_RANK)));
@@ -520,27 +722,104 @@ function getRankedResultSummary(result) {
     parts.push(`DEMOTED TO RANK ${result.after.currentRank}`);
   }
 
+  if (Number(result.currencyDelta) > 0) {
+    parts.push(`+${Math.floor(Number(result.currencyDelta))} OUT`);
+  }
+
   return parts.join(' • ');
+}
+
+function persistRankedResultToSupabase({ didWin, matchId, source, currencyDelta }) {
+  const playerService = window.outraPlayerService;
+  if (!playerService) return;
+
+  const updatePlayerRankFn = typeof playerService.updatePlayerRank === 'function'
+    ? playerService.updatePlayerRank
+    : null;
+  const awardOutFn = typeof playerService.awardOut === 'function'
+    ? playerService.awardOut
+    : null;
+  if (!updatePlayerRankFn && !awardOutFn) return;
+
+  const ranked = profile?.ranked || {};
+  const hiddenMmr = Math.max(0, Math.floor(Number(window.playerProfile?.hidden_mmr) || 1000));
+  const rankPayload = {
+    rank_tier: Math.max(1, Math.min(20, Math.floor(Number(ranked.currentRank) || 20))),
+    stars: Math.max(0, Math.floor(Number(ranked.currentStars) || 0)),
+    wins: Math.max(0, Math.floor(Number(ranked.wins) || 0)),
+    losses: Math.max(0, Math.floor(Number(ranked.losses) || 0)),
+    hidden_mmr: hiddenMmr,
+  };
+
+  if (!window.playerProfile || typeof window.playerProfile !== 'object') {
+    window.playerProfile = {};
+  }
+  window.playerProfile = {
+    ...window.playerProfile,
+    ...rankPayload,
+    out_balance: Math.max(0, Math.floor(Number(profile?.wlk) || 0)),
+  };
+
+  // Client-triggered persistence/reward is temporary and should later be validated by trusted server match results.
+  (async () => {
+    try {
+      if (updatePlayerRankFn) {
+        const savedRank = await updatePlayerRankFn(rankPayload);
+        if (savedRank && typeof playerService.syncRuntimeFromSupabaseProfile === 'function') {
+          playerService.syncRuntimeFromSupabaseProfile(savedRank);
+        }
+      }
+
+      if (awardOutFn && currencyDelta > 0) {
+        const reason = didWin ? 'match_win' : 'match_loss';
+        const rewardResult = await awardOutFn(currencyDelta, reason, { matchId, source });
+        if (rewardResult && Number.isFinite(Number(rewardResult.out_balance))) {
+          profile.wlk = Math.max(0, Math.floor(Number(rewardResult.out_balance)));
+          if (window.playerProfile && typeof window.playerProfile === 'object') {
+            window.playerProfile.out_balance = profile.wlk;
+          }
+          if (typeof saveProfile === 'function') saveProfile();
+          if (typeof updateHud === 'function') updateHud();
+          if (typeof renderStore === 'function') renderStore();
+        }
+      }
+    } catch (error) {
+      console.error('[ranked] supabase persistence failed:', error);
+    }
+  })();
 }
 
 function applyRankedMatchResult(didWin, options = {}) {
   didWin = !!didWin;
   profile.ranked = normalizeRankedProfile(profile.ranked);
-  const ranked = profile.ranked;
   const matchId = String(options?.matchId || '').trim();
   const source = String(options?.source || 'offline').trim() || 'offline';
+  const sourceNormalized = source.toLowerCase();
 
-  if (matchId && ranked.lastProcessedMatchId === matchId) {
+  // Ranked progression is multiplayer-only.
+  if (!sourceNormalized.startsWith('multiplayer')) {
+    console.info(`[ranked] skipped non-multiplayer result source=${source} didWin=${didWin}`);
+    return 'Ranked progression is multiplayer-only.';
+  }
+
+  if (matchId && profile.ranked.lastProcessedMatchId === matchId) {
     console.info(`[ranked] skipped duplicate result for match ${matchId} (source=${source})`);
     return 'No ranked change (already processed).';
   }
 
+  void applyLeaderboardMatchResult(didWin, {
+    matchId,
+    source: sourceNormalized,
+  });
+
   const before = getRankedSnapshot();
+  const ranked = profile.ranked;
   let starsDelta = 0;
   let promoted = false;
   let demoted = false;
   let streakBonusApplied = false;
   let lossProtected = false;
+  let currencyDelta = 0;
 
   ranked.totalMatches += 1;
   if (didWin) {
@@ -569,9 +848,21 @@ function applyRankedMatchResult(didWin, options = {}) {
     }
 
     ranked.highestRank = Math.min(ranked.highestRank, ranked.currentRank);
+
+    const configuredWinReward = Math.floor(
+      Number(options?.winCurrencyReward ?? RANKED_MULTIPLAYER_WIN_OUT_REWARD) || 0
+    );
+    if (configuredWinReward > 0) {
+      profile.wlk = Math.max(0, Math.floor(Number(profile.wlk) || 0) + configuredWinReward);
+      currencyDelta = configuredWinReward;
+    }
   } else {
     ranked.losses += 1;
     ranked.winStreak = 0;
+    currencyDelta = Math.max(0, Math.floor(Number(options?.lossCurrencyReward ?? RANKED_MULTIPLAYER_LOSS_OUT_REWARD) || 0));
+    if (currencyDelta > 0) {
+      profile.wlk = Math.max(0, Math.floor(Number(profile.wlk) || 0) + currencyDelta);
+    }
 
     if (ranked.currentRank >= 16) {
       lossProtected = true;
@@ -604,6 +895,7 @@ function applyRankedMatchResult(didWin, options = {}) {
     before,
     after,
     starsDelta,
+    currencyDelta,
     promoted,
     demoted,
     streakBonusApplied,
@@ -611,13 +903,26 @@ function applyRankedMatchResult(didWin, options = {}) {
   });
 
   saveProfile();
+  if (typeof updateHud === 'function') {
+    updateHud();
+  }
+  if (typeof renderStore === 'function') {
+    renderStore();
+  }
   if (typeof buildRankedPanel === 'function') {
     buildRankedPanel();
   }
+  persistRankedResultToSupabase({
+    didWin,
+    matchId,
+    source: sourceNormalized,
+    currencyDelta,
+  });
   console.info(
     `[ranked] ${didWin ? 'win' : 'loss'} source=${source} rank=${before.currentRank}->${after.currentRank} `
     + `stars=${before.stars}/${before.maxStars}->${after.stars}/${after.maxStars} `
     + `streak=${after.winStreak}${streakBonusApplied ? ' (bonus)' : ''}${lossProtected ? ' (protected)' : ''}`
+    + `${currencyDelta > 0 ? ` out=+${currencyDelta}` : ''}`
   );
   if (promoted) console.info(`[ranked] promotion to rank ${after.currentRank}`);
   if (demoted) console.info(`[ranked] demotion to rank ${after.currentRank}`);
@@ -1821,26 +2126,21 @@ function endMatch(playerWon) {
   gameState = 'result';
   winnerReward = null;
 
-  let rankedText = '';
-  const multiplayerSnapshot = (window.outraMultiplayer && typeof window.outraMultiplayer.getPresentationSnapshot === 'function')
-    ? window.outraMultiplayer.getPresentationSnapshot()
-    : null;
-  const multiplayerArenaActive = !!(multiplayerSnapshot && multiplayerSnapshot.active && multiplayerSnapshot.isArenaActive);
-
-  if (!multiplayerArenaActive) {
-    rankedText = applyRankedMatchResult(playerWon);
-  }
+  void applyLeaderboardMatchResult(!!playerWon, { source: 'offline_match_end' });
 
   if (playerWon) {
-    awardWinRewards(player.name);
     soundWin();
-    winnerText = `${player.name} wins! +3 pts${rankedText ? ` • ${rankedText}` : ''}`;
+    winnerText = `${player.name} wins! +3 pts`;
     winnerReward = { currency: 1 };
+    profile.wlk = Math.max(0, Math.floor(Number(profile.wlk) || 0) + 1);
+    if (typeof saveProfile === 'function') saveProfile();
+    if (typeof renderStore === 'function') renderStore();
+    if (typeof renderInventory === 'function') renderInventory();
   } else {
     soundLose();
     winnerText = dummyEnabled
-      ? `Dummy wins!${rankedText ? ` • ${rankedText}` : ''}`
-      : `Round ended${rankedText ? ` • ${rankedText}` : ''}`;
+      ? 'Dummy wins! -3 pts'
+      : 'Round ended -3 pts';
   }
 
   resultTimer = 2.2;
@@ -2411,11 +2711,17 @@ function getDraftTileUnderCursor(layout) {
   return null;
 }
 
-function getMultiplayerDraftPresentationSnapshot() {
+function getMultiplayerPresentationSnapshot() {
   const api = window.outraMultiplayer;
   if (!api || typeof api.getPresentationSnapshot !== 'function') return null;
   const snapshot = api.getPresentationSnapshot();
-  if (!snapshot || snapshot.active !== true || !snapshot.isDraftActive) return null;
+  if (!snapshot || snapshot.active !== true) return null;
+  return snapshot;
+}
+
+function getMultiplayerDraftPresentationSnapshot() {
+  const snapshot = getMultiplayerPresentationSnapshot();
+  if (!snapshot || !snapshot.isDraftActive) return null;
   return snapshot;
 }
 
@@ -2899,6 +3205,9 @@ const MP_ARENA_DEFAULT_BOUNDARY_RADIUS = 12;
 const MP_TELEPORT_CAST_DISTANCE_UNITS = 1.45;
 const MP_REMOTE_POSITION_LERP_FACTOR = 0.15;
 const MP_REMOTE_POSITION_SNAP_DISTANCE = 200;
+const MP_LOCAL_POSITION_RECONCILE_LERP = 0.22;
+const MP_LOCAL_POSITION_SNAP_DISTANCE = 170;
+const MP_LOCAL_POSITION_RECONCILE_DEADZONE = 1.25;
 const multiplayerArenaBridgeState = {
   active: false,
   seenProjectileIds: new Set(),
@@ -2911,6 +3220,7 @@ const multiplayerArenaBridgeState = {
   lastOppChargeActive: false,
   lastMyShieldActive: false,
   lastOppShieldActive: false,
+  myServerTarget: null,
   lastMyMappedPos: null,
   lastOppMappedPos: null,
   lastMatchPhase: '',
@@ -2934,6 +3244,7 @@ function resetMultiplayerArenaBridgeTransientState(options = {}) {
   multiplayerArenaBridgeState.lastOppChargeActive = false;
   multiplayerArenaBridgeState.lastMyShieldActive = false;
   multiplayerArenaBridgeState.lastOppShieldActive = false;
+  multiplayerArenaBridgeState.myServerTarget = null;
   multiplayerArenaBridgeState.lastMyMappedPos = null;
   multiplayerArenaBridgeState.lastOppMappedPos = null;
   multiplayerArenaBridgeState.lastMatchPhase = '';
@@ -2953,6 +3264,7 @@ function resetMultiplayerArenaBridgeTransientState(options = {}) {
   dummy.chargeActive = false;
   player.shieldUntil = 0;
   dummy.shieldUntil = 0;
+  dummy.name = 'Dummy';
   dummy.targetX = Number.isFinite(dummy.x) ? dummy.x : 0;
   dummy.targetY = Number.isFinite(dummy.y) ? dummy.y : 0;
   resetCombatFeedbackState();
@@ -3015,6 +3327,16 @@ function normalizeRuntimeAim(vector, fallbackX = 1, fallbackY = 0) {
     return normalized(fallbackX, fallbackY);
   }
   return normalized(vx, vy);
+}
+
+function getLocalMultiplayerMoveIntent() {
+  if (menuOpen) return { x: 0, y: 0 };
+  const keyMoveX = (keys[keybinds.right] ? 1 : 0) - (keys[keybinds.left] ? 1 : 0);
+  const keyMoveY = (keys[keybinds.down] ? 1 : 0) - (keys[keybinds.up] ? 1 : 0);
+  const useStick = !!(moveStick && moveStick.active);
+  const moveX = useStick ? (Number(moveStick.dx) || 0) : keyMoveX;
+  const moveY = useStick ? (Number(moveStick.dy) || 0) : keyMoveY;
+  return { x: moveX, y: moveY };
 }
 
 function triggerArenaCastForPlayer(snapshot, playerNumber) {
@@ -3310,18 +3632,25 @@ function triggerMatchPhaseFeedback(snapshot) {
   triggerCombatScreenShake(0.56, 0.2);
 }
 
-function syncMultiplayerArenaActors(snapshot) {
+function syncMultiplayerArenaActors(snapshot, dt = 0) {
+  const safeDt = Math.max(0, Math.min(0.05, Number(dt) || 0));
   const myMapped = mapMultiplayerArenaPointToCanvas(snapshot, snapshot?.myPosition);
   const oppMapped = mapMultiplayerArenaPointToCanvas(snapshot, snapshot?.opponentPosition);
   const myVel = mapMultiplayerArenaVectorToCanvas(snapshot, snapshot?.myVelocity);
   const oppVel = mapMultiplayerArenaVectorToCanvas(snapshot, snapshot?.opponentVelocity);
   const myAim = normalizeRuntimeAim(snapshot?.myAimDirection, player.aimX || 1, player.aimY || 0);
   const oppAim = normalizeRuntimeAim(snapshot?.opponentAimDirection, -1, 0);
+  const opponentName = String(snapshot?.opponentDisplayName || '').trim();
   const nowSec = performance.now() / 1000;
 
   if (myMapped) {
-    player.x = myMapped.x;
-    player.y = myMapped.y;
+    multiplayerArenaBridgeState.myServerTarget = { x: myMapped.x, y: myMapped.y };
+    if (!Number.isFinite(player.x) || !Number.isFinite(player.y)) {
+      player.x = myMapped.x;
+      player.y = myMapped.y;
+    }
+  } else {
+    multiplayerArenaBridgeState.myServerTarget = null;
   }
   player.vx = myVel ? myVel.x : 0;
   player.vy = myVel ? myVel.y : 0;
@@ -3364,6 +3693,7 @@ function syncMultiplayerArenaActors(snapshot) {
   }
   dummy.vx = oppVel ? oppVel.x : 0;
   dummy.vy = oppVel ? oppVel.y : 0;
+  dummy.name = opponentName || 'Opponent';
   dummy.aimX = oppAim.x;
   dummy.aimY = oppAim.y;
   dummy.shieldUntil = snapshot?.opponentActiveEffects?.shieldActive
@@ -3381,6 +3711,37 @@ function syncMultiplayerArenaActors(snapshot) {
   const oppConnected = snapshot?.opponentConnected !== false;
   player.alive = !isMatchEnd || eliminated !== myNumber;
   dummy.alive = !!oppMapped && oppConnected && (!isMatchEnd || eliminated !== oppNumber);
+  const phase = String(snapshot?.matchPhase || '').trim().toLowerCase();
+  const canPredictLocalMovement = (
+    phase === 'combat'
+    && player.alive
+    && snapshot?.myConnected !== false
+    && safeDt > 0
+  );
+  if (canPredictLocalMovement) {
+    if (!player.chargeActive) {
+      const moveIntent = getLocalMultiplayerMoveIntent();
+      if ((Math.abs(moveIntent.x) + Math.abs(moveIntent.y)) > 0.0001) {
+        moveActorWithSlide(player, moveIntent.x, moveIntent.y, safeDt);
+      }
+    }
+    // Integrate server-auth velocity locally so knockback/pulls feel continuous between snapshots.
+    updateActorPhysics(player, safeDt);
+  }
+
+  const myServerTarget = multiplayerArenaBridgeState.myServerTarget;
+  if (myServerTarget) {
+    const dx = myServerTarget.x - player.x;
+    const dy = myServerTarget.y - player.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist > MP_LOCAL_POSITION_SNAP_DISTANCE) {
+      player.x = myServerTarget.x;
+      player.y = myServerTarget.y;
+    } else if (dist > MP_LOCAL_POSITION_RECONCILE_DEADZONE) {
+      player.x += dx * MP_LOCAL_POSITION_RECONCILE_LERP;
+      player.y += dy * MP_LOCAL_POSITION_RECONCILE_LERP;
+    }
+  }
   const myMaxHealth = Number(snapshot?.myMaxHealth);
   if (Number.isFinite(myMaxHealth) && myMaxHealth > 0) {
     player.maxHp = myMaxHealth;
@@ -3592,9 +3953,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
     const hitType = String(hitEvent?.type || '').toLowerCase();
     if (hitType !== 'rewind_used') {
       triggerArenaHitForPlayer(snapshot, hitEvent?.targetPlayerNumber);
-      if (hitType !== 'shield_block') {
-        triggerArenaCastForPlayer(snapshot, hitEvent?.sourcePlayerNumber);
-      } else {
+      if (hitType === 'shield_block') {
         playMultiplayerAbilitySound('shield', 'block');
       }
     } else {
@@ -3734,7 +4093,7 @@ function syncMultiplayerArenaFeedback(snapshot) {
   multiplayerArenaBridgeState.lastOppMappedPos = oppMapped;
 }
 
-function syncMultiplayerArenaEmbodiment() {
+function syncMultiplayerArenaEmbodiment(dt = 0) {
   const snapshot = getMultiplayerArenaRuntimeSnapshot();
   if (!isMultiplayerArenaRuntimeActive(snapshot)) {
     if (multiplayerArenaBridgeState.active) {
@@ -3771,7 +4130,7 @@ function syncMultiplayerArenaEmbodiment() {
   arena.radius = Math.max(1, Number(arena.baseRadius) || Number(arena.radius) || 1);
   arena.shrinkTimer = arena.shrinkInterval;
 
-  syncMultiplayerArenaActors(snapshot);
+  syncMultiplayerArenaActors(snapshot, dt);
   syncMultiplayerArenaFeedback(snapshot);
   syncMultiplayerArenaCollections(snapshot);
   return true;
@@ -3782,13 +4141,24 @@ function update(dt) {
     window.outraPhaseAssets.tick();
   }
   updateMusic(dt);
-  const multiplayerDraftSnapshot = getMultiplayerDraftPresentationSnapshot();
+  const multiplayerPresentationSnapshot = getMultiplayerPresentationSnapshot();
+  const multiplayerDraftSnapshot = multiplayerPresentationSnapshot && multiplayerPresentationSnapshot.isDraftActive
+    ? multiplayerPresentationSnapshot
+    : null;
+
+  if (multiplayerPresentationSnapshot && multiplayerPresentationSnapshot.isArenaPending) {
+    stopDraftSpellHoverSound();
+    updateTransientCombatVisuals(dt);
+    updateCombatFeedback(dt);
+    updateHud();
+    return;
+  }
 
   if (gameState !== 'draft' && !multiplayerDraftSnapshot) {
     stopDraftSpellHoverSound();
   }
 
-  if (syncMultiplayerArenaEmbodiment()) {
+  if (syncMultiplayerArenaEmbodiment(dt)) {
     updateTransientCombatVisuals(dt);
     updateCombatFeedback(dt);
     updateHud();

@@ -34,6 +34,8 @@ const io = new Server(server, {
 const PORT = Number(process.env.PORT) || 3001;
 const HOST = '0.0.0.0';
 const MAX_PLAYERS_PER_ROOM = 2;
+const PLAYER_DISPLAY_NAME_MAX_LENGTH = 16;
+const PLAYER_DISPLAY_NAME_FALLBACK = 'Player';
 const ROOM_CODE_LENGTH = 5;
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const ROOM_STATES = Object.freeze({
@@ -52,7 +54,7 @@ const MATCH_PHASE_MATCH_END = 'match_end';
 const PLAYER_MOVE_SPEED = 8;
 // Increased from 30 Hz -> 60 Hz for smoother multiplayer simulation
 const MATCH_TICK_MS = 1000 / 60;
-const MATCH_STATE_BROADCAST_MS = 33; // ~30 network snapshots/sec while sim runs at 60 Hz
+const MATCH_STATE_BROADCAST_MS = 20; // ~50 network snapshots/sec while sim runs at 60 Hz
 const MATCH_MAX_DELTA_MS = 100;
 const ARENA_BOUNDARY_CENTER = Object.freeze({ x: 0, y: 0 });
 const ARENA_BOUNDARY_RADIUS = 12;
@@ -214,6 +216,29 @@ function normalizeRoomCode(value) {
     .replace(/[^A-Z0-9]/g, '');
 }
 
+function normalizePlayerDisplayName(value, fallback = PLAYER_DISPLAY_NAME_FALLBACK) {
+  const raw = String(value || '').replace(/\s+/g, ' ').trim();
+  const safeFallback = String(fallback || PLAYER_DISPLAY_NAME_FALLBACK).trim() || PLAYER_DISPLAY_NAME_FALLBACK;
+  const picked = raw || safeFallback;
+  return picked.slice(0, PLAYER_DISPLAY_NAME_MAX_LENGTH);
+}
+
+function resolvePlayerDisplayName(socket, payload) {
+  const payloadObject = payload && typeof payload === 'object' ? payload : null;
+  const payloadName = payloadObject?.displayName || payloadObject?.name;
+  const socketName = socket?.data?.displayName;
+  const authName = socket?.handshake?.auth?.displayName;
+  const queryName = socket?.handshake?.query?.displayName;
+  const resolved = normalizePlayerDisplayName(
+    payloadName || socketName || authName || queryName,
+    PLAYER_DISPLAY_NAME_FALLBACK
+  );
+  if (socket && socket.data) {
+    socket.data.displayName = resolved;
+  }
+  return resolved;
+}
+
 function clonePosition(position) {
   if (!position || typeof position !== 'object') return null;
   return {
@@ -341,15 +366,23 @@ function findNextQueuedOpponent(excludedSocketId) {
   return null;
 }
 
-function createQuickMatchRoomAndStartDraft(socketA, socketB) {
+function createQuickMatchRoomAndStartDraft(socketA, socketB, options = {}) {
   if (!socketA || !socketB) return null;
+  const nameA = normalizePlayerDisplayName(
+    options?.playerADisplayName || socketA?.data?.displayName,
+    PLAYER_DISPLAY_NAME_FALLBACK
+  );
+  const nameB = normalizePlayerDisplayName(
+    options?.playerBDisplayName || socketB?.data?.displayName,
+    PLAYER_DISPLAY_NAME_FALLBACK
+  );
   const roomCode = createUniqueRoomCode();
   const createdAt = Date.now();
   const room = {
     code: roomCode,
     players: [
-      createRoomPlayer(socketA.id, 1),
-      createRoomPlayer(socketB.id, 2)
+      createRoomPlayer(socketA.id, 1, nameA),
+      createRoomPlayer(socketB.id, 2, nameB)
     ],
     match: null,
     state: ROOM_STATES.WAITING,
@@ -744,12 +777,13 @@ function clearReconnectTimersForRoom(roomCode) {
   });
 }
 
-function createRoomPlayer(socketId, slot) {
+function createRoomPlayer(socketId, slot, displayName = PLAYER_DISPLAY_NAME_FALLBACK) {
   return {
     playerId: createPlayerId(),
     reconnectToken: createReconnectToken(),
     socketId,
     slot,
+    name: normalizePlayerDisplayName(displayName, PLAYER_DISPLAY_NAME_FALLBACK),
     ready: false,
     matchPlayerNumber: null,
     connected: true,
@@ -1595,6 +1629,7 @@ function createMatchForRoom(room) {
 
   const matchPlayers = room.players.map((player) => ({
     playerId: player.playerId,
+    name: normalizePlayerDisplayName(player.name, PLAYER_DISPLAY_NAME_FALLBACK),
     reconnectToken: player.reconnectToken,
     socketId: player.socketId,
     slot: player.slot,
@@ -1738,6 +1773,7 @@ function serializeMatch(match) {
     pausedByPlayerNumber: Number(match.pausedByPlayerNumber) || null,
     pausedAt: Number(match.pausedAt) || null,
     players: match.players.map((player) => ({
+      name: normalizePlayerDisplayName(player.name, PLAYER_DISPLAY_NAME_FALLBACK),
       socketId: player.socketId,
       slot: player.slot,
       ready: Boolean(player.ready),
@@ -1891,6 +1927,116 @@ function serializeMatch(match) {
   };
 }
 
+function serializeCombatState(match) {
+  if (!match) return null;
+  const now = Date.now();
+  return {
+    matchId: match.matchId,
+    roomCode: match.roomCode,
+    startedAt: match.startedAt,
+    phase: match.phase,
+    combatStartsAt: Number(match.combatStartsAt) || null,
+    combatCountdownSeconds: Number(match.combatCountdownSeconds) || COMBAT_START_COUNTDOWN_SECONDS,
+    combatCountdownRemainingMs: Number(match.combatStartsAt) > 0
+      ? Math.max(0, Number(match.combatStartsAt) - now)
+      : 0,
+    isPaused: Boolean(match.isPaused),
+    pauseReason: String(match.pauseReason || ''),
+    pausedByPlayerNumber: Number(match.pausedByPlayerNumber) || null,
+    pausedAt: Number(match.pausedAt) || null,
+    players: match.players.map((player) => ({
+      name: normalizePlayerDisplayName(player.name, PLAYER_DISPLAY_NAME_FALLBACK),
+      socketId: player.socketId,
+      slot: player.slot,
+      ready: Boolean(player.ready),
+      matchPlayerNumber: player.matchPlayerNumber,
+      position: clonePosition(player.position),
+      velocity: { ...sanitizeVector(player.velocity) },
+      aim: { ...normalizeInputVector(player.aim) },
+      currentHealth: getPlayerCurrentHealth(player),
+      maxHealth: getPlayerMaxHealth(player),
+      eliminated: Boolean(player.eliminated),
+      connected: player.connected !== false,
+      draftedSpells: (Array.isArray(player.draftedSpells) ? player.draftedSpells : [])
+        .map((spellId) => normalizeSpellId(spellId))
+        .filter(Boolean),
+      loadoutSpells: (Array.isArray(player.loadoutSpells) ? player.loadoutSpells : [])
+        .map((spellId) => normalizeSpellId(spellId))
+        .filter(Boolean),
+      loadout: (Array.isArray(player.loadout) ? player.loadout : [])
+        .map((spellId) => normalizeSpellId(spellId))
+        .filter(Boolean),
+      abilityCooldowns: buildAbilityCooldownSnapshot(player, now),
+      abilityReadyAt: buildAbilityReadyAtSnapshot(player),
+      activeEffects: {
+        shieldUntil: getPlayerActiveShieldUntil(player),
+        shieldRemainingMs: Math.max(0, getPlayerActiveShieldUntil(player) - now),
+        shieldActive: isShieldActive(player, now),
+        charge: {
+          active: Boolean(player?.activeEffects?.charge?.active),
+          remainingDistance: Math.max(0, Number(player?.activeEffects?.charge?.remainingDistance) || 0),
+          direction: { ...normalizeInputVector(player?.activeEffects?.charge?.direction) }
+        }
+      },
+      nextBlinkAt: Number(player.nextBlinkAt) || 0,
+      lastUpdated: player.lastUpdated
+    })),
+    spawnPositions: {
+      player1: clonePosition(match.spawnPositions?.player1),
+      player2: clonePosition(match.spawnPositions?.player2)
+    },
+    projectiles: (Array.isArray(match.projectiles) ? match.projectiles : []).map((projectile) => {
+      const projectileAbilityId = normalizeSpellId(projectile.abilityId || ABILITY_IDS.FIREBLAST) || ABILITY_IDS.FIREBLAST;
+      const defaultSpeed = projectileAbilityId === ABILITY_IDS.HOOK
+        ? getAbilityNumber(ABILITY_IDS.HOOK, 'speed', 18, 0.01)
+        : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'speed', 14, 0.01);
+      const defaultHitRadius = projectileAbilityId === ABILITY_IDS.HOOK
+        ? getHookHitRadiusDefault()
+        : getFireblastHitRadiusDefault();
+      return {
+        projectileId: projectile.projectileId,
+        abilityId: projectileAbilityId,
+        ownerPlayerNumber: projectile.ownerPlayerNumber,
+        position: clonePosition(projectile.position),
+        direction: { ...normalizeInputVector(projectile.direction) },
+        speed: Number(projectile.speed) || defaultSpeed,
+        hitRadius: Number(projectile.hitRadius) || defaultHitRadius,
+        spawnedAt: projectile.spawnedAt,
+        expiresAt: projectile.expiresAt
+      };
+    }),
+    walls: (Array.isArray(match.walls) ? match.walls : []).map((wall) => ({
+      wallId: String(wall.wallId || ''),
+      ownerPlayerNumber: Number(wall.ownerPlayerNumber) || 0,
+      position: clonePosition(wall.position),
+      direction: { ...getWallDirection(wall) },
+      halfLength: getWallHalfLength(wall, getWallHalfLengthDefault()),
+      halfThickness: getWallHalfThickness(wall, getWallHalfThicknessDefault()),
+      spawnedAt: Number(wall.spawnedAt) || 0,
+      expiresAt: Number(wall.expiresAt) || 0
+    })),
+    hitEvents: (Array.isArray(match.hitEvents) ? match.hitEvents : []).map((hitEvent) => ({
+      hitId: String(hitEvent.hitId || ''),
+      timestamp: Number(hitEvent.timestamp) || 0,
+      projectileId: String(hitEvent.projectileId || ''),
+      type: String(hitEvent.type || 'combat_event'),
+      abilityId: normalizeSpellId(hitEvent.abilityId),
+      sourcePlayerNumber: Number(hitEvent.sourcePlayerNumber) || 0,
+      targetPlayerNumber: Number(hitEvent.targetPlayerNumber) || 0,
+      knockback: { ...sanitizeVector(hitEvent.knockback) },
+      metadata: hitEvent.metadata && typeof hitEvent.metadata === 'object' ? hitEvent.metadata : null
+    })),
+    arenaBoundary: {
+      type: 'circle',
+      center: clonePosition(ARENA_BOUNDARY_CENTER),
+      radius: ARENA_BOUNDARY_RADIUS
+    },
+    eliminatedPlayerNumber: Number(match.eliminatedPlayerNumber) || null,
+    winnerPlayerNumber: Number(match.winnerPlayerNumber) || null,
+    endedAt: Number(match.endedAt) || null
+  };
+}
+
 function serializeRoom(room) {
   refreshRoomState(room, 'serialize');
   const now = Date.now();
@@ -1915,6 +2061,7 @@ function serializeRoom(room) {
       }()),
       socketId: player.socketId,
       playerId: player.playerId,
+      name: normalizePlayerDisplayName(player.name, PLAYER_DISPLAY_NAME_FALLBACK),
       slot: player.slot,
       ready: Boolean(player.ready),
       matchPlayerNumber: player.matchPlayerNumber,
@@ -1972,10 +2119,12 @@ function emitMatchStarted(room) {
   });
 }
 
-function emitMatchState(room, timestamp = Date.now()) {
+function emitMatchState(room, timestamp = Date.now(), options = {}) {
   if (!room.match) return;
   const serializedMatch = serializeMatch(room.match);
-  io.to(room.code).emit('match_state', {
+  const useVolatile = options?.volatile === true;
+  const emitter = useVolatile ? io.to(room.code).volatile : io.to(room.code);
+  emitter.emit('match_state', {
     roomCode: room.code,
     matchId: serializedMatch.matchId,
     startedAt: serializedMatch.startedAt,
@@ -2001,6 +2150,36 @@ function emitMatchState(room, timestamp = Date.now()) {
   });
 }
 
+function emitCombatState(room, timestamp = Date.now(), options = {}) {
+  if (!room.match) return;
+  const serializedCombatState = serializeCombatState(room.match);
+  const useVolatile = options?.volatile === true;
+  const emitter = useVolatile ? io.to(room.code).volatile : io.to(room.code);
+  emitter.emit('combat_state', {
+    roomCode: room.code,
+    matchId: serializedCombatState.matchId,
+    startedAt: serializedCombatState.startedAt,
+    phase: serializedCombatState.phase,
+    combatStartsAt: serializedCombatState.combatStartsAt,
+    combatCountdownSeconds: serializedCombatState.combatCountdownSeconds,
+    combatCountdownRemainingMs: serializedCombatState.combatCountdownRemainingMs,
+    isPaused: Boolean(serializedCombatState.isPaused),
+    pauseReason: String(serializedCombatState.pauseReason || ''),
+    pausedByPlayerNumber: Number(serializedCombatState.pausedByPlayerNumber) || null,
+    pausedAt: Number(serializedCombatState.pausedAt) || null,
+    players: serializedCombatState.players,
+    spawnPositions: serializedCombatState.spawnPositions,
+    projectiles: serializedCombatState.projectiles,
+    walls: serializedCombatState.walls,
+    hitEvents: serializedCombatState.hitEvents,
+    arenaBoundary: serializedCombatState.arenaBoundary,
+    eliminatedPlayerNumber: serializedCombatState.eliminatedPlayerNumber,
+    winnerPlayerNumber: serializedCombatState.winnerPlayerNumber,
+    endedAt: serializedCombatState.endedAt,
+    timestamp
+  });
+}
+
 function emitMatchStateThrottled(room, timestamp = Date.now(), force = false) {
   if (!room?.match) return false;
   const now = Number(timestamp) || Date.now();
@@ -2010,7 +2189,11 @@ function emitMatchStateThrottled(room, timestamp = Date.now(), force = false) {
     return false;
   }
   match.lastBroadcastAt = now;
-  emitMatchState(room, now);
+  if (match.phase === MATCH_PHASE_DRAFT) {
+    emitMatchState(room, now, { volatile: true });
+  } else {
+    emitCombatState(room, now, { volatile: true });
+  }
   return true;
 }
 
@@ -4284,10 +4467,17 @@ io.on('connection', (socket) => {
     ip: remoteAddress
   });
 
-  socket.on('queue_quick_match', (ack) => {
+  socket.on('queue_quick_match', (payloadOrAck, maybeAck) => {
+    const payload = payloadOrAck && typeof payloadOrAck === 'object' && typeof payloadOrAck !== 'function'
+      ? payloadOrAck
+      : {};
+    const ack = typeof payloadOrAck === 'function'
+      ? payloadOrAck
+      : maybeAck;
     const respond = typeof ack === 'function'
       ? (payload) => ack(payload)
       : () => {};
+    const displayName = resolvePlayerDisplayName(socket, payload);
 
     logLifecycle('queue', 'request', {
       socket: socket.id,
@@ -4311,6 +4501,7 @@ io.on('connection', (socket) => {
     const existingQueueIndex = getQuickMatchQueueIndexBySocketId(socket.id);
     if (existingQueueIndex >= 0) {
       const existingEntry = quickMatchQueue[existingQueueIndex];
+      existingEntry.displayName = displayName;
       const queuedAt = Number(existingEntry?.queuedAt) || Date.now();
       emitQuickMatchState(socket, 'searching', {
         queuedAt,
@@ -4331,7 +4522,8 @@ io.on('connection', (socket) => {
       const queuedAt = Date.now();
       quickMatchQueue.push({
         socketId: socket.id,
-        queuedAt
+        queuedAt,
+        displayName
       });
       logLifecycle('queue', 'queued', {
         socket: socket.id,
@@ -4368,7 +4560,10 @@ io.on('connection', (socket) => {
       leaveRoomForSocket(socket, 'switch_to_quick_match_match', false);
     }
 
-    const room = createQuickMatchRoomAndStartDraft(opponentSocket, socket);
+    const room = createQuickMatchRoomAndStartDraft(opponentSocket, socket, {
+      playerADisplayName: opponentEntry?.displayName,
+      playerBDisplayName: displayName
+    });
     if (!room) {
       const responsePayload = {
         ok: false,
@@ -4450,14 +4645,15 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('create_room', () => {
+  socket.on('create_room', (payload) => {
+    const displayName = resolvePlayerDisplayName(socket, payload);
     removeSocketFromQuickMatchQueue(socket.id, 'manual_create_room', false);
     leaveRoomForSocket(socket, 'switch_to_create', false);
 
     const roomCode = createUniqueRoomCode();
     const room = {
       code: roomCode,
-      players: [createRoomPlayer(socket.id, 1)],
+      players: [createRoomPlayer(socket.id, 1, displayName)],
       match: null,
       state: ROOM_STATES.WAITING,
       createdAt: Date.now()
@@ -4483,6 +4679,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('reconnect_room', (payload, ack) => {
+    const displayName = resolvePlayerDisplayName(socket, payload);
     const respond = typeof ack === 'function'
       ? (responsePayload) => ack(responsePayload)
       : () => {};
@@ -4560,6 +4757,7 @@ io.on('connection', (socket) => {
     clearReconnectGraceTimer(room.code, reconnectPlayer.playerId);
     clearDisconnectedStateForPlayer(reconnectPlayer);
     reconnectPlayer.socketId = socket.id;
+    reconnectPlayer.name = normalizePlayerDisplayName(displayName, reconnectPlayer.name || PLAYER_DISPLAY_NAME_FALLBACK);
     removeSocketFromQuickMatchQueue(socket.id, 'reconnected_to_room', false);
 
     playerRoomBySocketId.set(socket.id, room.code);
@@ -4569,6 +4767,7 @@ io.on('connection', (socket) => {
     if (matchPlayer) {
       clearDisconnectedStateForPlayer(matchPlayer);
       matchPlayer.socketId = socket.id;
+      matchPlayer.name = normalizePlayerDisplayName(displayName, matchPlayer.name || reconnectPlayer.name || PLAYER_DISPLAY_NAME_FALLBACK);
       matchPlayer.input = { x: 0, y: 0 };
     }
 
@@ -4606,6 +4805,7 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', (payload) => {
     removeSocketFromQuickMatchQueue(socket.id, 'manual_join_room', false);
+    const displayName = resolvePlayerDisplayName(socket, payload);
     const requestedCode = normalizeRoomCode(payload?.roomCode || payload?.code || payload);
     if (!requestedCode) {
       emitRoomError(socket, 'Please provide a valid room code.', 'INVALID_ROOM_CODE');
@@ -4620,6 +4820,10 @@ io.on('connection', (socket) => {
 
     const directExistingPlayerInRequestedRoom = getPlayerBySocketId(room, socket.id);
     if (directExistingPlayerInRequestedRoom) {
+      directExistingPlayerInRequestedRoom.name = normalizePlayerDisplayName(
+        displayName,
+        directExistingPlayerInRequestedRoom.name || PLAYER_DISPLAY_NAME_FALLBACK
+      );
       playerRoomBySocketId.set(socket.id, requestedCode);
       socket.join(requestedCode);
       socket.emit('room_joined', {
@@ -4642,6 +4846,12 @@ io.on('connection', (socket) => {
     const existingRoomCode = playerRoomBySocketId.get(socket.id);
     if (existingRoomCode === requestedCode) {
       const existingPlayer = getPlayerBySocketId(room, socket.id);
+      if (existingPlayer) {
+        existingPlayer.name = normalizePlayerDisplayName(
+          displayName,
+          existingPlayer.name || PLAYER_DISPLAY_NAME_FALLBACK
+        );
+      }
       socket.emit('room_joined', {
         roomCode: requestedCode,
         playerSlot: existingPlayer?.slot || 1,
@@ -4662,7 +4872,7 @@ io.on('connection', (socket) => {
       leaveRoomForSocket(socket, 'switch_to_join', false);
     }
 
-    room.players.push(createRoomPlayer(socket.id, room.players.length + 1));
+    room.players.push(createRoomPlayer(socket.id, room.players.length + 1, displayName));
     normalizePlayerSlots(room);
     refreshRoomState(room, 'player_joined');
     playerRoomBySocketId.set(socket.id, requestedCode);

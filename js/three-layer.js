@@ -1,6 +1,11 @@
 // ── Three.js Character Layer ─────────────────────────────────
 (function () {
   const cfg = window.OUTRA_3D_CONFIG || {};
+  const PREVIEW_WORLD_UP = new THREE.Vector3(0, 1, 0);
+  const PREVIEW_YAW_QUAT = new THREE.Quaternion();
+  const PREVIEW_COMPOSED_QUAT = new THREE.Quaternion();
+  const LOBBY_PREVIEW_USE_ANIMATION =
+    (cfg.previewCharacter?.enableAnimation !== false);
 
   const state = {
     container: null,
@@ -93,6 +98,7 @@
       baseFillIntensity: 1,
       baseRimIntensity: 1,
       rootGroup: null,
+      rootGroupBaseQuaternion: null,
       shadow: null,
       groundLight: null,
       aura: null,
@@ -109,14 +115,21 @@
       dragging: false,
       activePointerId: null,
       lastX: 0,
+      dragStartX: 0,
+      dragStartRotationY: 0,
       root: null,
       mixer: null,
       states: new Map(),
       currentState: 'idle',
       rigFixNode: null,
+      rootBone: null,
       rootBasePosition: null,
+      rootBaseQuaternion: null,
       rigFixBasePosition: null,
+      rigFixBaseQuaternion: null,
+      rootBoneBaseQuaternion: null,
       positionTrackLocks: [],
+      rotationTrackLocks: [],
     },
     floor: {
       root: null,
@@ -152,6 +165,7 @@
       positionTrackLocks: [],
       lastWorldX: null,
 lastWorldZ: null,
+      moveHoldTimer: 0,
       lastDraftWorldX: null,
       lastDraftWorldZ: null,
       draftTurnRing: null,
@@ -176,6 +190,7 @@ lastWorldZ: null,
       positionTrackLocks: [],
         lastWorldX: null,
   lastWorldZ: null,
+      moveHoldTimer: 0,
       lastDraftWorldX: null,
       lastDraftWorldZ: null,
       draftTurnRing: null,
@@ -203,7 +218,6 @@ lastWorldZ: null,
     refreshIntervalSec: 0.09,
     releaseFadeSec: 0.10,
   };
-  const PREVIEW_Y_AXIS = new THREE.Vector3(0, 1, 0);
   const DRAFT_PLATFORM_RAY_DIR = new THREE.Vector3(0, -1, 0);
   const draftPlatformRaycaster = new THREE.Raycaster();
   const draftPlatformRayOrigin = new THREE.Vector3();
@@ -254,6 +268,41 @@ function applyArenaRotationForState(mixerState) {
 }
   function log(...args) {
     console.log('[Outra3D]', ...args);
+  }
+
+  function toFixedNumber(value, digits = 3) {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return null;
+    return Number(num.toFixed(digits));
+  }
+
+  function formatVec3(vec, digits = 3) {
+    if (!vec) return { x: null, y: null, z: null };
+    return {
+      x: toFixedNumber(vec.x, digits),
+      y: toFixedNumber(vec.y, digits),
+      z: toFixedNumber(vec.z, digits),
+    };
+  }
+
+  function snapshotBox(box, digits = 3) {
+    if (!box || !box.isBox3) return null;
+    const size = new THREE.Vector3();
+    const center = new THREE.Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    return {
+      min: formatVec3(box.min, digits),
+      max: formatVec3(box.max, digits),
+      size: formatVec3(size, digits),
+      center: formatVec3(center, digits),
+    };
+  }
+
+  function getObjectBoundsSnapshot(object3d, digits = 3) {
+    if (!object3d) return null;
+    const box = computeBox(object3d);
+    return snapshotBox(box, digits);
   }
 
   function showAnimationDebug(clipName) {
@@ -1088,35 +1137,62 @@ function applyArenaRotationForState(mixerState) {
     root.rotation.set(0, 0, 0);
     root.updateMatrixWorld(true);
 
-    let box = computeBox(root);
+    const boxBefore = computeBox(root);
     let size = new THREE.Vector3();
-    box.getSize(size);
+    boxBefore.getSize(size);
 
-    const dims = {
+    const dimsBefore = {
       x: Math.abs(size.x || 0),
       y: Math.abs(size.y || 0),
       z: Math.abs(size.z || 0),
     };
 
+    const dims = {
+      x: toFixedNumber(dimsBefore.x, 3),
+      y: toFixedNumber(dimsBefore.y, 3),
+      z: toFixedNumber(dimsBefore.z, 3),
+    };
+
     let rotated = false;
     let sourceAxis = 'y';
+    let appliedRotation = { x: 0, y: 0, z: 0 };
 
-    if (dims.z > dims.y * 1.12 && dims.z >= dims.x) {
-      root.rotation.x = Math.PI / 2;
+    if (dimsBefore.z > dimsBefore.y * 1.12 && dimsBefore.z >= dimsBefore.x) {
+      // Z-up -> Y-up
+      root.rotation.x = -Math.PI / 2;
       rotated = true;
       sourceAxis = 'z';
-    } else if (dims.x > dims.y * 1.12 && dims.x >= dims.z) {
-      root.rotation.z = -Math.PI / 2;
+      appliedRotation.x = toFixedNumber(root.rotation.x, 6);
+    } else if (dimsBefore.x > dimsBefore.y * 1.12 && dimsBefore.x >= dimsBefore.z) {
+      // X-up -> Y-up
+      root.rotation.z = Math.PI / 2;
       rotated = true;
       sourceAxis = 'x';
+      appliedRotation.z = toFixedNumber(root.rotation.z, 6);
     }
 
+    let boxAfter = boxBefore;
     if (rotated) {
       root.updateMatrixWorld(true);
-      log(`Auto-rotated model from ${sourceAxis.toUpperCase()}-up to Y-up`);
+      boxAfter = computeBox(root);
+      log(`Auto-rotated model from ${sourceAxis.toUpperCase()}-up to Y-up`, {
+        appliedRotation,
+        before: snapshotBox(boxBefore, 2),
+        after: snapshotBox(boxAfter, 2),
+      });
+    } else {
+      log('Model up-axis already Y-up (no auto-rotation)', {
+        dimensions: dims,
+      });
     }
 
-    return { rotated, sourceAxis };
+    return {
+      rotated,
+      sourceAxis,
+      appliedRotation,
+      before: snapshotBox(boxBefore, 2),
+      after: snapshotBox(boxAfter, 2),
+    };
   }
 
   
@@ -1237,22 +1313,38 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
 
   orientGroup.updateMatrixWorld(true);
 
-  let box = computeBox(pivotGroup);
+  const boxBeforeScale = computeBox(pivotGroup);
   let size = new THREE.Vector3();
-  box.getSize(size);
+  boxBeforeScale.getSize(size);
 
   const sourceHeight = Math.max(size.y || 1, 1);
   const targetHeight = targetHeightOverride || cfg.actorHeight || 95;
+  const autoScale = targetHeight / sourceHeight;
   const configuredActorScale = Number(cfg.actorScale);
-  const actorScaleMultiplier = Number.isFinite(configuredActorScale) && configuredActorScale > 0
-    ? configuredActorScale
-    : 1;
-  const scale = (targetHeight / sourceHeight) * actorScaleMultiplier;
+  const hasConfiguredActorScale = Number.isFinite(configuredActorScale) && configuredActorScale > 0;
+  const scaleMode = String(cfg.actorScaleMode || 'absolute').toLowerCase();
+  let scaleModeUsed = 'auto_height';
+  let scale = autoScale;
+
+  if (hasConfiguredActorScale) {
+    if (scaleMode === 'multiplier') {
+      scale = autoScale * configuredActorScale;
+      scaleModeUsed = 'multiplier';
+    } else {
+      scale = configuredActorScale;
+      scaleModeUsed = 'absolute';
+    }
+  }
+
+  if (!Number.isFinite(scale) || scale <= 0) {
+    scale = autoScale;
+    scaleModeUsed = 'auto_height_fallback';
+  }
 
   orientGroup.scale.setScalar(scale);
   orientGroup.updateMatrixWorld(true);
 
-  box = computeBox(pivotGroup);
+  let box = computeBox(pivotGroup);
 
   const center = new THREE.Vector3();
   const min = new THREE.Vector3();
@@ -1272,16 +1364,63 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
 
   orientGroup.updateMatrixWorld(true);
 
+  mountGroup.userData.arenaPivotGroup = pivotGroup;
+  mountGroup.userData.arenaOrientGroup = orientGroup;
+  mountGroup.userData.arenaTransformSummary = {
+    autoUpAxisFrom: normalizeInfo.sourceAxis,
+    importRotation: {
+      x: toFixedNumber(importEuler.x, 6),
+      y: toFixedNumber(importEuler.y, 6),
+      z: toFixedNumber(importEuler.z, 6),
+    },
+    scaleModeUsed,
+    configuredActorScale: hasConfiguredActorScale ? toFixedNumber(configuredActorScale, 4) : null,
+    autoScale: toFixedNumber(autoScale, 4),
+    finalScale: toFixedNumber(scale, 4),
+    targetHeight: toFixedNumber(targetHeight, 4),
+    sourceHeight: toFixedNumber(sourceHeight, 4),
+    beforeScaleBounds: snapshotBox(boxBeforeScale, 2),
+    finalBounds: getObjectBoundsSnapshot(pivotGroup, 2),
+  };
+
+  const finalBounds = mountGroup.userData.arenaTransformSummary.finalBounds;
+  const finalHeight = Number(finalBounds?.size?.y || 0);
+  const expectedHeight = Number(targetHeight || 0);
+  const suspiciousHeight =
+    Number.isFinite(finalHeight) &&
+    Number.isFinite(expectedHeight) &&
+    expectedHeight > 0 &&
+    (finalHeight > expectedHeight * 3 || finalHeight < expectedHeight * 0.35);
+
+  if (suspiciousHeight) {
+    log('Arena model scale looks suspicious', {
+      finalHeight: toFixedNumber(finalHeight, 2),
+      expectedTargetHeight: toFixedNumber(expectedHeight, 2),
+      scaleModeUsed,
+      configuredActorScale: hasConfiguredActorScale ? configuredActorScale : null,
+      actorScaleModeConfig: cfg.actorScaleMode || 'absolute',
+    });
+  }
+
   log('Prepared arena model transform', {
     autoUpAxisFrom: normalizeInfo.sourceAxis,
     importRotation: {
-      x: importEuler.x,
-      y: importEuler.y,
-      z: importEuler.z,
+      x: toFixedNumber(importEuler.x, 6),
+      y: toFixedNumber(importEuler.y, 6),
+      z: toFixedNumber(importEuler.z, 6),
     },
-    size: `${sizeAfterScale.x.toFixed(1)} x ${sizeAfterScale.y.toFixed(1)} x ${sizeAfterScale.z.toFixed(1)}`,
-    scale: scale.toFixed(2),
-    actorScaleMultiplier: actorScaleMultiplier.toFixed(2),
+    boundsBeforeScale: snapshotBox(boxBeforeScale, 2),
+    boundsAfterScale: finalBounds,
+    computed: {
+      sourceHeight: toFixedNumber(sourceHeight, 3),
+      targetHeight: toFixedNumber(targetHeight, 3),
+      autoScale: toFixedNumber(autoScale, 4),
+      configuredActorScale: hasConfiguredActorScale ? toFixedNumber(configuredActorScale, 4) : null,
+      actorScaleModeConfig: cfg.actorScaleMode || 'absolute',
+      scaleModeUsed,
+      finalScale: toFixedNumber(scale, 4),
+      finalSize: `${sizeAfterScale.x.toFixed(1)} x ${sizeAfterScale.y.toFixed(1)} x ${sizeAfterScale.z.toFixed(1)}`,
+    },
   });
 }
   
@@ -1320,6 +1459,24 @@ function prepareArenaModelTransform(root, mountGroup, targetHeightOverride) {
     return namedRig || root;
   }
 
+  function findSkeletonRootBone(root) {
+    if (!root) return null;
+
+    let firstSkinnedMesh = null;
+    root.traverse((obj) => {
+      if (!firstSkinnedMesh && obj.isSkinnedMesh) {
+        firstSkinnedMesh = obj;
+      }
+    });
+
+    if (!firstSkinnedMesh?.skeleton?.bones?.length) return null;
+    let bone = firstSkinnedMesh.skeleton.bones[0];
+    while (bone?.parent?.isBone) {
+      bone = bone.parent;
+    }
+    return bone || null;
+  }
+
 function applyArenaModelBaseRotation(mount) {
   if (!mount) return;
 
@@ -1351,16 +1508,72 @@ function prepareDummyModel(root, mountGroup) {
 
   function preparePreviewModel(root, parentGroup) {
     const previewSettings = getPreviewSettings();
+    const targetHeight = Math.max(1, Number(previewSettings.targetHeight) || 98);
 
-    centerAndScaleModel(root, previewSettings.targetHeight, {
-      autoRotateZUpToYUp: true
+    // Match Model Lab transform flow 1:1 for stability.
+    traverseMeshes(root, (obj) => {
+      obj.castShadow = false;
+      obj.receiveShadow = false;
+      obj.frustumCulled = false;
+      if (Array.isArray(obj.material)) {
+        obj.material = obj.material.map(cloneMaterial);
+      } else if (obj.material) {
+        obj.material = cloneMaterial(obj.material);
+      }
     });
+    stylizeModel(root);
+    traverseMeshes(root, (obj) => {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      // Keep lobby avatar fully opaque/depth-safe to avoid angle-based see-through artifacts.
+      mats.forEach(enforceArenaOpaqueMaterial);
+    });
+
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.scale.set(1, 1, 1);
+    root.updateMatrixWorld(true);
+
+    normalizeRootUpAxis(root, { allowAutoRotate: true });
+    root.updateMatrixWorld(true);
+
+    const center = new THREE.Vector3();
+    const size = new THREE.Vector3();
+    let box = computeBox(root);
+    box.getCenter(center);
+    box.getSize(size);
+    root.position.sub(center);
+    root.updateMatrixWorld(true);
+
+    box = computeBox(root);
+    box.getSize(size);
+    const sourceHeight = Math.max(size.y || 1, 1);
+    const scale = targetHeight / sourceHeight;
+    root.scale.setScalar(scale);
+    root.updateMatrixWorld(true);
+
+    box = computeBox(root);
+    box.getSize(size);
+    root.position.y += size.y * 0.5;
+    root.position.y += (cfg.hoverHeight || 0);
+    root.updateMatrixWorld(true);
 
     root.visible = true;
     parentGroup.add(root);
 
-    state.preview.rigFixNode = findRigFixNode(root);
-    log('Prepared preview model');
+    if (LOBBY_PREVIEW_USE_ANIMATION) {
+      state.preview.rigFixNode = findRigFixNode(root);
+      state.preview.rootBone = findSkeletonRootBone(root);
+    } else {
+      state.preview.rigFixNode = null;
+      state.preview.rootBone = null;
+      state.preview.rigFixBaseQuaternion = null;
+      state.preview.rootBoneBaseQuaternion = null;
+    }
+    log('Prepared preview model (model-lab parity)', {
+      sourceHeight: toFixedNumber(sourceHeight, 3),
+      targetHeight: toFixedNumber(targetHeight, 3),
+      finalScale: toFixedNumber(scale, 4),
+    });
   }
 
   function prepareArenaFloorModel(root, parentGroup) {
@@ -1614,6 +1827,17 @@ function prepareDummyModel(root, mountGroup) {
     state.camera.lookAt(0, 0, 0);
     state.cameraShake.basePosition = state.camera.position.clone();
     state.cameraShake.baseTarget = new THREE.Vector3(0, 0, 0);
+    log('Arena camera initialized', {
+      position: formatVec3(state.camera.position, 2),
+      up: formatVec3(state.camera.up, 2),
+      frustum: {
+        left: toFixedNumber(state.camera.left, 2),
+        right: toFixedNumber(state.camera.right, 2),
+        top: toFixedNumber(state.camera.top, 2),
+        bottom: toFixedNumber(state.camera.bottom, 2),
+      },
+      viewport: { width, height },
+    });
 
     state.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -1805,6 +2029,7 @@ function prepareDummyModel(root, mountGroup) {
 
     state.preview.rootGroup = new THREE.Group();
     state.preview.scene.add(state.preview.rootGroup);
+    state.preview.rootGroupBaseQuaternion = state.preview.rootGroup.quaternion.clone();
 
     const shadowGeo = new THREE.CircleGeometry(34, 40);
     const shadowMat = new THREE.MeshBasicMaterial({
@@ -1933,7 +2158,10 @@ function prepareDummyModel(root, mountGroup) {
   function bindPreviewInput() {
     const canvas = state.preview.canvas3d;
     if (!canvas) return;
-    const dragRotateSensitivity = 0.018;
+    if (state.preview.inputBound) return;
+    state.preview.inputBound = true;
+
+    const dragRotateSensitivity = 0.0125;
 
     function getClientX(e) {
       return typeof e.clientX === 'number' ? e.clientX : 0;
@@ -1941,16 +2169,21 @@ function prepareDummyModel(root, mountGroup) {
 
     function down(e) {
       if (typeof e.button === 'number' && e.button !== 0) return;
+      if (e.cancelable) e.preventDefault();
       state.preview.dragging = true;
       state.preview.activePointerId =
         typeof e.pointerId === 'number' ? e.pointerId : null;
       state.preview.lastX = getClientX(e);
+      state.preview.dragStartX = state.preview.lastX;
+      state.preview.dragStartRotationY = Number(state.preview.currentRotationY) || 0;
+      canvas.style.cursor = 'grabbing';
 
       if (state.preview.activePointerId != null && canvas.setPointerCapture) {
         try {
           canvas.setPointerCapture(state.preview.activePointerId);
         } catch {}
       }
+
     }
 
     function move(e) {
@@ -1963,17 +2196,20 @@ function prepareDummyModel(root, mountGroup) {
         return;
       }
 
+      if (e.cancelable) e.preventDefault();
       const x = getClientX(e);
-      const dx = x - state.preview.lastX;
-      state.preview.lastX = x;
+      const span = x - state.preview.dragStartX;
+      if (!Number.isFinite(span)) return;
 
-      if (!Number.isFinite(dx) || dx === 0) return;
-      state.preview.targetRotationY += dx * dragRotateSensitivity;
-      // Keep drag rotation 1:1 with pointer movement to avoid springy resets.
-      state.preview.currentRotationY = state.preview.targetRotationY;
+      const nextRotationY =
+        (Number(state.preview.dragStartRotationY) || 0) +
+        (span * dragRotateSensitivity);
+      state.preview.targetRotationY = nextRotationY;
+      state.preview.currentRotationY = nextRotationY;
     }
 
     function up(e) {
+      if (!state.preview.dragging) return;
       if (
         state.preview.activePointerId != null &&
         typeof e.pointerId === 'number' &&
@@ -1987,21 +2223,26 @@ function prepareDummyModel(root, mountGroup) {
           canvas.releasePointerCapture(state.preview.activePointerId);
         } catch {}
       }
+
       state.preview.dragging = false;
       state.preview.activePointerId = null;
+      canvas.style.cursor = 'grab';
     }
 
-    function onWindowBlur() {
+    function blur() {
       state.preview.dragging = false;
       state.preview.activePointerId = null;
+      canvas.style.cursor = 'grab';
     }
 
     canvas.style.touchAction = 'none';
+    canvas.style.cursor = 'grab';
     canvas.addEventListener('pointerdown', down);
     canvas.addEventListener('pointermove', move);
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
-    window.addEventListener('blur', onWindowBlur);
+    canvas.addEventListener('pointerleave', up);
+    window.addEventListener('blur', blur);
   }
 
   function onResize() {
@@ -2018,6 +2259,16 @@ function prepareDummyModel(root, mountGroup) {
       state.camera.updateProjectionMatrix();
 
       state.renderer.setSize(width, height);
+
+      log('Arena camera resized', {
+        viewport: { width, height },
+        frustum: {
+          left: toFixedNumber(state.camera.left, 2),
+          right: toFixedNumber(state.camera.right, 2),
+          top: toFixedNumber(state.camera.top, 2),
+          bottom: toFixedNumber(state.camera.bottom, 2),
+        },
+      });
     }
 
     if (state.preview.camera && state.preview.renderer && state.preview.canvas2d && state.preview.canvas3d) {
@@ -2079,6 +2330,7 @@ function prepareDummyModel(root, mountGroup) {
 
       state.preview.renderer.setSize(width, height, false);
     }
+
   }
 
   function findClipByNames(animations, names) {
@@ -2163,8 +2415,16 @@ function prepareDummyModel(root, mountGroup) {
       }
       const action = mixer.clipAction(resolvedClip);
       action.enabled = true;
-      action.clampWhenFinished = false;
-      action.setLoop(THREE.LoopRepeat, Infinity);
+      const isOneShotState =
+        mode === 'arena' &&
+        (stateName === 'cast' || stateName === 'dash' || stateName === 'hit');
+      if (isOneShotState) {
+        action.clampWhenFinished = true;
+        action.setLoop(THREE.LoopOnce, 1);
+      } else {
+        action.clampWhenFinished = false;
+        action.setLoop(THREE.LoopRepeat, Infinity);
+      }
 
       result.set(stateName, {
         clipName: resolvedClip.name || clip.name,
@@ -2837,6 +3097,9 @@ function prepareDummyModel(root, mountGroup) {
       mixerState.currentState = nextName;
       next.enabled = true;
       applyActionTimeScale(next, nextName);
+      if (force) {
+        next.reset();
+      }
       next.play();
       applyArenaRotationForState(mixerState);
       return;
@@ -2859,6 +3122,56 @@ function prepareDummyModel(root, mountGroup) {
     showAnimationDebug(mixerState.states.get(nextName)?.clipName || nextName);
   }
 
+  function getStateClipDurationSec(mixerState, stateName) {
+    if (!mixerState || !mixerState.states || !stateName) return 0;
+    const clip = mixerState.states.get(stateName)?.clip;
+    const duration = Number(clip?.duration);
+    if (!Number.isFinite(duration) || duration <= 0) return 0;
+    return duration;
+  }
+
+  function computeActionHoldTime(mixerState, stateName, fallbackSec, options = {}) {
+    const fallback = Math.max(0.05, Number(fallbackSec) || 0.22);
+    const fraction = Math.max(0.1, Math.min(1.0, Number(options.fraction) || 0.5));
+    const minSec = Math.max(0.05, Number(options.minSec) || fallback);
+    const maxSec = Math.max(minSec, Number(options.maxSec) || 0.72);
+    const clipDuration = getStateClipDurationSec(mixerState, stateName);
+
+    if (clipDuration <= 0) {
+      return fallback;
+    }
+
+    return Math.max(minSec, Math.min(maxSec, clipDuration * fraction));
+  }
+
+  function isActorMovingNow(slotState, actor, world, dt) {
+    if (!slotState || !actor || !world) return false;
+
+    let movedByPosition = false;
+    if (slotState.lastWorldX != null && slotState.lastWorldZ != null) {
+      const dxWorld = world.x - slotState.lastWorldX;
+      const dzWorld = world.z - slotState.lastWorldZ;
+      const distSq = (dxWorld * dxWorld) + (dzWorld * dzWorld);
+      movedByPosition = distSq > 0.01;
+    }
+    slotState.lastWorldX = world.x;
+    slotState.lastWorldZ = world.z;
+
+    const vx = Number(actor.vx) || 0;
+    const vy = Number(actor.vy) || 0;
+    const speedSq = (vx * vx) + (vy * vy);
+    const movedByVelocity = speedSq > 64;
+
+    if (movedByPosition || movedByVelocity || !!actor.chargeActive) {
+      slotState.moveHoldTimer = 0.14;
+    } else {
+      const safeDt = Math.max(0, Number(dt) || 0);
+      slotState.moveHoldTimer = Math.max(0, (Number(slotState.moveHoldTimer) || 0) - safeDt);
+    }
+
+    return movedByPosition || movedByVelocity || (Number(slotState.moveHoldTimer) || 0) > 0;
+  }
+
   function setArenaPlayerState(nextName, force = false) {
     crossFadeState(state.player, nextName, force);
   }
@@ -2871,30 +3184,35 @@ function prepareDummyModel(root, mountGroup) {
     crossFadeState(state.preview, nextName, force);
   }
 
-  function getTrackTargetNode(root, trackName) {
+  function resolveTrackBinding(root, trackName) {
     if (!root || !trackName || typeof trackName !== 'string') return null;
+    const lastDot = trackName.lastIndexOf('.');
+    if (lastDot <= 0 || lastDot >= (trackName.length - 1)) return null;
 
-    const suffixes = ['.position', '.translation'];
-    let idx = -1;
-    let matchedSuffix = '';
-    for (const suffix of suffixes) {
-      idx = trackName.lastIndexOf(suffix);
-      if (idx > 0) {
-        matchedSuffix = suffix;
-        break;
-      }
-    }
-    if (idx <= 0 || !matchedSuffix) return null;
-
-    const nodePath = trackName.slice(0, idx);
+    const nodePath = trackName.slice(0, lastDot);
+    const property = trackName.slice(lastDot + 1);
     if (!nodePath) return null;
 
+    let resolvedNode = null;
     if (THREE.PropertyBinding && typeof THREE.PropertyBinding.findNode === 'function') {
-      const resolved = THREE.PropertyBinding.findNode(root, nodePath);
-      if (resolved) return resolved;
+      resolvedNode = THREE.PropertyBinding.findNode(root, nodePath);
     }
 
-    return root.getObjectByName(nodePath) || null;
+    if (!resolvedNode) {
+      resolvedNode = root.getObjectByName(nodePath) || null;
+    }
+
+    if (!resolvedNode) return null;
+    return { node: resolvedNode, property };
+  }
+
+  function getTrackTargetNode(root, trackName) {
+    const binding = resolveTrackBinding(root, trackName);
+    if (!binding) return null;
+
+    const prop = String(binding.property || '').toLowerCase();
+    if (prop !== 'position' && prop !== 'translation') return null;
+    return binding.node;
   }
 
   function buildPositionTrackLocks(root, animations) {
@@ -2962,6 +3280,104 @@ function prepareDummyModel(root, mountGroup) {
     return locks;
   }
 
+  function buildRotationTrackLocks(root, animations, options = {}) {
+    const locks = [];
+    if (!root || !Array.isArray(animations) || !animations.length) return locks;
+
+    const nonBoneOnly = options.nonBoneOnly !== false;
+    const seen = new Set();
+
+    for (const clip of animations) {
+      if (!clip || !Array.isArray(clip.tracks)) continue;
+
+      for (const track of clip.tracks) {
+        if (!track || typeof track.name !== 'string') continue;
+
+        const binding = resolveTrackBinding(root, track.name);
+        if (!binding || !binding.node) continue;
+
+        const property = String(binding.property || '').toLowerCase();
+        const isQuaternionTrack = property === 'quaternion';
+        const isEulerRotationTrack = property === 'rotation';
+        if (!isQuaternionTrack && !isEulerRotationTrack) continue;
+
+        const node = binding.node;
+        if (nonBoneOnly && node.isBone) continue;
+
+        const values = track.values;
+        if (!values || !values.length) continue;
+        const stride = isQuaternionTrack ? 4 : 3;
+        if (values.length < stride) continue;
+
+        let minA = Number.POSITIVE_INFINITY;
+        let maxA = Number.NEGATIVE_INFINITY;
+        let minB = Number.POSITIVE_INFINITY;
+        let maxB = Number.NEGATIVE_INFINITY;
+        let minC = Number.POSITIVE_INFINITY;
+        let maxC = Number.NEGATIVE_INFINITY;
+        let minD = Number.POSITIVE_INFINITY;
+        let maxD = Number.NEGATIVE_INFINITY;
+
+        for (let i = 0; i + (stride - 1) < values.length; i += stride) {
+          const a = Number(values[i]);
+          const b = Number(values[i + 1]);
+          const c = Number(values[i + 2]);
+          if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c)) continue;
+          if (a < minA) minA = a;
+          if (a > maxA) maxA = a;
+          if (b < minB) minB = b;
+          if (b > maxB) maxB = b;
+          if (c < minC) minC = c;
+          if (c > maxC) maxC = c;
+
+          if (isQuaternionTrack) {
+            const d = Number(values[i + 3]);
+            if (!Number.isFinite(d)) continue;
+            if (d < minD) minD = d;
+            if (d > maxD) maxD = d;
+          }
+        }
+
+        if (
+          !Number.isFinite(minA) || !Number.isFinite(maxA) ||
+          !Number.isFinite(minB) || !Number.isFinite(maxB) ||
+          !Number.isFinite(minC) || !Number.isFinite(maxC)
+        ) {
+          continue;
+        }
+
+        const rangeA = maxA - minA;
+        const rangeB = maxB - minB;
+        const rangeC = maxC - minC;
+        const rangeD = isQuaternionTrack && Number.isFinite(minD) && Number.isFinite(maxD)
+          ? (maxD - minD)
+          : 0;
+        const variation = Math.max(rangeA, rangeB, rangeC, rangeD);
+        if (variation < 0.0005) continue;
+
+        const lockKey = `${node.uuid}:${property}`;
+        if (seen.has(lockKey)) continue;
+        seen.add(lockKey);
+
+        if (isQuaternionTrack && node.quaternion) {
+          locks.push({
+            node,
+            type: 'quaternion',
+            baseQuaternion: node.quaternion.clone(),
+          });
+        } else if (isEulerRotationTrack && node.rotation) {
+          locks.push({
+            node,
+            type: 'rotation',
+            baseRotation: node.rotation.clone(),
+          });
+        }
+      }
+    }
+
+    return locks;
+  }
+
   function captureSlotRootMotionBase(slotState) {
     if (!slotState) return;
 
@@ -2992,6 +3408,22 @@ function prepareDummyModel(root, mountGroup) {
     } else {
       state.preview.rigFixBasePosition = null;
     }
+    if (state.preview.rigFixNode && state.preview.rigFixNode.quaternion) {
+      state.preview.rigFixBaseQuaternion = state.preview.rigFixNode.quaternion.clone();
+    } else {
+      state.preview.rigFixBaseQuaternion = null;
+    }
+
+    if (state.preview.root && state.preview.root.quaternion) {
+      state.preview.rootBaseQuaternion = state.preview.root.quaternion.clone();
+    } else {
+      state.preview.rootBaseQuaternion = null;
+    }
+    if (state.preview.rootBone && state.preview.rootBone.quaternion) {
+      state.preview.rootBoneBaseQuaternion = state.preview.rootBone.quaternion.clone();
+    } else {
+      state.preview.rootBoneBaseQuaternion = null;
+    }
   }
 
   function lockSlotRootMotion(slotState) {
@@ -3014,14 +3446,24 @@ function prepareDummyModel(root, mountGroup) {
   }
 
   function lockPreviewRootMotion() {
+    if (!LOBBY_PREVIEW_USE_ANIMATION) return;
     if (!state.preview) return;
 
     if (state.preview.root && state.preview.root.position && state.preview.rootBasePosition) {
       state.preview.root.position.copy(state.preview.rootBasePosition);
     }
+    if (state.preview.root && state.preview.root.quaternion && state.preview.rootBaseQuaternion) {
+      state.preview.root.quaternion.copy(state.preview.rootBaseQuaternion);
+    }
 
     if (state.preview.rigFixNode && state.preview.rigFixNode.position && state.preview.rigFixBasePosition) {
       state.preview.rigFixNode.position.copy(state.preview.rigFixBasePosition);
+    }
+    if (state.preview.rigFixNode && state.preview.rigFixNode.quaternion && state.preview.rigFixBaseQuaternion) {
+      state.preview.rigFixNode.quaternion.copy(state.preview.rigFixBaseQuaternion);
+    }
+    if (state.preview.rootBone && state.preview.rootBone.quaternion && state.preview.rootBoneBaseQuaternion) {
+      state.preview.rootBone.quaternion.copy(state.preview.rootBoneBaseQuaternion);
     }
 
     for (const lock of state.preview.positionTrackLocks || []) {
@@ -3029,6 +3471,49 @@ function prepareDummyModel(root, mountGroup) {
       const base = lock?.basePosition;
       if (!node || !base || !node.position) continue;
       node.position.copy(base);
+    }
+
+    for (const lock of state.preview.rotationTrackLocks || []) {
+      const node = lock?.node;
+      if (!node) continue;
+
+      if (lock.type === 'quaternion' && node.quaternion && lock.baseQuaternion) {
+        node.quaternion.copy(lock.baseQuaternion);
+      } else if (lock.type === 'rotation' && node.rotation && lock.baseRotation) {
+        node.rotation.copy(lock.baseRotation);
+      }
+    }
+
+    // Final safety for preview: keep rig root orientation stable so drag yaw
+    // is not visually overridden by imported clip root-rotation tracks.
+    if (state.preview.rigFixNode && state.preview.rigFixNode.quaternion && state.preview.rigFixBaseQuaternion) {
+      state.preview.rigFixNode.quaternion.copy(state.preview.rigFixBaseQuaternion);
+    }
+    if (state.preview.rootBone && state.preview.rootBone.quaternion && state.preview.rootBoneBaseQuaternion) {
+      state.preview.rootBone.quaternion.copy(state.preview.rootBoneBaseQuaternion);
+    }
+  }
+
+  function enforcePreviewStaticRigPose() {
+    if (LOBBY_PREVIEW_USE_ANIMATION) return;
+    if (!state.preview) return;
+
+    if (state.preview.root && state.preview.root.position && state.preview.rootBasePosition) {
+      state.preview.root.position.copy(state.preview.rootBasePosition);
+    }
+    if (state.preview.root && state.preview.root.quaternion && state.preview.rootBaseQuaternion) {
+      state.preview.root.quaternion.copy(state.preview.rootBaseQuaternion);
+    }
+
+    if (state.preview.rigFixNode && state.preview.rigFixNode.position && state.preview.rigFixBasePosition) {
+      state.preview.rigFixNode.position.copy(state.preview.rigFixBasePosition);
+    }
+    if (state.preview.rigFixNode && state.preview.rigFixNode.quaternion && state.preview.rigFixBaseQuaternion) {
+      state.preview.rigFixNode.quaternion.copy(state.preview.rigFixBaseQuaternion);
+    }
+
+    if (state.preview.rootBone && state.preview.rootBone.quaternion && state.preview.rootBoneBaseQuaternion) {
+      state.preview.rootBone.quaternion.copy(state.preview.rootBoneBaseQuaternion);
     }
   }
 
@@ -3260,10 +3745,13 @@ function prepareDummyModel(root, mountGroup) {
         state.preview.root = previewRoot;
 
         const previewAnimations = gltf.animations || [];
-        if (previewAnimations.length) {
+        if (LOBBY_PREVIEW_USE_ANIMATION && previewAnimations.length) {
           state.preview.mixer = new THREE.AnimationMixer(previewRoot);
           state.preview.states = buildAnimationStateMap(previewAnimations, state.preview.mixer, 'preview');
           state.preview.positionTrackLocks = buildPositionTrackLocks(previewRoot, previewAnimations);
+          state.preview.rotationTrackLocks = buildRotationTrackLocks(previewRoot, previewAnimations, {
+            nonBoneOnly: true,
+          });
           capturePreviewRootMotionBase();
           const firstState = state.preview.states.has('idle')
             ? 'idle'
@@ -3273,12 +3761,20 @@ function prepareDummyModel(root, mountGroup) {
           state.preview.mixer = null;
           state.preview.states = new Map();
           state.preview.positionTrackLocks = [];
+          state.preview.rotationTrackLocks = [];
           capturePreviewRootMotionBase();
         }
 
         state.preview.ready = true;
         tintAllLoadedModelsIfNeeded();
         onResize();
+        log('Preview root-motion lock captured', {
+          hasRootBaseQuat: !!state.preview.rootBaseQuaternion,
+          positionLocks: (state.preview.positionTrackLocks || []).length,
+          rotationLocks: (state.preview.rotationTrackLocks || []).length,
+          rootName: state.preview.root?.name || '(unnamed)',
+          rigName: state.preview.rigFixNode?.name || '(none)',
+        });
         log('Preview character loaded');
         return true;
       })
@@ -3843,19 +4339,7 @@ function prepareDummyModel(root, mountGroup) {
             state.player.yawGroup.rotation.y = -aimAngle - Math.PI * 0.5;
     }
 
-let moved = false;
-
-if (state.player.lastWorldX != null && state.player.lastWorldZ != null) {
-  const dxWorld = world.x - state.player.lastWorldX;
-  const dzWorld = world.z - state.player.lastWorldZ;
-  const distSq = (dxWorld * dxWorld) + (dzWorld * dzWorld);
-
-  // Detect real visible movement from frame to frame.
-  moved = distSq > 0.01;
-}
-
-state.player.lastWorldX = world.x;
-state.player.lastWorldZ = world.z;
+    const moved = isActorMovingNow(state.player, player, world, dt);
 
     if (state.player.hitTimer > 0) {
       state.player.hitTimer = Math.max(0, state.player.hitTimer - dt);
@@ -3877,7 +4361,12 @@ state.player.lastWorldZ = world.z;
     if (state.player.lastHp == null) {
       state.player.lastHp = player.hp;
     } else if (player.hp < state.player.lastHp) {
-      state.player.hitTimer = cfg.hitHoldTime || 0.28;
+      state.player.hitTimer = computeActionHoldTime(
+        state.player,
+        'hit',
+        cfg.hitHoldTime || 0.28,
+        { fraction: 0.5, minSec: 0.24, maxSec: 0.62 }
+      );
       setArenaPlayerState('hit', true);
       state.player.lastHp = player.hp;
     } else {
@@ -3920,18 +4409,7 @@ state.player.lastWorldZ = world.z;
             state.dummy.yawGroup.rotation.y = -aimAngle - Math.PI * 0.5;
     }
 
-let moved = false;
-
-if (state.dummy.lastWorldX != null && state.dummy.lastWorldZ != null) {
-  const dxWorld = world.x - state.dummy.lastWorldX;
-  const dzWorld = world.z - state.dummy.lastWorldZ;
-  const distSq = (dxWorld * dxWorld) + (dzWorld * dzWorld);
-
-  moved = distSq > 0.01;
-}
-
-state.dummy.lastWorldX = world.x;
-state.dummy.lastWorldZ = world.z;
+    const moved = isActorMovingNow(state.dummy, dummy, world, dt);
 
     if (state.dummy.hitTimer > 0) {
       state.dummy.hitTimer = Math.max(0, state.dummy.hitTimer - dt);
@@ -3951,7 +4429,12 @@ state.dummy.lastWorldZ = world.z;
     if (state.dummy.lastHp == null) {
       state.dummy.lastHp = dummy.hp;
     } else if (dummy.hp < state.dummy.lastHp) {
-      state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
+      state.dummy.hitTimer = computeActionHoldTime(
+        state.dummy,
+        'hit',
+        cfg.hitHoldTime || 0.28,
+        { fraction: 0.5, minSec: 0.24, maxSec: 0.62 }
+      );
       setDummyState('hit', true);
       state.dummy.lastHp = dummy.hp;
     } else {
@@ -3969,17 +4452,38 @@ state.dummy.lastWorldZ = world.z;
     }
 
     const previewSettings = getPreviewSettings();
-
-    if (!state.preview.dragging) {
-      state.preview.currentRotationY += (state.preview.targetRotationY - state.preview.currentRotationY) * 0.14;
+    if (!state.preview.rootGroupBaseQuaternion) {
+      state.preview.rootGroupBaseQuaternion = state.preview.rootGroup.quaternion.clone();
     }
-    state.preview.rootGroup.quaternion.setFromAxisAngle(
-      PREVIEW_Y_AXIS,
-      state.preview.currentRotationY
-    );
+
+    // In static lobby-preview mode, freeze imported rig/root transforms every frame
+    // so drag-yaw is the only visible rotation source.
+    enforcePreviewStaticRigPose();
+
+    // Keep debug angles bounded without affecting rendered quaternion rotation.
+    if (Math.abs(state.preview.currentRotationY) > Math.PI * 1024) {
+      const wraps = Math.trunc(state.preview.currentRotationY / (Math.PI * 2));
+      const offset = wraps * Math.PI * 2;
+      state.preview.currentRotationY -= offset;
+      state.preview.targetRotationY -= offset;
+    }
+
+    // Minimal deterministic preview yaw: base orientation + controlled world-yaw.
+    PREVIEW_YAW_QUAT.setFromAxisAngle(PREVIEW_WORLD_UP, state.preview.currentRotationY);
+    PREVIEW_COMPOSED_QUAT
+      .copy(state.preview.rootGroupBaseQuaternion || state.preview.rootGroup.quaternion)
+      .multiply(PREVIEW_YAW_QUAT);
+    state.preview.rootGroup.quaternion.copy(PREVIEW_COMPOSED_QUAT);
     state.preview.rootGroup.position.set(0, previewSettings.modelYOffset, 0);
 
-    setPreviewState('idle');
+    if (state.preview.camera) {
+      state.preview.camera.position.set(0, previewSettings.cameraY, previewSettings.cameraZ);
+      state.preview.camera.lookAt(0, previewSettings.lookAtY, 0);
+    }
+
+    if (LOBBY_PREVIEW_USE_ANIMATION) {
+      setPreviewState('idle');
+    }
     tintAllLoadedModelsIfNeeded();
   }
 
@@ -4160,7 +4664,7 @@ state.dummy.lastWorldZ = world.z;
       isLobbyPreviewPhase() ||
       !!(state.preview.rootGroup && state.preview.rootGroup.visible);
 
-    if (previewActive && state.preview.mixer) {
+    if (previewActive && LOBBY_PREVIEW_USE_ANIMATION && state.preview.mixer) {
       state.preview.mixer.update(dt);
     }
     if (previewActive) {
@@ -4206,6 +4710,88 @@ state.dummy.lastWorldZ = world.z;
     drawCtx.strokeText(state.debugAnim.text, x, y - 40);
     drawCtx.fillText(state.debugAnim.text, x, y - 40);
     drawCtx.restore();
+  }
+
+  function getArenaCameraSnapshot() {
+    if (!state.camera) return null;
+    return {
+      position: formatVec3(state.camera.position, 3),
+      up: formatVec3(state.camera.up, 3),
+      frustum: {
+        left: toFixedNumber(state.camera.left, 3),
+        right: toFixedNumber(state.camera.right, 3),
+        top: toFixedNumber(state.camera.top, 3),
+        bottom: toFixedNumber(state.camera.bottom, 3),
+        near: toFixedNumber(state.camera.near, 3),
+        far: toFixedNumber(state.camera.far, 3),
+      },
+      viewport: state.renderer
+        ? {
+            width: toFixedNumber(state.renderer.domElement?.width || 0, 2),
+            height: toFixedNumber(state.renderer.domElement?.height || 0, 2),
+          }
+        : null,
+    };
+  }
+
+  function getArenaSlotState(slotName = 'player') {
+    return slotName === 'dummy' ? state.dummy : state.player;
+  }
+
+  function getResolvedStateClipMap(slotState) {
+    const map = {};
+    if (!slotState?.states || typeof slotState.states.entries !== 'function') return map;
+    for (const [stateName, entry] of slotState.states.entries()) {
+      map[stateName] = String(entry?.clipName || entry?.clip?.name || '');
+    }
+    return map;
+  }
+
+  function getArenaSlotTransformSnapshot(slotName = 'player') {
+    const slot = getArenaSlotState(slotName);
+    if (!slot) return null;
+
+    const mount = slot.modelMount || null;
+    const pivot = mount?.userData?.arenaPivotGroup || null;
+    const orient = mount?.userData?.arenaOrientGroup || null;
+    const summary = mount?.userData?.arenaTransformSummary || null;
+
+    return {
+      slot: slotName,
+      gameState,
+      phase: isArenaPhase() ? 'arena' : (isDraftPhase() ? 'draft' : 'lobby'),
+      cfg: {
+        actorHeight: Number(cfg.actorHeight) || 0,
+        actorScale: Number(cfg.actorScale) || 0,
+        actorScaleMode: cfg.actorScaleMode || 'absolute',
+        importRotation: {
+          x: toFixedNumber(Number(cfg.arenaCharacter?.importRotation?.x) || 0, 6),
+          y: toFixedNumber(Number(cfg.arenaCharacter?.importRotation?.y) || 0, 6),
+          z: toFixedNumber(Number(cfg.arenaCharacter?.importRotation?.z) || 0, 6),
+        },
+      },
+      camera: getArenaCameraSnapshot(),
+      transforms: {
+        rootGroupPosition: formatVec3(slot.rootGroup?.position, 3),
+        yawGroupRotation: formatVec3(slot.yawGroup?.rotation, 6),
+        modelMountRotation: formatVec3(mount?.rotation, 6),
+        modelMountScale: formatVec3(mount?.scale, 6),
+      },
+      resolvedClips: getResolvedStateClipMap(slot),
+      bounds: {
+        root: getObjectBoundsSnapshot(slot.root, 2),
+        modelMount: getObjectBoundsSnapshot(mount, 2),
+        pivot: getObjectBoundsSnapshot(pivot, 2),
+        orient: getObjectBoundsSnapshot(orient, 2),
+      },
+      transformSummary: summary,
+    };
+  }
+
+  function logArenaSlotTransformSnapshot(slotName = 'player') {
+    const snapshot = getArenaSlotTransformSnapshot(slotName);
+    log(`Arena transform snapshot (${slotName})`, snapshot);
+    return snapshot;
   }
 
   window.outraThree = {
@@ -4295,6 +4881,14 @@ state.dummy.lastWorldZ = world.z;
       return getAssetPackSnapshot();
     },
 
+    getArenaTransformSnapshot(slotName = 'player') {
+      return getArenaSlotTransformSnapshot(slotName === 'dummy' ? 'dummy' : 'player');
+    },
+
+    logArenaTransformSnapshot(slotName = 'player') {
+      return logArenaSlotTransformSnapshot(slotName === 'dummy' ? 'dummy' : 'player');
+    },
+
     renderLobbyPreview() {
       if (!state.preview.renderer || !state.preview.scene || !state.preview.camera) return;
       state.preview.renderer.render(state.preview.scene, state.preview.camera);
@@ -4380,38 +4974,74 @@ state.dummy.lastWorldZ = world.z;
 
     triggerCast() {
       if (!state.ready || !state.player.states.has('cast')) return;
-      state.player.castTimer = cfg.castHoldTime || 0.22;
+      state.player.castTimer = computeActionHoldTime(
+        state.player,
+        'cast',
+        cfg.castHoldTime || 0.22,
+        { fraction: 0.55, minSec: 0.26, maxSec: 0.68 }
+      );
       setArenaPlayerState('cast', true);
     },
 
     triggerDash() {
       if (!state.ready || !state.player.states.has('dash')) return;
-      state.player.dashTimer = cfg.dashHoldTime || 0.30;
+      state.player.dashTimer = computeActionHoldTime(
+        state.player,
+        'dash',
+        cfg.dashHoldTime || 0.30,
+        { fraction: 0.55, minSec: 0.28, maxSec: 0.72 }
+      );
       setArenaPlayerState('dash', true);
     },
 
     triggerHit() {
       if (!state.ready || !state.player.states.has('hit')) return;
-      state.player.hitTimer = cfg.hitHoldTime || 0.28;
+      state.player.hitTimer = computeActionHoldTime(
+        state.player,
+        'hit',
+        cfg.hitHoldTime || 0.28,
+        { fraction: 0.5, minSec: 0.24, maxSec: 0.62 }
+      );
       setArenaPlayerState('hit', true);
     },
 
     triggerDummyCast() {
       if (!state.ready || !state.dummy.states.has('cast')) return;
-      state.dummy.castTimer = cfg.castHoldTime || 0.22;
+      state.dummy.castTimer = computeActionHoldTime(
+        state.dummy,
+        'cast',
+        cfg.castHoldTime || 0.22,
+        { fraction: 0.55, minSec: 0.26, maxSec: 0.68 }
+      );
       setDummyState('cast', true);
     },
 
     triggerDummyDash() {
       if (!state.ready || !state.dummy.states.has('dash')) return;
-      state.dummy.dashTimer = cfg.dashHoldTime || 0.30;
+      state.dummy.dashTimer = computeActionHoldTime(
+        state.dummy,
+        'dash',
+        cfg.dashHoldTime || 0.30,
+        { fraction: 0.55, minSec: 0.28, maxSec: 0.72 }
+      );
       setDummyState('dash', true);
     },
 
     triggerDummyHit() {
       if (!state.ready || !state.dummy.states.has('hit')) return;
-      state.dummy.hitTimer = cfg.hitHoldTime || 0.28;
+      state.dummy.hitTimer = computeActionHoldTime(
+        state.dummy,
+        'hit',
+        cfg.hitHoldTime || 0.28,
+        { fraction: 0.5, minSec: 0.24, maxSec: 0.62 }
+      );
       setDummyState('hit', true);
     },
   };
+
+  window.outraThreeDebug = window.outraThreeDebug || {};
+  window.outraThreeDebug.getArenaTransformSnapshot = (slotName = 'player') =>
+    window.outraThree.getArenaTransformSnapshot(slotName);
+  window.outraThreeDebug.logArenaTransformSnapshot = (slotName = 'player') =>
+    window.outraThree.logArenaTransformSnapshot(slotName);
 })();

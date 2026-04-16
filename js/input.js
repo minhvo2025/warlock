@@ -781,11 +781,13 @@ function bindArenaHoverAura(buttonEl) {
 bindArenaHoverAura(startBtn);
 
 nameInput.addEventListener('input', () => {
+  if (nameInput.readOnly) return;
   player.name = (nameInput.value || 'Player').trim().slice(0, 16) || 'Player';
   drawLobbyPreview();
 });
 
 nameInput.addEventListener('keydown', (e) => {
+  if (nameInput.readOnly) return;
   if (e.key === 'Enter') {
     e.preventDefault();
     queueQuickMatchFromLobby();
