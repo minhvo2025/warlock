@@ -1,15 +1,68 @@
 // ── Game Loop ─────────────────────────────────────────────────
+const perfOverlayEl = document.getElementById('perfOverlay');
+const perfOverlayState = {
+  sampleStartedAt: performance.now(),
+  frameCount: 0,
+  fps: 0,
+  frameMsEma: 0,
+  text: '',
+  visible: false,
+};
+
+function smoothPerfMetric(currentValue, nextValue, alpha = 0.16) {
+  const safeNext = Math.max(0, Math.min(250, Number(nextValue) || 0));
+  if (currentValue <= 0) return safeNext;
+  return currentValue + (safeNext - currentValue) * alpha;
+}
+
+function isPerfOverlayInGameContext() {
+  if (gameState === 'playing' || gameState === 'result' || gameState === 'draft') return true;
+
+  const api = window.outraMultiplayer;
+  if (!api || typeof api.getPresentationSnapshot !== 'function') return false;
+  const snapshot = api.getPresentationSnapshot();
+  return !!(
+    snapshot &&
+    snapshot.active &&
+    (snapshot.isArenaActive || snapshot.isArenaPending || snapshot.isDraftActive || snapshot.isMatchEnd)
+  );
+}
+
+function updatePerfOverlay(rawFrameMs, nowMs) {
+  if (!perfOverlayEl) return;
+
+  perfOverlayState.frameMsEma = smoothPerfMetric(perfOverlayState.frameMsEma, rawFrameMs);
+
+  perfOverlayState.frameCount += 1;
+  const elapsedMs = Math.max(1, nowMs - perfOverlayState.sampleStartedAt);
+  if (elapsedMs >= 250) {
+    perfOverlayState.fps = (perfOverlayState.frameCount * 1000) / elapsedMs;
+    perfOverlayState.frameCount = 0;
+    perfOverlayState.sampleStartedAt = nowMs;
+
+    const nextText =
+      `FPS ${Math.max(0, perfOverlayState.fps).toFixed(0)} | ${Math.max(0, perfOverlayState.frameMsEma).toFixed(1)}ms`;
+    if (nextText !== perfOverlayState.text) {
+      perfOverlayState.text = nextText;
+      perfOverlayEl.textContent = nextText;
+    }
+  }
+
+  const shouldShow = isPerfOverlayInGameContext();
+  if (shouldShow !== perfOverlayState.visible) {
+    perfOverlayState.visible = shouldShow;
+    perfOverlayEl.style.display = shouldShow ? 'block' : 'none';
+  }
+}
+
 function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.033);
+  const rawFrameMs = Math.max(0, now - lastTime);
+  const dt = Math.min(rawFrameMs / 1000, 0.033);
   lastTime = now;
 
   update(dt);
-
-  if (window.outraThree && window.outraThree.update) {
-    window.outraThree.update(dt);
-  }
-
   render();
+  updatePerfOverlay(rawFrameMs, now);
   requestAnimationFrame(loop);
 }
 
@@ -17,10 +70,6 @@ function loop(now) {
 const resetMoveStick = makeStickController(moveJoystick, moveJoystickThumb, moveStick);
 
 async function boot() {
-  if (window.outraThree && window.outraThree.init) {
-    window.outraThree.init();
-  }
-
   if (typeof initCustomMouseCursor === 'function') {
     initCustomMouseCursor();
   }
@@ -39,10 +88,6 @@ async function boot() {
 
   applyPlayerColors();
   resizeCanvas();
-  buildRankedPanel();
-  buildKeybindsUI();
-  renderStore();
-  renderInventory();
 
   nameInput.value = player.name;
   player.score = getPlayerPoints(player.name);
@@ -53,10 +98,9 @@ async function boot() {
       });
   }
 
-  renderLeaderboard();
   updateAimSensitivityUI();
   updateMusicVolumeUI();
-  updatePerformanceModeUI();
+  updateSoundVolumeUI();
   setMusicMuted(musicMuted);
 
   if (window.outraMultiplayer && typeof window.outraMultiplayer.connect === 'function') {
@@ -65,11 +109,8 @@ async function boot() {
   if (window.outraPhaseAssets && typeof window.outraPhaseAssets.init === 'function') {
     window.outraPhaseAssets.init();
   }
-  drawLobbyPreview();
-  updateHud();
   resetMoveStick();
   enterLobby();
-  refreshMobileControls();
 
   requestAnimationFrame(loop);
 }

@@ -2,10 +2,14 @@ const ABILITY_IDS = Object.freeze({
   FIREBLAST: 'fireblast',
   BLINK: 'blink',
   SHIELD: 'shield',
+  PRISM: 'prism',
   GUST: 'gust',
   CHARGE: 'charge',
   SHOCK: 'shock',
   HOOK: 'hook',
+  SOLAR: 'solar',
+  RIFT: 'rift',
+  PHANTOM: 'phantom',
   WALL: 'wall',
   REWIND: 'rewind'
 });
@@ -52,7 +56,22 @@ const DEFAULT_SPELL_TUNING = Object.freeze({
     range: 0,
     damage: 0,
     knockbackImpulse: 0,
-    durationMs: 1000
+    durationMs: 1000,
+    moveSpeedMultiplier: 0.60
+  }),
+  [ABILITY_IDS.PRISM]: Object.freeze({
+    role: 'defense',
+    cooldownMs: 8000,
+    castDelayMs: 80,
+    range: 4.2,
+    damage: 0,
+    knockbackImpulse: 0,
+    durationMs: 600,
+    coneAngleDeg: 80,
+    chargePushbackMultiplierOnPrismUser: 0.30,
+    shieldOffsetFromCaster: 0.40,
+    shieldThickness: 0.2736,
+    shieldArcDeg: 120
   }),
   [ABILITY_IDS.GUST]: Object.freeze({
     role: 'control',
@@ -73,7 +92,7 @@ const DEFAULT_SPELL_TUNING = Object.freeze({
     speed: toWorldUnitsCompensated(760),
     distance: toWorldUnits(150),
     hitRadius: toWorldUnits(26), // offline hit threshold: player.r + target.r + 8
-    knockbackImpulse: toWorldUnits(720)
+    knockbackImpulse: toWorldUnits(960)
   }),
   [ABILITY_IDS.SHOCK]: Object.freeze({
     role: 'aggression',
@@ -89,14 +108,63 @@ const DEFAULT_SPELL_TUNING = Object.freeze({
     role: 'control',
     cooldownMs: 1800,
     castDelayMs: 0,
-    range: toWorldUnits(150),
+    range: toWorldUnits(225),
     damage: 8,
-    durationMs: Math.round((1 / 3.5) * 1000), // offline hook flight: progress += dt * 3.5
-    speed: toWorldUnits(150 * 3.5),
-    lifetimeMs: Math.round((1 / 3.5) * 1000),
+    // +50% range versus base, with faster travel to reach destination sooner.
+    durationMs: Math.round((1.5 / 4.55) * 1000),
+    speed: toWorldUnits(150 * 4.55),
+    lifetimeMs: Math.round((1.5 / 4.55) * 1000),
     spawnOffset: 0,
     hitRadius: toWorldUnits(6),
-    pullTargetDistance: toWorldUnits(42) // caster.r + target.r + 6 in offline mode
+    pullTargetDistance: toWorldUnits(34) // pull slightly closer for a stronger hook drag
+  }),
+  [ABILITY_IDS.SOLAR]: Object.freeze({
+    role: 'aggression',
+    cooldownMs: 9000,
+    castDelayMs: 150,
+    range: 12.0,
+    damage: 13,
+    durationMs: 0,
+    speed: 16.2,
+    projectileRadius: 0.38,
+    hitRadius: 0.38,
+    impactRadius: 1.35,
+    knockbackImpulse: 2.5,
+    debuffDurationMs: 1200,
+    debuffStacksIntensity: 0,
+    lifetimeMs: Math.round((12.0 / 16.2) * 1000),
+    spawnOffset: toWorldUnits(28)
+  }),
+  [ABILITY_IDS.RIFT]: Object.freeze({
+    role: 'utility',
+    cooldownMs: 11000,
+    castDelayMs: 120,
+    range: 7.0,
+    damage: 0,
+    durationMs: 4000,
+    placementRangeA: 7.0,
+    placementRangeBFromA: 12.0,
+    portalRadius: 0.9,
+    teleportDelayMs: 80,
+    exitVelocityMultiplier: 0.70,
+    perPlayerReuseLockoutMs: 500,
+    unfinishedPlacementTimeoutMs: 6000
+  }),
+  [ABILITY_IDS.PHANTOM]: Object.freeze({
+    role: 'utility',
+    cooldownMs: 11000,
+    castDelayMs: 50,
+    range: 0,
+    damage: 0,
+    durationMs: 0,
+    vanishDurationMs: 300,
+    illusionLifetimeMs: 2000,
+    splitRadius: 0.65,
+    untargetableDuringVanish: true,
+    canCastDuringVanish: false,
+    illusionHasHitbox: false,
+    illusionCanDealDamage: false,
+    illusionCanCast: false
   }),
   [ABILITY_IDS.WALL]: Object.freeze({
     role: 'control',

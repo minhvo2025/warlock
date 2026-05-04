@@ -1,0 +1,17 @@
+// Nyra_hit.png (exported)
+// 768×768 | 4×4 = 14 frames
+
+this.load.spritesheet('Nyra_hit', 'Nyra_hit.png', {
+    frameWidth: 192,
+    frameHeight: 192
+});
+
+this.anims.create({
+    key: 'Nyra_hit_anim',
+    frames: this.anims.generateFrameNumbers('Nyra_hit', { start: 0, end: 13 }),
+    frameRate: 30,
+    repeat: -1
+});
+
+const Nyra_hit = this.add.sprite(x, y, 'Nyra_hit');
+Nyra_hit.play('Nyra_hit_anim');

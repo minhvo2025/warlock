@@ -2,6 +2,7 @@
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
 let musicMasterGain = null;
+let soundMasterGain = null;
 let musicStarted = false;
 let musicUnlocked = false;
 let lobbyMusicAudio = null;
@@ -9,15 +10,29 @@ let lobbyMusicSource = null;
 
 const LOBBY_MUSIC_SRC = '/docs/Music/Lobby_music.mp3';
 const DEFAULT_LOBBY_MUSIC_VOLUME = 0.38;
+const DEFAULT_SOUND_VOLUME = 1;
+
+function clampVolume(value, fallback) {
+  const raw = Number(value);
+  return Math.min(1, Math.max(0, Number.isFinite(raw) ? raw : fallback));
+}
 
 function getMusicVolume() {
-  const raw = Number(profile?.musicVolume);
-  return Math.min(1, Math.max(0, Number.isFinite(raw) ? raw : DEFAULT_LOBBY_MUSIC_VOLUME));
+  return clampVolume(profile?.musicVolume, DEFAULT_LOBBY_MUSIC_VOLUME);
+}
+
+function getSoundVolume() {
+  return clampVolume(profile?.soundVolume, DEFAULT_SOUND_VOLUME);
 }
 
 function applyMusicGain() {
   if (!musicMasterGain) return;
   musicMasterGain.gain.value = musicMuted ? 0 : getMusicVolume();
+}
+
+function applySoundGain() {
+  if (!soundMasterGain) return;
+  soundMasterGain.gain.value = getSoundVolume();
 }
 
 function setMusicVolume(value) {
@@ -39,16 +54,35 @@ function setMusicVolume(value) {
 }
 
 // ── Core Audio Helpers ────────────────────────────────────────
+function setSoundVolume(value) {
+  const next = Math.min(1, Math.max(0, Number(value) || 0));
+  profile.soundVolume = next;
+
+  ensureAudioReady();
+  applySoundGain();
+  saveProfile();
+
+  if (typeof updateSoundVolumeUI === 'function') {
+    updateSoundVolumeUI();
+  }
+}
+
 function ensureAudioReady() {
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
 
-if (!musicMasterGain) {
-  musicMasterGain = audioCtx.createGain();
-  musicMasterGain.gain.value = musicMuted ? 0 : getMusicVolume();
-  musicMasterGain.connect(audioCtx.destination);
-}
+  if (!musicMasterGain) {
+    musicMasterGain = audioCtx.createGain();
+    musicMasterGain.gain.value = musicMuted ? 0 : getMusicVolume();
+    musicMasterGain.connect(audioCtx.destination);
+  }
+
+  if (!soundMasterGain) {
+    soundMasterGain = audioCtx.createGain();
+    soundMasterGain.gain.value = getSoundVolume();
+    soundMasterGain.connect(audioCtx.destination);
+  }
 }
 
 function ensureLobbyMusicElement() {
@@ -115,8 +149,17 @@ applyMusicGain();
     startLobbyMusicPlayback();
   }
 
-  musicToggleBtn.textContent = `Music: ${musicMuted ? 'Off' : 'On'}`;
-  musicToggleBtn.className = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
+  const musicLabelText = `Music: ${musicMuted ? 'Off' : 'On'}`;
+  const musicLabelEl = musicToggleBtn?.querySelector?.('.menuBtnLabel');
+  if (musicLabelEl) {
+    musicLabelEl.textContent = musicLabelText;
+  } else if (musicToggleBtn) {
+    musicToggleBtn.textContent = musicLabelText;
+  }
+  if (musicToggleBtn) {
+    musicToggleBtn.classList.toggle('musicToggleOn', !musicMuted);
+    musicToggleBtn.classList.toggle('musicToggleOff', musicMuted);
+  }
   saveProfile();
 }
 
@@ -164,7 +207,7 @@ function playTone(type, frequency, duration, volume, frequencyEnd = null, output
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
 
   osc.connect(gain);
-  gain.connect(outputGain || audioCtx.destination);
+  gain.connect(outputGain || soundMasterGain || audioCtx.destination);
 
   osc.start(now);
   osc.stop(now + duration + 0.03);
@@ -236,7 +279,7 @@ function playSoundFx(key, volume = 1, playbackRate = 1) {
   gain.gain.value = Math.max(0, Math.min(2, Number(volume) || 1));
 
   source.connect(gain);
-  gain.connect(audioCtx.destination);
+  gain.connect(soundMasterGain || audioCtx.destination);
   source.start();
   return true;
 }
@@ -265,7 +308,7 @@ function startDraftSpellHoverSound() {
     gain.gain.value = 0.58;
 
     source.connect(gain);
-    gain.connect(audioCtx.destination);
+    gain.connect(soundMasterGain || audioCtx.destination);
 
     source.onended = () => {
       if (draftHoverSpellFx.source === source) {

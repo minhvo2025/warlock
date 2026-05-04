@@ -9,6 +9,27 @@
   const DISPLAY_NAME_MAX_LENGTH = 16;
   const DISPLAY_NAME_REGEX = /^[A-Za-z0-9 _-]+$/;
   const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const AUTH_CALLBACK_HASH_KEYS = new Set([
+    'access_token',
+    'token',
+    'token_hash',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'type',
+    'provider_token',
+    'provider_refresh_token',
+  ]);
+  const AUTH_CALLBACK_SEARCH_KEYS = new Set([
+    ...AUTH_CALLBACK_HASH_KEYS,
+    'token',
+    'token_hash',
+    'code',
+    'error',
+    'error_code',
+    'error_description',
+  ]);
   const PENDING_AUTH_ACTION_STORAGE_KEY = 'outra_pending_auth_action_v1';
   const PENDING_AUTH_ACTION_MAX_AGE_MS = 20 * 60 * 1000;
   const AUTH_CALLBACK_PATH = '/';
@@ -203,6 +224,63 @@
 
   function trimString(value) {
     return String(value || '').trim();
+  }
+
+  function hasSupabaseAuthCallbackParams() {
+    if (!global.location) return false;
+    try {
+      const hashParams = new URLSearchParams(trimString(global.location.hash).replace(/^#/, ''));
+      const searchParams = new URLSearchParams(trimString(global.location.search).replace(/^\?/, ''));
+
+      for (const key of AUTH_CALLBACK_HASH_KEYS) {
+        if (hashParams.has(key)) return true;
+      }
+
+      for (const key of AUTH_CALLBACK_SEARCH_KEYS) {
+        if (searchParams.has(key)) return true;
+      }
+
+      return false;
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  async function consumeAuthCallbackSession() {
+    const supabase = getSupabaseClient();
+    if (!supabase || typeof supabase.auth?.getSessionFromUrl !== 'function' || !hasSupabaseAuthCallbackParams()) {
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase.auth.getSessionFromUrl();
+      if (error) {
+        console.warn(`${LOG_PREFIX} getSessionFromUrl failed:`, error);
+      }
+
+      const sessionUser = data && data.session && data.session.user && data.session.user.id
+        ? data.session.user
+        : null;
+      if (sessionUser) {
+        if (global.outraSupabase && typeof global.outraSupabase.clearAuthHashFromUrl === 'function') {
+          global.outraSupabase.clearAuthHashFromUrl({ includeTokens: true });
+        }
+        return sessionUser;
+      }
+
+      const { data: sessionData } = await supabase.auth.getSession();
+      const fallbackUser = sessionData && sessionData.session && sessionData.session.user
+        ? sessionData.session.user
+        : null;
+      if (fallbackUser && isAuthenticatedUser(fallbackUser) && global.outraSupabase
+        && typeof global.outraSupabase.clearAuthHashFromUrl === 'function') {
+        global.outraSupabase.clearAuthHashFromUrl({ includeTokens: true });
+      }
+      return fallbackUser;
+    } catch (error) {
+      console.warn(`${LOG_PREFIX} failed to consume Supabase auth callback:`, error);
+      return null;
+    }
   }
 
   function normalizeDisplayName(value, fallback = 'Traveler') {
@@ -507,6 +585,9 @@
     const supabase = getSupabaseClient();
     if (!supabase) return null;
 
+    const callbackUser = await consumeAuthCallbackSession();
+    if (callbackUser) return callbackUser;
+
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
       console.error(`${LOG_PREFIX} getSession failed:`, sessionError);
@@ -741,14 +822,17 @@
         id: user.id,
         email: emailFromUser || normalizeEmail(pendingAction?.email),
         display_name: insertDisplayName,
-        display_name_lc: insertDisplayName.toLowerCase(),
       };
       let { data, error } = await supabase
         .from('profiles')
         .insert(insertPayload)
         .select()
         .single();
-      if (error && isMissingProfilesDisplayNameLcError(error)) {
+      if (
+        error
+        && isMissingProfilesDisplayNameLcError(error)
+        && Object.prototype.hasOwnProperty.call(insertPayload, 'display_name_lc')
+      ) {
         const retryPayload = {
           id: user.id,
           email: insertPayload.email,
@@ -801,7 +885,6 @@
       if (shouldUpdateEmail) updatePayload.email = nextEmail || null;
       if (shouldUpdateDisplayName) {
         updatePayload.display_name = nextDisplayName;
-        updatePayload.display_name_lc = nextDisplayName.toLowerCase();
       }
       let { data, error } = await supabase
         .from('profiles')
@@ -1645,9 +1728,14 @@
       identityEls.signedInBlockEl.hidden = !isAuthenticated;
     }
     if (identityEls.signedInTextEl) {
-      identityEls.signedInTextEl.textContent = isAuthenticated
-        ? `Signed in as ${displayName}`
-        : '';
+      identityEls.signedInTextEl.textContent = '';
+      if (isAuthenticated) {
+        identityEls.signedInTextEl.append(document.createTextNode('Signed in as '));
+        const nameEl = document.createElement('span');
+        nameEl.className = 'identitySignedInName';
+        nameEl.textContent = displayName;
+        identityEls.signedInTextEl.append(nameEl);
+      }
     }
     if (identityEls.signOutBtnEl) {
       identityEls.signOutBtnEl.hidden = !isAuthenticated;

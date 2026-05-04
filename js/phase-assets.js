@@ -113,22 +113,23 @@
     return !!getPackState(packId)?.loaded;
   }
 
-  function withNoopFallback(promiseLike) {
-    if (promiseLike && typeof promiseLike.then === 'function') return promiseLike;
-    return Promise.resolve(true);
-  }
-
   function getAudioApi() {
     return window.outraAudioAssets || null;
   }
 
-  function getThreeApi() {
-    return window.outraThree || null;
+  function getNyraLobbySpriteSheetPaths() {
+    return [
+      '/docs/art/character/Nyra/Nyra_lobby/nyra_lobby_0_40.png',
+      '/docs/art/character/Nyra/Nyra_lobby/nyra_lobby_41_80.png',
+      '/docs/art/character/Nyra/Nyra_lobby/nyra_lobby_81_120.png',
+      '/docs/art/character/Nyra/Nyra_lobby/nyra_lobby_121_149.png',
+    ];
   }
 
   function loadCoreAssetsInternal() {
     const spellIcons = Object.values(window.SPELL_ICONS || {});
-    const lobbyArt = window.OUTRA_3D_CONFIG?.lobbyArt || {};
+    const lobbyArt = window.OUTRA_VISUAL_CONFIG?.lobbyArt || {};
+    const nyraLobbySheets = getNyraLobbySpriteSheetPaths();
     const rankEntries = Array.isArray(window.OUTRA_RANKS?.all) ? window.OUTRA_RANKS.all : [];
     const rankIcons = rankEntries.map((entry) => entry?.badge);
     const imageTargets = [
@@ -136,6 +137,8 @@
       lobbyArt.currency,
       lobbyArt.button,
       lobbyArt.ranks,
+      ...nyraLobbySheets,
+      '/docs/art/character/Nyra/Nyra_lobby.png',
       '/docs/art/mouse.png',
       ...rankIcons,
     ];
@@ -150,12 +153,20 @@
   }
 
   function loadLobbyAssetsInternal() {
-    const threeApi = getThreeApi();
     const audioApi = getAudioApi();
-    const lobbyArt = window.OUTRA_3D_CONFIG?.lobbyArt || {};
+    const lobbyArt = window.OUTRA_VISUAL_CONFIG?.lobbyArt || {};
+    const nyraLobbySheets = getNyraLobbySpriteSheetPaths();
     const tasks = [
-      threeApi?.loadLobbyAssets ? withNoopFallback(threeApi.loadLobbyAssets()) : Promise.resolve(true),
-      preloadImages([lobbyArt.bg, lobbyArt.button, lobbyArt.currency, lobbyArt.emberOrange, lobbyArt.emberPurple, lobbyArt.ranks]),
+      preloadImages([
+        lobbyArt.bg,
+        lobbyArt.button,
+        lobbyArt.currency,
+        lobbyArt.emberOrange,
+        lobbyArt.emberPurple,
+        lobbyArt.ranks,
+        ...nyraLobbySheets,
+        '/docs/art/character/Nyra/Nyra_lobby.png'
+      ]),
       audioApi?.preloadLobbyMusicAsset ? audioApi.preloadLobbyMusicAsset() : Promise.resolve(true),
       audioApi?.preloadSoundFxPack ? audioApi.preloadSoundFxPack('lobby') : Promise.resolve(true),
     ];
@@ -164,11 +175,9 @@
   }
 
   function loadDraftAssetsInternal() {
-    const threeApi = getThreeApi();
     const audioApi = getAudioApi();
-    const draftBg = window.OUTRA_3D_CONFIG?.draftRoom?.backgroundImage || '/docs/art/draft/bg.png';
+    const draftBg = window.OUTRA_VISUAL_CONFIG?.draftRoom?.backgroundImage || '/docs/art/draft/bg.png';
     const tasks = [
-      threeApi?.loadDraftAssets ? withNoopFallback(threeApi.loadDraftAssets()) : Promise.resolve(true),
       preloadImages([draftBg]),
       audioApi?.preloadSoundFxPack ? audioApi.preloadSoundFxPack('draft') : Promise.resolve(true),
     ];
@@ -177,10 +186,33 @@
   }
 
   function loadArenaAssetsInternal() {
-    const threeApi = getThreeApi();
     const audioApi = getAudioApi();
+    const configuredArenaPlatformPath = String(window.OUTRA_VISUAL_CONFIG?.arenaFloor?.image || '').trim();
+    const arenaPlatformImagePath = configuredArenaPlatformPath || 'docs/art/draft/arena_platform.png';
+    const practiceSpriteSheetPath = 'docs/art/character/Nyra/Nyra_run/Nyra_run.png';
+    const practiceSpriteSheetFallbackPath = 'docs/art/character/Nyra/Nyra_run/Nyra_run.png';
+    const practiceDashSpriteSheetPath = 'docs/art/character/Nyra/Nyra_dash/Nyra_dash.png';
+    const practiceIdleSpriteSheetPath = 'docs/art/character/Nyra/Nyra_idle/Nyra_idle.png';
+    const practiceCastSpriteSheetPath = 'docs/art/character/Nyra/Nyra_cast/nyra_cast.png';
+    const practiceHitSpriteSheetPath = 'docs/art/character/Nyra/Nyra_hit/Nyra_hit.png';
+    const fireballSpriteSheetPath = 'docs/art/spells/Spell_fx/fire.png';
+    const hookFxImagePath = 'docs/art/spells/Spell_fx/hook.png';
+    const shockFxImagePath = 'docs/art/spells/Spell_fx/shock.png';
+    const wallFxImagePath = 'docs/art/spells/Spell_fx/wall.png';
     const tasks = [
-      threeApi?.loadArenaAssets ? withNoopFallback(threeApi.loadArenaAssets()) : Promise.resolve(true),
+      preloadImages([
+        arenaPlatformImagePath,
+        practiceSpriteSheetPath,
+        practiceSpriteSheetFallbackPath,
+        practiceDashSpriteSheetPath,
+        practiceIdleSpriteSheetPath,
+        practiceCastSpriteSheetPath,
+        practiceHitSpriteSheetPath,
+        fireballSpriteSheetPath,
+        hookFxImagePath,
+        shockFxImagePath,
+        wallFxImagePath
+      ]),
       audioApi?.preloadSoundFxPack ? audioApi.preloadSoundFxPack('arena') : Promise.resolve(true),
     ];
     return Promise.allSettled(tasks)
@@ -226,22 +258,16 @@
   }
 
   function unloadLobbyAssets(options = {}) {
-    const threeApi = getThreeApi();
-    if (threeApi?.unloadLobbyAssets) threeApi.unloadLobbyAssets(options);
     return true;
   }
 
   function unloadDraftAssets(options = {}) {
-    const threeApi = getThreeApi();
     const audioApi = getAudioApi();
-    if (threeApi?.unloadDraftAssets) threeApi.unloadDraftAssets(options);
     if (audioApi?.unloadSoundFxPack) audioApi.unloadSoundFxPack('draft', { releaseBuffers: !!options.releaseBuffers });
     return true;
   }
 
   function unloadArenaAssets(options = {}) {
-    const threeApi = getThreeApi();
-    if (threeApi?.unloadArenaAssets) threeApi.unloadArenaAssets(options);
     return true;
   }
 
@@ -521,10 +547,6 @@
         loadedAt: Number(pack.loadedAt) || 0,
       };
     });
-    const threeApi = getThreeApi();
-    if (threeApi && typeof threeApi.getAssetPackState === 'function') {
-      snapshot.three = threeApi.getAssetPackState();
-    }
     const audioApi = getAudioApi();
     if (audioApi && typeof audioApi.getSoundFxPackState === 'function') {
       snapshot.audio = audioApi.getSoundFxPackState();

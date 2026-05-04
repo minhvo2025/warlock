@@ -1,0 +1,17 @@
+// Nyra_idle.png (exported)
+// 1152×960 | 6×5 = 27 frames
+
+this.load.spritesheet('Nyra_idle', 'Nyra_idle.png', {
+    frameWidth: 192,
+    frameHeight: 192
+});
+
+this.anims.create({
+    key: 'Nyra_idle_anim',
+    frames: this.anims.generateFrameNumbers('Nyra_idle', { start: 0, end: 26 }),
+    frameRate: 30,
+    repeat: -1
+});
+
+const Nyra_idle = this.add.sprite(x, y, 'Nyra_idle');
+Nyra_idle.play('Nyra_idle_anim');

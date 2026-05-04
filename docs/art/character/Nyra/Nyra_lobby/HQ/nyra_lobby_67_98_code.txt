@@ -1,0 +1,17 @@
+// nyra_lobby_67_98.png (exported)
+// 2460×3660 | 6×6 = 32 frames
+
+this.load.spritesheet('nyra_lobby_67_98', 'nyra_lobby_67_98.png', {
+    frameWidth: 410,
+    frameHeight: 610
+});
+
+this.anims.create({
+    key: 'nyra_lobby_67_98_anim',
+    frames: this.anims.generateFrameNumbers('nyra_lobby_67_98', { start: 0, end: 31 }),
+    frameRate: 30,
+    repeat: -1
+});
+
+const nyra_lobby_67_98 = this.add.sprite(x, y, 'nyra_lobby_67_98');
+nyra_lobby_67_98.play('nyra_lobby_67_98_anim');

@@ -237,23 +237,190 @@ function applySpellIconsMobile() {
 
 applySpellIconsMobile();
 
+const MODIFIER_BIND_KEYS = new Set(['shift', 'control', 'alt', 'meta']);
+
+function normalizeMouseButton(button) {
+  const numericButton = Number(button);
+  if (!Number.isFinite(numericButton) || numericButton < 0) return '';
+  return `mouse${Math.floor(numericButton) + 1}`;
+}
+
+function isTokenBoundToAnyAction(token) {
+  if (!token || !keybinds || typeof keybinds !== 'object') return false;
+  const normalizedToken = normalizeKey(token);
+  return Object.keys(bindLabels).some((action) => normalizeKey(keybinds[action]) === normalizedToken);
+}
+
+function commitBindToken(token, event = null) {
+  if (!waitingForBind) return false;
+  const normalizedToken = normalizeKey(token);
+  if (!normalizedToken || MODIFIER_BIND_KEYS.has(normalizedToken)) return false;
+
+  if (event && typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+  if (event && typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
+  }
+
+  keybinds[waitingForBind] = normalizedToken;
+  waitingForBind = null;
+  buildKeybindsUI();
+  saveProfile();
+  updateHud();
+  return true;
+}
+
+function releaseWallIfNeeded(norm) {
+  if (norm !== keybinds.wall) return;
+  if (desktopWallPrimed && gameState === 'playing') {
+    startMusicIfNeeded();
+    castPlayerSpell('wall');
+  }
+  desktopWallPrimed = false;
+  if (skillAimPreview.type === 'wall') {
+    skillAimPreview.active = false;
+    skillAimPreview.type = null;
+  }
+}
+
+function triggerBoundActionFromMouse(norm, event) {
+  if (!norm) return false;
+
+  if (norm === keybinds.menu) {
+    if (event && typeof event.preventDefault === 'function') event.preventDefault();
+    toggleMenu();
+    return true;
+  }
+
+  if (gameState !== 'playing') return false;
+
+  if (norm === keybinds.fire) {
+    startMusicIfNeeded();
+    if (typeof isLocalRiftPlacementActive === 'function' && typeof placeLocalRiftAtCursor === 'function') {
+      if (isLocalRiftPlacementActive()) {
+        placeLocalRiftAtCursor(mouse.x, mouse.y);
+        return true;
+      }
+    }
+    castPlayerSpell('fire');
+    return true;
+  }
+
+  if (norm === keybinds.teleport) {
+    startMusicIfNeeded();
+    castPlayerSpell('blink');
+    return true;
+  }
+
+  if (norm === keybinds.hook) {
+    startMusicIfNeeded();
+    castPlayerSpell('hook');
+    return true;
+  }
+
+  if (norm === keybinds.shield) {
+    startMusicIfNeeded();
+    castPlayerSpell('shield');
+    return true;
+  }
+
+  if (norm === keybinds.prism) {
+    startMusicIfNeeded();
+    castPlayerSpell('prism');
+    return true;
+  }
+
+  if (norm === keybinds.charge) {
+    startMusicIfNeeded();
+    castPlayerSpell('charge');
+    return true;
+  }
+
+  if (norm === keybinds.shock) {
+    startMusicIfNeeded();
+    castPlayerSpell('shock');
+    return true;
+  }
+
+  if (norm === keybinds.gust) {
+    startMusicIfNeeded();
+    castPlayerSpell('gust');
+    return true;
+  }
+
+  if (norm === keybinds.solar) {
+    startMusicIfNeeded();
+    castPlayerSpell('solar');
+    return true;
+  }
+
+  if (norm === keybinds.rift) {
+    startMusicIfNeeded();
+    castPlayerSpell('rift');
+    return true;
+  }
+
+  if (norm === keybinds.phantom) {
+    startMusicIfNeeded();
+    castPlayerSpell('phantom');
+    return true;
+  }
+
+  if (norm === keybinds.wall) {
+    if (!desktopWallPrimed) {
+      desktopWallPrimed = true;
+      skillAimPreview.active = true;
+      skillAimPreview.type = 'wall';
+      skillAimPreview.dx = player.aimX;
+      skillAimPreview.dy = player.aimY;
+    }
+    return true;
+  }
+
+  if (norm === keybinds.rewind) {
+    startMusicIfNeeded();
+    castPlayerSpell('rewind');
+    return true;
+  }
+
+  if (norm === keybinds.reset) {
+    resetRound();
+    return true;
+  }
+
+  return false;
+}
+
+window.addEventListener('mousedown', (e) => {
+  if (!waitingForBind) return;
+  const mouseToken = normalizeMouseButton(e.button);
+  if (!mouseToken) return;
+  commitBindToken(mouseToken, e);
+}, true);
+
 // ── Keyboard ──────────────────────────────────────────────────
 window.addEventListener('keydown', (e) => {
   const norm = normalizeKey(e.key);
 
   if (waitingForBind) {
-    e.preventDefault();
-    if (!['shift', 'control', 'alt', 'meta'].includes(norm)) {
-      keybinds[waitingForBind] = norm;
-      waitingForBind = null;
-      buildKeybindsUI();
-      saveProfile();
-      updateHud();
-    }
+    commitBindToken(norm, e);
     return;
   }
 
   keys[norm] = true;
+
+  if (gameState === 'playing' && norm === keybinds.fire) {
+    e.preventDefault();
+    startMusicIfNeeded();
+    if (typeof isLocalRiftPlacementActive === 'function' && typeof placeLocalRiftAtCursor === 'function') {
+      if (isLocalRiftPlacementActive()) {
+        placeLocalRiftAtCursor(mouse.x, mouse.y);
+        return;
+      }
+    }
+    castPlayerSpell('fire');
+  }
 
   if (gameState !== 'lobby' && norm === keybinds.teleport) {
     e.preventDefault();
@@ -271,6 +438,11 @@ window.addEventListener('keydown', (e) => {
     castPlayerSpell('shield');
   }
 
+  if (gameState === 'playing' && norm === keybinds.prism) {
+    startMusicIfNeeded();
+    castPlayerSpell('prism');
+  }
+
   if (gameState === 'playing' && norm === keybinds.charge) {
     startMusicIfNeeded();
     castPlayerSpell('charge');
@@ -284,6 +456,21 @@ window.addEventListener('keydown', (e) => {
   if (gameState === 'playing' && norm === keybinds.gust) {
     startMusicIfNeeded();
     castPlayerSpell('gust');
+  }
+
+  if (gameState === 'playing' && norm === keybinds.solar) {
+    startMusicIfNeeded();
+    castPlayerSpell('solar');
+  }
+
+  if (gameState === 'playing' && norm === keybinds.rift) {
+    startMusicIfNeeded();
+    castPlayerSpell('rift');
+  }
+
+  if (gameState === 'playing' && norm === keybinds.phantom) {
+    startMusicIfNeeded();
+    castPlayerSpell('phantom');
   }
 
   if (gameState === 'playing' && norm === keybinds.wall) {
@@ -315,24 +502,29 @@ window.addEventListener('keyup', (e) => {
   const norm = normalizeKey(e.key);
   keys[norm] = false;
 
-  if (norm === keybinds.wall) {
-    if (desktopWallPrimed && gameState === 'playing') {
-      startMusicIfNeeded();
-      castPlayerSpell('wall');
-    }
-    desktopWallPrimed = false;
-    if (skillAimPreview.type === 'wall') {
-      skillAimPreview.active = false;
-      skillAimPreview.type = null;
-    }
-  }
+  releaseWallIfNeeded(norm);
 });
 
 // ── Mouse ─────────────────────────────────────────────────────
-canvas.addEventListener('mousemove', (e) => {
+function resolveCanvasPointFromClient(clientX, clientY) {
+  if (typeof clientToCanvasPoint === 'function') {
+    return clientToCanvasPoint(clientX, clientY);
+  }
   const rect = canvas.getBoundingClientRect();
-  mouse.x = e.clientX - rect.left;
-  mouse.y = e.clientY - rect.top;
+  const cssWidth = Math.max(1, Number(rect?.width) || Number(canvas.clientWidth) || Number(canvas.width) || 1);
+  const cssHeight = Math.max(1, Number(rect?.height) || Number(canvas.clientHeight) || Number(canvas.height) || 1);
+  const scaleX = (Number(canvas.width) || 1) / cssWidth;
+  const scaleY = (Number(canvas.height) || 1) / cssHeight;
+  return {
+    x: (Number(clientX) - Number(rect?.left || 0)) * scaleX,
+    y: (Number(clientY) - Number(rect?.top || 0)) * scaleY,
+  };
+}
+
+canvas.addEventListener('mousemove', (e) => {
+  const point = resolveCanvasPointFromClient(e.clientX, e.clientY);
+  mouse.x = point.x;
+  mouse.y = point.y;
 
   if (!isTouchDevice) {
     const aim = normalized(mouse.x - player.x, mouse.y - player.y);
@@ -349,9 +541,13 @@ canvas.addEventListener('mousemove', (e) => {
 });
 
 canvas.addEventListener('mousedown', (e) => {
-  const rect = canvas.getBoundingClientRect();
-  mouse.x = e.clientX - rect.left;
-  mouse.y = e.clientY - rect.top;
+  const point = resolveCanvasPointFromClient(e.clientX, e.clientY);
+  mouse.x = point.x;
+  mouse.y = point.y;
+  const mouseNorm = normalizeMouseButton(e.button);
+  if (mouseNorm) {
+    keys[mouseNorm] = true;
+  }
 
   const mpSnapshot = (window.outraMultiplayer && typeof window.outraMultiplayer.getPresentationSnapshot === 'function')
     ? window.outraMultiplayer.getPresentationSnapshot()
@@ -364,18 +560,38 @@ canvas.addEventListener('mousedown', (e) => {
   }
 
   if (multiplayerArenaActive) {
-    if (e.button === 0 && window.outraMultiplayer && typeof window.outraMultiplayer.castFireblast === 'function') {
-      startMusicIfNeeded();
-      window.outraMultiplayer.castFireblast();
+    if (e.button === 0 && window.outraMultiplayer) {
+      const riftPlacementActive = typeof window.outraMultiplayer.isRiftPlacementModeActive === 'function'
+        ? window.outraMultiplayer.isRiftPlacementModeActive()
+        : false;
+      if (riftPlacementActive && typeof window.outraMultiplayer.placeRiftAtCursor === 'function') {
+        startMusicIfNeeded();
+        window.outraMultiplayer.placeRiftAtCursor();
+        return;
+      }
+      if (typeof window.outraMultiplayer.castFireblast === 'function') {
+        startMusicIfNeeded();
+        window.outraMultiplayer.castFireblast();
+      }
     }
     return;
   }
 
   if (gameState !== 'playing') return;
-  startMusicIfNeeded();
+  if (mouseNorm && triggerBoundActionFromMouse(mouseNorm, e)) return;
 
-  if (e.button === 0) castPlayerSpell('fire');
-  else if (e.button === 2) castPlayerSpell('blink');
+  // Legacy secondary shortcut: keep RMB blink if no bind explicitly uses Mouse3.
+  if (mouseNorm === 'mouse3' && !isTokenBoundToAnyAction(mouseNorm)) {
+    startMusicIfNeeded();
+    castPlayerSpell('blink');
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  const mouseNorm = normalizeMouseButton(e.button);
+  if (!mouseNorm) return;
+  keys[mouseNorm] = false;
+  releaseWallIfNeeded(mouseNorm);
 });
 
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -384,17 +600,17 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('touchstart', (e) => {
   const t = e.touches[0];
   if (!t) return;
-  const rect = canvas.getBoundingClientRect();
-  mouse.x = t.clientX - rect.left;
-  mouse.y = t.clientY - rect.top;
+  const point = resolveCanvasPointFromClient(t.clientX, t.clientY);
+  mouse.x = point.x;
+  mouse.y = point.y;
 }, { passive: true });
 
 canvas.addEventListener('touchmove', (e) => {
   const t = e.touches[0];
   if (!t) return;
-  const rect = canvas.getBoundingClientRect();
-  mouse.x = t.clientX - rect.left;
-  mouse.y = t.clientY - rect.top;
+  const point = resolveCanvasPointFromClient(t.clientX, t.clientY);
+  mouse.x = point.x;
+  mouse.y = point.y;
 }, { passive: true });
 
 function openMenu() {
@@ -414,7 +630,16 @@ function closeMenu() {
   menuOpen = false;
   menuPanel.classList.remove('open');
   document.body.classList.remove('menuVisible');
-  if (gameState === 'playing') setCanvasCursorMode('crosshair');
+  const mpSnapshot = (typeof getMultiplayerPresentationSnapshot === 'function')
+    ? getMultiplayerPresentationSnapshot()
+    : (
+      window.outraMultiplayer
+      && typeof window.outraMultiplayer.getPresentationSnapshot === 'function'
+      ? window.outraMultiplayer.getPresentationSnapshot()
+      : null
+    );
+  const multiplayerArenaActive = !!(mpSnapshot && mpSnapshot.active && mpSnapshot.isArenaActive);
+  if (gameState === 'playing' || multiplayerArenaActive) setCanvasCursorMode('crosshair');
   else if (gameState === 'draft') setCanvasCursorMode('pointer');
   else setCanvasCursorMode('default');
 
@@ -437,9 +662,6 @@ function tryEnableGodMode() {
     if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugToolsEnabled === 'function') {
       window.outraMultiplayer.setDebugToolsEnabled(true);
     }
-    if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugPanelVisible === 'function') {
-      window.outraMultiplayer.setDebugPanelVisible(true);
-    }
     updateGodModeMenuState();
     updateHud();
     return;
@@ -458,7 +680,7 @@ function tryEnableGodMode() {
     window.outraMultiplayer.setDebugToolsEnabled(true);
   }
   if (window.outraMultiplayer && typeof window.outraMultiplayer.setDebugPanelVisible === 'function') {
-    window.outraMultiplayer.setDebugPanelVisible(true);
+    window.outraMultiplayer.setDebugPanelVisible(false);
   }
   updateHud();
 }
@@ -470,7 +692,7 @@ document.addEventListener('pointerdown', (e) => {
   const clickedInsideMenu = menuPanel.contains(e.target);
   const clickedMenuButton =
     menuBtn.contains(e.target) ||
-    lobbyMenuBtn.contains(e.target);
+    (lobbyMenuBtn && lobbyMenuBtn.contains(e.target));
 
   if (!clickedInsideMenu && !clickedMenuButton) {
     closeMenu();
@@ -490,10 +712,12 @@ menuBtn.addEventListener('click', () => {
   toggleMenu();
 });
 
-lobbyMenuBtn.addEventListener('click', () => {
-  playMenuClickSound();
-  toggleMenu();
-});
+if (lobbyMenuBtn) {
+  lobbyMenuBtn.addEventListener('click', () => {
+    playMenuClickSound();
+    toggleMenu();
+  });
+}
 
 document.querySelectorAll('[data-menu-tab]').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -507,6 +731,83 @@ document.querySelectorAll('[data-lobby-tab]').forEach((btn) => {
     setLobbyTab(btn.dataset.lobbyTab);
   });
 });
+
+const lobbyFriendsBtn = document.getElementById('lobbyFriendsBtn');
+const lobbyMessagesBtn = document.getElementById('lobbyMessagesBtn');
+let lobbyTopQuickBubbleEl = null;
+let lobbyTopQuickBubbleHideTimer = 0;
+
+function ensureLobbyTopQuickBubble() {
+  if (lobbyTopQuickBubbleEl && document.body.contains(lobbyTopQuickBubbleEl)) {
+    return lobbyTopQuickBubbleEl;
+  }
+
+  const bubble = document.createElement('div');
+  bubble.className = 'lobbyTopQuickBubble';
+  bubble.setAttribute('role', 'status');
+  bubble.setAttribute('aria-live', 'polite');
+  bubble.dataset.placement = 'bottom';
+  document.body.appendChild(bubble);
+  lobbyTopQuickBubbleEl = bubble;
+  return bubble;
+}
+
+function showLobbyTopQuickBubble(anchorEl, text) {
+  if (!anchorEl || !text) return;
+
+  const bubble = ensureLobbyTopQuickBubble();
+  bubble.textContent = text;
+  bubble.classList.remove('show');
+  bubble.dataset.placement = 'bottom';
+  bubble.style.left = '0px';
+  bubble.style.top = '0px';
+  void bubble.offsetWidth;
+  bubble.classList.add('show');
+
+  const anchorRect = anchorEl.getBoundingClientRect();
+  const bubbleRect = bubble.getBoundingClientRect();
+  const viewportPadding = 10;
+  const gap = 10;
+  let left = anchorRect.left + (anchorRect.width * 0.5) - (bubbleRect.width * 0.5);
+  left = Math.max(
+    viewportPadding,
+    Math.min(left, window.innerWidth - bubbleRect.width - viewportPadding)
+  );
+
+  let top = anchorRect.bottom + gap;
+  const useTopPlacement = top + bubbleRect.height + viewportPadding > window.innerHeight;
+  if (useTopPlacement) {
+    top = anchorRect.top - bubbleRect.height - gap;
+    bubble.dataset.placement = 'top';
+  } else {
+    bubble.dataset.placement = 'bottom';
+  }
+
+  bubble.style.left = `${Math.round(left)}px`;
+  bubble.style.top = `${Math.round(top)}px`;
+
+  if (lobbyTopQuickBubbleHideTimer) {
+    window.clearTimeout(lobbyTopQuickBubbleHideTimer);
+  }
+  lobbyTopQuickBubbleHideTimer = window.setTimeout(() => {
+    if (!bubble) return;
+    bubble.classList.remove('show');
+  }, 1700);
+}
+
+if (lobbyFriendsBtn) {
+  lobbyFriendsBtn.addEventListener('click', (event) => {
+    playMenuClickSound();
+    showLobbyTopQuickBubble(event.currentTarget, 'Friendlist coming soon');
+  });
+}
+
+if (lobbyMessagesBtn) {
+  lobbyMessagesBtn.addEventListener('click', (event) => {
+    playMenuClickSound();
+    showLobbyTopQuickBubble(event.currentTarget, 'DM coming soon');
+  });
+}
 
 const storeCloseBtn = document.getElementById('storeCloseBtn');
 const storeModalBackdrop = document.getElementById('storeModalBackdrop');
@@ -631,15 +932,9 @@ if (musicVolumeSlider) {
   });
 }
 
-if (performanceModeToggleBtn) {
-  performanceModeToggleBtn.addEventListener('click', () => {
-    if (typeof FORCE_ARENA_PERFORMANCE_MODE !== 'undefined' && FORCE_ARENA_PERFORMANCE_MODE) {
-      updatePerformanceModeUI();
-      return;
-    }
-    profile.performanceMode = !profile.performanceMode;
-    updatePerformanceModeUI();
-    saveProfile();
+if (soundVolumeSlider) {
+  soundVolumeSlider.addEventListener('input', () => {
+    setSoundVolume(soundVolumeSlider.value);
     updateHud();
   });
 }
@@ -776,34 +1071,52 @@ window.setTimeout(() => {
   refreshLobbyQuickMatchUi();
 }, 0);
 
-function setArenaHoverAura(active) {
-  if (window.outraThree && typeof window.outraThree.setPreviewAuraActive === 'function') {
-    window.outraThree.setPreviewAuraActive(active);
-  }
+if (typeof window.setLobbyPreviewFloorCircleActive === 'function') {
+  window.setLobbyPreviewFloorCircleActive(false);
+}
+const previewViewport = document.getElementById('previewViewport');
+const overlayRoot = document.getElementById('overlay');
+if (previewViewport) {
+  previewViewport.classList.remove('arenaAuraActive');
+  previewViewport.classList.remove('arenaHoverCircleActive');
+}
+if (overlayRoot) {
+  overlayRoot.classList.remove('arenaPortalActive');
+  overlayRoot.classList.remove('enterArenaPortalFxActive');
+}
 
-  const previewViewport = document.getElementById('previewViewport');
+function setArenaHoverCircleActive(active) {
+  const isActive = !!active;
+  if (overlayRoot) {
+    overlayRoot.classList.toggle('enterArenaPortalFxActive', isActive);
+  }
   if (previewViewport) {
-    previewViewport.classList.toggle('arenaAuraActive', !!active);
+    previewViewport.classList.remove('arenaAuraActive');
+    previewViewport.classList.remove('arenaHoverCircleActive');
+  }
+  if (typeof window.setLobbyPreviewFloorCircleActive === 'function') {
+    window.setLobbyPreviewFloorCircleActive(false);
   }
 }
 
-function bindArenaHoverAura(buttonEl) {
-  if (!buttonEl) return;
-  buttonEl.addEventListener('pointerenter', () => {
-    setArenaHoverAura(true);
+if (startBtn) {
+  startBtn.addEventListener('pointerenter', () => {
+    if (startBtn.disabled || startBtn.classList.contains('isSearching') || startBtn.classList.contains('isCancelMode')) {
+      setArenaHoverCircleActive(false);
+      return;
+    }
+    setArenaHoverCircleActive(true);
   });
-  buttonEl.addEventListener('pointerleave', () => {
-    setArenaHoverAura(false);
+  startBtn.addEventListener('pointerleave', () => {
+    setArenaHoverCircleActive(false);
   });
-  buttonEl.addEventListener('focus', () => {
-    setArenaHoverAura(true);
+  startBtn.addEventListener('pointercancel', () => {
+    setArenaHoverCircleActive(false);
   });
-  buttonEl.addEventListener('blur', () => {
-    setArenaHoverAura(false);
+  startBtn.addEventListener('pointerdown', () => {
+    setArenaHoverCircleActive(false);
   });
 }
-
-bindArenaHoverAura(startBtn);
 
 nameInput.addEventListener('input', () => {
   if (nameInput.readOnly) return;
@@ -824,9 +1137,13 @@ bindPullCastButton(mobileFireBtn, () => castPlayerSpell('fire'), 'fire');
 bindPullCastButton(mobileHookBtn, () => castPlayerSpell('hook'), 'hook');
 bindPullCastButton(mobileTeleportBtn, () => castPlayerSpell('blink'), 'blink');
 bindPullCastButton(mobileShieldBtn, () => castPlayerSpell('shield'), 'shield');
+bindPullCastButton(mobilePrismBtn, () => castPlayerSpell('prism'), 'prism');
 bindPullCastButton(mobileChargeBtn, () => castPlayerSpell('charge'), 'charge');
 bindPullCastButton(mobileShockBtn, () => castPlayerSpell('shock'), 'shock');
 bindPullCastButton(mobileGustBtn, () => castPlayerSpell('gust'), 'gust');
+bindPullCastButton(mobileSolarBtn, () => castPlayerSpell('solar'), 'solar');
+bindPullCastButton(mobileRiftBtn, () => castPlayerSpell('rift'), 'rift');
+bindPullCastButton(mobilePhantomBtn, () => castPlayerSpell('phantom'), 'phantom');
 bindPullCastButton(mobileWallBtn, () => castPlayerSpell('wall'), 'wall');
 bindPullCastButton(mobileRewindBtn, () => castPlayerSpell('rewind'), 'rewind');
 

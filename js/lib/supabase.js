@@ -3,6 +3,8 @@
   const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_9l483O2Ng-IALqgHUJZEzQ__efU53Sf';
   const AUTH_HASH_KEYS = new Set([
     'access_token',
+    'token',
+    'token_hash',
     'refresh_token',
     'expires_in',
     'expires_at',
@@ -166,7 +168,7 @@
   let cachedClient = null;
   function getClient() {
     if (cachedClient) {
-      scheduleAuthHashCleanup();
+      scheduleAuthErrorHashCleanup();
       return cachedClient;
     }
 
@@ -191,7 +193,7 @@
         detectSessionInUrl: true,
       },
     });
-    scheduleAuthHashCleanup();
+    scheduleAuthErrorHashCleanup();
     return cachedClient;
   }
 

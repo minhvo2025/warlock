@@ -18,6 +18,13 @@ const isTouchDevice =
   window.matchMedia('(pointer: coarse)').matches ||
   window.innerWidth <= 900;
 
+// Stabilizes multiplayer phase transitions (draft/arena) across short snapshot gaps
+// to prevent visible UI/render flicker on slower or jittery updates.
+const OUTRA_MULTIPLAYER_PHASE_STICKY_MS = 1500;
+window.OUTRA_MULTIPLAYER_PHASE_STICKY_MS = OUTRA_MULTIPLAYER_PHASE_STICKY_MS;
+const OUTRA_ENABLE_ARENA_CONCEPT_HUD = window.OUTRA_ENABLE_ARENA_CONCEPT_HUD !== false;
+window.OUTRA_ENABLE_ARENA_CONCEPT_HUD = OUTRA_ENABLE_ARENA_CONCEPT_HUD;
+
 // ── Auto Player Colors (assigned automatically) ───────────────
 const autoPlayerColors = [
   { name: 'Arcane Violet', body: '#d9d9ff', wand: '#7c4dff' },
@@ -92,11 +99,35 @@ const SPELL_DEFS = {
     icon: '🛡️',
     cooldownKey: 'shieldReadyAt',
   },
+  prism: {
+    id: 'prism',
+    name: 'Prism',
+    icon: 'P',
+    cooldownKey: 'prismReadyAt',
+  },
   charge: {
     id: 'charge',
     name: 'Arcane Charge',
     icon: '⚡',
     cooldownKey: 'chargeReadyAt',
+  },
+  solar: {
+    id: 'solar',
+    name: 'Solar',
+    icon: 'S',
+    cooldownKey: 'solarReadyAt',
+  },
+  rift: {
+    id: 'rift',
+    name: 'Rift',
+    icon: 'R',
+    cooldownKey: 'riftReadyAt',
+  },
+  phantom: {
+    id: 'phantom',
+    name: 'Phantom',
+    icon: 'P',
+    cooldownKey: 'phantomReadyAt',
   },
 };
 
@@ -106,104 +137,90 @@ const SPELL_ICONS = {
   hook:    '/docs/art/spells/hook.jpeg',
   blink:   '/docs/art/spells/blink.jpeg',
   shield:  '/docs/art/spells/shield.jpeg',
+  prism:   '/docs/art/spells/prism.jpg',
   charge:  '/docs/art/spells/charge.jpeg',
   shock:   '/docs/art/spells/shock.jpeg',
   gust:    '/docs/art/spells/gust.jpeg',
+  solar:   '/docs/art/spells/solar.jpg',
+  rift:    '/docs/art/spells/rift.jpg',
+  phantom: '/docs/art/spells/phantom.jpg',
   wall:    '/docs/art/spells/wall.jpeg',
   rewind:  '/docs/art/spells/rewind.jpeg'
 };
 
 // ── Store Items ───────────────────────────────────────────────
-const storeItems = [
+const DEFAULT_CHARACTER_SKIN_ID = 'zarokInitiate';
+
+const characterSkins = Object.freeze([
   {
-    id: 'potionBoost',
-    type: 'upgrade',
-    name: 'Potion Boost',
-    cost: 3,
-    description: '+5 extra heal from potions',
-    apply: (p) => p.store.potionBoost = true
+    id: 'zarokInitiate',
+    type: 'character',
+    name: 'Zarok Initiate',
+    rarity: 'Common',
+    cost: 0,
+    description: 'A disciplined battlemage trained for clean duels and quick reads.',
+    thumbnail: '/docs/art/character/zarok/zarok.png',
+    previewImages: [
+      '/docs/art/character/zarok/zarok.png',
+      '/docs/art/character/zarok/zarok_idle.png',
+    ],
   },
   {
-    id: 'cooldownCharm',
-    type: 'upgrade',
-    name: 'Cooldown Charm',
-    cost: 5,
-    description: 'Slightly faster hook cooldown',
-    apply: (p) => p.store.cooldownCharm = true
+    id: 'zarokRiftwalker',
+    type: 'character',
+    name: 'Zarok Riftwalker',
+    rarity: 'Rare',
+    cost: 6,
+    description: 'A fast-footed variant that hunts flank angles and portal pressure.',
+    thumbnail: '/docs/art/character/zarok/Drafts/zarok_west.png',
+    previewImages: [
+      '/docs/art/character/zarok/Drafts/zarok_west.png',
+      '/docs/art/character/zarok/Drafts/zarok_east.png',
+      '/docs/art/character/zarok/zarok_run.png',
+    ],
   },
   {
-    id: 'musicPack',
-    type: 'upgrade',
-    name: 'Music Pack',
-    cost: 2,
-    description: 'Just for flavor. Unlocks nothing yet.',
-    apply: (p) => p.store.musicPack = true
+    id: 'zarokVerdant',
+    type: 'character',
+    name: 'Zarok Verdant',
+    rarity: 'Epic',
+    cost: 12,
+    description: 'An infused emerald skin pulsing with unstable arcane growth.',
+    thumbnail: '/docs/art/character/zarok/Drafts/zorak_green.png',
+    previewImages: [
+      '/docs/art/character/zarok/Drafts/zorak_green.png',
+      '/docs/art/character/zarok/Drafts/zarok_north.jpeg',
+    ],
   },
   {
-    id: 'wizardHat',
-    type: 'hat',
-    name: 'Wizard Hat',
-    cost: 4,
-    description: 'Classic pointy mage hat',
-    apply: (p) => p.store.wizardHat = true
+    id: 'aldrionPrime',
+    type: 'character',
+    name: 'Aldrion Prime',
+    rarity: 'Legendary',
+    cost: 20,
+    description: 'A mythic archmage frame worn by champions who close out finals.',
+    thumbnail: '/docs/art/character/Warlock_reference.png',
+    previewImages: [
+      '/docs/art/character/Warlock_reference.png',
+      '/docs/art/character/zarok/Drafts/zarok_apose.png',
+    ],
   },
-  {
-    id: 'beanie',
-    type: 'hat',
-    name: 'Beanie',
-    cost: 3,
-    description: 'Soft round cap',
-    apply: (p) => p.store.beanie = true
+]);
+
+const CHARACTER_SKIN_BY_ID = Object.freeze(
+  characterSkins.reduce((acc, skin) => {
+    acc[skin.id] = skin;
+    return acc;
+  }, {})
+);
+
+const storeItems = characterSkins.map((skin) => ({
+  ...skin,
+  apply: (p) => {
+    if (!p || !p.store) return;
+    p.store[skin.id] = true;
   },
-  {
-    id: 'crown',
-    type: 'hat',
-    name: 'Crown',
-    cost: 7,
-    description: 'Royal shiny crown',
-    apply: (p) => p.store.crown = true
-  },
-  {
-    id: 'strawHat',
-    type: 'hat',
-    name: 'Straw Hat',
-    cost: 5,
-    description: 'Wide brim straw hat',
-    apply: (p) => p.store.strawHat = true
-  },
-  {
-    id: 'sweater',
-    type: 'sweater',
-    name: 'Sweater',
-    cost: 4,
-    description: 'Cozy sweater',
-    apply: (p) => p.store.sweater = true
-  },
-  {
-    id: 'boots',
-    type: 'boots',
-    name: 'Boots',
-    cost: 4,
-    description: 'Adventurer boots',
-    apply: (p) => p.store.boots = true
-  },
-  {
-    id: 'emoteGoodGame',
-    type: 'emote',
-    name: 'Emote: Good game',
-    cost: 5,
-    description: 'Unlocks the "Good game" emote in Draft Room.',
-    apply: (p) => p.store.emoteGoodGame = true
-  },
-  {
-    id: 'emoteEasyWin',
-    type: 'emote',
-    name: 'Emote: Easy Win',
-    cost: 5,
-    description: 'Unlocks the "Easy Win" emote in Draft Room.',
-    apply: (p) => p.store.emoteEasyWin = true
-  },
-];
+}));
 
 // ── Keybinds ──────────────────────────────────────────────────
 const defaultBinds = {
@@ -211,12 +228,17 @@ const defaultBinds = {
   down: 's',
   left: 'a',
   right: 'd',
+  fire: 'mouse1',
   hook: 'e',
   teleport: 'space',
   shield: 'q',
+  prism: 'g',
   charge: 'f',
   shock: 'c',
   gust: 'x',
+  solar: 'b',
+  rift: 't',
+  phantom: 'y',
   wall: 'v',
   rewind: 'z',
   reset: 'r',
@@ -228,12 +250,17 @@ const bindLabels = {
   down: 'Move Down',
   left: 'Move Left',
   right: 'Move Right',
+  fire: 'Fireblast',
   hook: 'Hook',
   teleport: 'Teleport',
   shield: 'Shield',
+  prism: 'Prism',
   charge: 'Arcane Charge',
   shock: 'Shock',
   gust: 'Gust',
+  solar: 'Solar',
+  rift: 'Rift',
+  phantom: 'Phantom',
   wall: 'Wall',
   rewind: 'Rewind',
   reset: 'Reset Round',
@@ -262,7 +289,7 @@ const FORCE_ARENA_PERFORMANCE_MODE = true;
 
 const draftState = {
   order: ['A', 'B', 'B', 'A', 'A', 'B'],
-  spellOrder: ['hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall', 'rewind'],
+  spellOrder: ['charge', 'prism', 'solar', 'rift', 'phantom', 'shock', 'gust', 'wall', 'rewind', 'shield', 'hook', 'blink'],
   localPlayerId: 'A',
   turnDuration: 8,
   holdDuration: 0.6,
@@ -316,12 +343,10 @@ const arenaIntro = {
   postFightDelay: 0.8,
 };
 
-// ── 3D Character Layer ───────────────────────────────────────
-window.OUTRA_3D_CONFIG = {
-  enabled: true,
-
+// ── Visual Asset / Layout Config ─────────────────────────────
+window.OUTRA_VISUAL_CONFIG = {
   lobbyArt: {
-    bg: '/docs/art/Lobby/BG.png',
+    bg: '/docs/art/Lobby/bg.jpg',
     button: '/docs/art/Lobby/Button.png',
     currency: '/docs/art/Lobby/Currency.png',
     emberOrange: '/docs/art/Lobby/Orange.png',
@@ -329,110 +354,20 @@ window.OUTRA_3D_CONFIG = {
     ranks: '/docs/art/Lobby/Ranks.png',
   },
 
-  lobbyCharacter: {
-    glb: '/docs/art/Lobby/player_lobby.glb',
-    animations: {
-      idle: 'Running',
-      hover: 'Idle_11',
-    },
-  },
-
-arenaCharacter: {
-  glb: '/docs/art/character/Outron_arena.glb',
-
-  animations: {
-    idle: 'mage_soell_cast_4',
-    walk: 'Running',
-    run: 'Hit_Reaction_1',
-    cast: 'Shield_Push_Left',
-    dash: 'Idle_11',
-    hit: 'Walking',
-  },
-
-
-  // Manual import orientation for the raw GLB.
-  // Keep Z at 0 so arena avatars stay upright in top-down combat.
- importRotation: {
-  x: 0,
-  y: 0,
-  z: 0,
-},
-
-  // Only used for aim/facing alignment after the model stands correctly.
-facingOffsetY: Math.PI,
-  
-stateRotationOffsets: {
-  idle: { x: 0, y: 0, z: 0 },
-  walk: { x: 0, y: 0, z: 0 },
-  run: { x: 0, y: 0, z: 0 },
-  cast: { x: 0, y: 0, z: 0 },
-  dash: { x: 0, y: 0, z: 0 },
-  hit: { x: 0, y: 0, z: 0 },
-},
-  
-  animationSpeeds: {
-    idle: 1.3,
-    walk: 1.15,
-    run: 1.0,
-    cast: 1.1,
-    dash: 1.2,
-    hit: 1.6,
-  },
-},
-
   arenaFloor: {
-    enabled: true,
-    glb: '/docs/Objects/floor.glb',
-    yOffset: 1,
-    opacity: 1,
-    brightness: 0.1,
-    lockRotationX: 0,
-    lockRotationY: 0,
-    lockRotationZ: 0,
+    image: '/docs/art/draft/arena_platform.png',
+    lavaBackgroundImage: '/docs/art/draft/lava.jpeg',
+    platformDepthFxEnabled: true,
+    visualOffsetY: 40,
+    platformVisualOffsetY: 90,
+  },
+
+  arenaFloatingStones: {
+    image: '/docs/art/draft/stones.png',
   },
 
   draftRoom: {
-    enabled: false,
-    playerFloatAmplitude: 1.1,
-    playerFloatSpeed: 0.9,
-    character: {
-      glb: '',
-    },
-    frontView: {
-      enabled: true,
-      rotationX: Math.PI * 0.5,
-      rotationY: Math.PI,
-      rotationZ: 0,
-      scale: 3.675,
-    },
-    platform: {
-      enabled: false,
-      glb: '',
-      attachToPlayers: true,
-      playerDiameter: 84,
-      playerScale: 2,
-      playerFootClearance: 0.65,
-      playerLocalYOffset: -0.85,
-      playerFloatAmplitude: 0.2,
-      playerFloatSpeed: 0.95,
-      offsetX: 0,
-      offsetY: -6,
-      offsetZ: 0,
-      rotationX: -1.1,
-      rotationY: 0,
-      rotationZ: 0,
-      scale: 1,
-      fitToLayoutRadius: 1.95,
-      brightness: 1,
-      opacity: 1,
-    },
-    playerTilt: {
-      x: -0.12,
-      z: 0.04,
-    },
-    playerYawOffset: 0,
-    playerYOffset: 6,
-    playerIdleYOffset: 12,
+    backgroundImage: '/docs/art/draft/bg.png',
     playerSeatOffsets: {
       A: { x: 0, y: -8 },
       B: { x: 0, y: 8 },
@@ -454,6 +389,7 @@ stateRotationOffsets: {
       moveRadiusPadding: -6,
       seatRadiusScale: 0.62,
       seatRadiusOffset: 0,
+      platformFitRadius: 1.95,
     },
     orb: {
       height: 16,
@@ -468,51 +404,6 @@ stateRotationOffsets: {
         taken: 0.42,
       },
     },
-  },
-
-  floorEnergyEnabled: true,
-  floorEnergySpeedX: 0.0035,
-  floorEnergySpeedY: 0.0055,
-  floorEnergyStrength: 1.0,
-
-  worldScale: 1,
-  // Arena model scale interpretation:
-  // - "absolute": actorScale is used directly as THREE scale scalar.
-  // - "multiplier": actorScale multiplies the auto target-height scale.
-  actorScaleMode: 'absolute',
-  actorScale: 42,
-  hoverHeight: 0,
-  shadowSize: 18,
-  castHoldTime: 0.22,
-  hitHoldTime: 0.28,
-  dashHoldTime: 0.30,
-  actorHeight: 45,
-  modelYOffset: 14,
-  modelYOffsetMobile: 14,
-
-  previewCharacter: {
-    targetHeightDesktop: 100,
-    targetHeightMobile: 78,
-
-    cameraFovDesktop: 30,
-    cameraFovMobile: 34,
-
-    cameraYDesktop: 96,
-    cameraYMobile: 68,
-
-    cameraZDesktop: 378,
-    cameraZMobile: 392,
-
-    lookAtYDesktop: 68,
-    lookAtYMobile: 50,
-
-    modelYOffsetDesktop: -14,
-    modelYOffsetMobile: -10,
-
-    shadowScaleXDesktop: 1.8,
-    shadowScaleXMobile: 1.55,
-    shadowScaleYDesktop: 0.82,
-    shadowScaleYMobile: 0.74,
   },
 };
 
@@ -532,8 +423,8 @@ const profile = {
   wlk: 0,
   musicMuted: false,
   musicVolume: 0.38,
+  soundVolume: 1,
   aimSensitivity: 0.7,
-  performanceMode: true,
   ranked: {
     currentRank: 20,
     currentStars: 0,
@@ -555,12 +446,17 @@ const profile = {
     sweater: false,
     boots: false,
     emoteGoodGame: false,
-    emoteEasyWin: false
+    emoteEasyWin: false,
+    zarokInitiate: true,
+    zarokRiftwalker: false,
+    zarokVerdant: false,
+    aldrionPrime: false,
   },
   equipped: {
     hat: null,
     sweater: false,
-    boots: false
+    boots: false,
+    character: DEFAULT_CHARACTER_SKIN_ID,
   }
 };
 
@@ -570,6 +466,7 @@ const arena = {
   cy: 0,
   baseRadius: 0,
   radius: 0,
+  shrinkEnabled: false,
   shrinkInterval: 20,
   shrinkTimer: 20,
   shrinkStep: 26,
@@ -595,9 +492,13 @@ const player = {
   hookCooldown: 1.8,
   teleportCooldown: 2.5,
   shieldCooldown: 4.5,
+  prismCooldown: 8.0,
   chargeCooldown: 5.5,
   shockCooldown: 3.2,
   gustCooldown: 6.0,
+  solarCooldown: 9.0,
+  riftCooldown: 11.0,
+  phantomCooldown: 11.0,
   wallCooldown: 8.0,
   rewindCooldown: 9.0,
 
@@ -605,20 +506,48 @@ const player = {
   hookReadyAt: 0,
   teleportReadyAt: 0,
   shieldReadyAt: 0,
+  prismReadyAt: 0,
   chargeReadyAt: 0,
   shockReadyAt: 0,
   gustReadyAt: 0,
+  solarReadyAt: 0,
+  riftReadyAt: 0,
+  phantomReadyAt: 0,
   wallReadyAt: 0,
   rewindReadyAt: 0,
 
   teleportDistance: 150,
   shieldUntil: 0,
+  prismUntil: 0,
+  solarDistortionUntil: 0,
+  riftPendingExpiresAt: 0,
+  riftPendingPortalA: null,
+  riftPlacementActive: false,
+  phantomVanishUntil: 0,
+  phantomIllusionUntil: 0,
+  phantomSplitApplied: false,
+  phantomOriginX: 0,
+  phantomOriginY: 0,
+  phantomSplitOffsetX: 0,
+  phantomSplitOffsetY: 0,
+  phantomIllusionX: 0,
+  phantomIllusionY: 0,
+  phantomIllusionVelX: 0,
+  phantomIllusionVelY: 0,
+  phantomIllusionRetargetAt: 0,
+  phantomIllusionLastAt: 0,
 
   chargeActive: false,
   chargeDirX: 0,
   chargeDirY: 0,
   chargeTimer: 0,
   chargeHit: false,
+  dashAnimStartedAt: 0,
+  dashAnimUntil: 0,
+  castAnimStartedAt: 0,
+  castAnimUntil: 0,
+  hitAnimStartedAt: 0,
+  hitAnimUntil: 0,
 
   alive: true,
   deadReason: '',
@@ -629,6 +558,8 @@ const player = {
 
   aimX: 1,
   aimY: 0,
+  prismDirX: 1,
+  prismDirY: 0,
 
   rewindSeconds: 1.0,
 };
@@ -639,9 +570,13 @@ let activeSpellLoadout = [
   'hook',
   'blink',
   'shield',
+  'prism',
   'charge',
   'shock',
   'gust',
+  'solar',
+  'rift',
+  'phantom',
   'wall',
   'rewind'
 ];
@@ -674,10 +609,21 @@ const dummy = {
 
   aimX: -1,
   aimY: 0,
+  prismDirX: -1,
+  prismDirY: 0,
   shieldUntil: 0,
+  prismUntil: 0,
+  solarDistortionUntil: 0,
+  phantomVanishUntil: 0,
   chargeActive: false,
   chargeDirX: -1,
   chargeDirY: 0,
+  dashAnimStartedAt: 0,
+  dashAnimUntil: 0,
+  castAnimStartedAt: 0,
+  castAnimUntil: 0,
+  hitAnimStartedAt: 0,
+  hitAnimUntil: 0,
 };
 
 // ── World Collections ─────────────────────────────────────────
@@ -686,6 +632,8 @@ const particles = [];
 const damageTexts = [];
 const obstacles = [];
 const walls = [];
+const rifts = [];
+const phantomIllusions = [];
 const hooks = [];
 const potions = [];
 const rewindHistory = [];
@@ -701,6 +649,7 @@ const combatFx = {
   },
   impactWaves: [],
   directionalWaves: [],
+  practiceSpellImageFx: [],
   actorHitFlash: {
     player: 0,
     dummy: 0,
@@ -726,15 +675,32 @@ let potionSpawnTimer = 6;
 
 // ── DOM References ────────────────────────────────────────────
 const canvas = document.getElementById('game');
-const bgCtx = canvas.getContext('2d');
+
+function createCanvas2DContext(targetCanvas, options = null) {
+  if (!targetCanvas || typeof targetCanvas.getContext !== 'function') return null;
+  if (options && typeof options === 'object') {
+    const optedContext = targetCanvas.getContext('2d', options);
+    if (optedContext) return optedContext;
+  }
+  return targetCanvas.getContext('2d');
+}
+
+const bgCtx = createCanvas2DContext(canvas, {
+  alpha: false,
+  desynchronized: true,
+});
 
 const fxCanvas = document.getElementById('gameFx');
-const fxCtx = fxCanvas.getContext('2d');
+const fxCtx = createCanvas2DContext(fxCanvas, {
+  alpha: true,
+  desynchronized: true,
+});
 
 let ctx = bgCtx;
 
 const hud = document.getElementById('hud');
 const topbar = document.getElementById('topbar');
+const arenaMatchHudEl = document.getElementById('arenaMatchHud');
 const overlay = document.getElementById('overlay');
 const draftOverlay = document.getElementById('draftOverlay');
 const menuPanel = document.getElementById('menuPanel');
@@ -747,6 +713,59 @@ const roundTimerHudEl = document.getElementById('roundTimerHud');
 const controlsHudEl = document.getElementById('controlsHud');
 const playerNameHudEl = document.getElementById('playerNameHud');
 
+const arenaScoreMetaTopEl = document.getElementById('arenaScoreMetaTop');
+const arenaScoreRoundEl = document.getElementById('arenaScoreRound');
+const arenaScoreTimerEl = document.getElementById('arenaScoreTimer');
+const arenaScoreLeftNameEl = document.getElementById('arenaScoreLeftName');
+const arenaScoreLeftValueEl = document.getElementById('arenaScoreLeftValue');
+const arenaScoreLeftMarkersEl = document.getElementById('arenaScoreLeftMarkers');
+const arenaScoreRightNameEl = document.getElementById('arenaScoreRightName');
+const arenaScoreRightValueEl = document.getElementById('arenaScoreRightValue');
+const arenaScoreRightMarkersEl = document.getElementById('arenaScoreRightMarkers');
+
+const arenaLeftPortraitGlyphEl = document.getElementById('arenaLeftPortraitGlyph');
+const arenaLeftPanelNameEl = document.getElementById('arenaLeftPanelName');
+const arenaLeftRankLabelEl = document.getElementById('arenaLeftRankLabel');
+const arenaLeftRankTitleEl = document.getElementById('arenaLeftRankTitle');
+const arenaLeftHpTextEl = document.getElementById('arenaLeftHpText');
+const arenaLeftHpFillEl = document.getElementById('arenaLeftHpFill');
+const arenaSpellBarMountEl = document.getElementById('arenaSpellBarMount');
+const arenaLeftSpellIconEls = [
+  document.getElementById('arenaLeftSpell0Icon'),
+  document.getElementById('arenaLeftSpell1Icon'),
+  document.getElementById('arenaLeftSpell2Icon'),
+];
+const arenaLeftSpellFallbackEls = [
+  document.getElementById('arenaLeftSpell0Fallback'),
+  document.getElementById('arenaLeftSpell1Fallback'),
+  document.getElementById('arenaLeftSpell2Fallback'),
+];
+const arenaLeftFireSpellIconEl = document.getElementById('arenaLeftFireSpellIcon');
+const arenaLeftFireSpellFallbackEl = document.getElementById('arenaLeftFireSpellFallback');
+const arenaLeftFireSpellCooldownEl = document.getElementById('arenaLeftFireSpellCooldown');
+const arenaLeftFireSpellKeyEl = document.getElementById('arenaLeftFireSpellKey');
+
+const arenaRightPortraitGlyphEl = document.getElementById('arenaRightPortraitGlyph');
+const arenaRightPanelNameEl = document.getElementById('arenaRightPanelName');
+const arenaRightRankLabelEl = document.getElementById('arenaRightRankLabel');
+const arenaRightRankTitleEl = document.getElementById('arenaRightRankTitle');
+const arenaRightHpTextEl = document.getElementById('arenaRightHpText');
+const arenaRightHpFillEl = document.getElementById('arenaRightHpFill');
+const arenaRightSpellIconEls = [
+  document.getElementById('arenaRightSpell0Icon'),
+  document.getElementById('arenaRightSpell1Icon'),
+  document.getElementById('arenaRightSpell2Icon'),
+];
+const arenaRightSpellFallbackEls = [
+  document.getElementById('arenaRightSpell0Fallback'),
+  document.getElementById('arenaRightSpell1Fallback'),
+  document.getElementById('arenaRightSpell2Fallback'),
+];
+const arenaRightFireSpellIconEl = document.getElementById('arenaRightFireSpellIcon');
+const arenaRightFireSpellFallbackEl = document.getElementById('arenaRightFireSpellFallback');
+const arenaRightFireSpellCooldownEl = document.getElementById('arenaRightFireSpellCooldown');
+const arenaRightFireSpellKeyEl = document.getElementById('arenaRightFireSpellKey');
+
 const hudToggleBtn = document.getElementById('hudToggleBtn');
 const menuBtn = document.getElementById('menuBtn');
 const draftTurnBadgeEl = document.getElementById('draftTurnBadge');
@@ -754,8 +773,8 @@ const lobbyMenuBtn = document.getElementById('lobbyMenuBtn');
 const draftTurnTextEl = document.getElementById('draftTurnText');
 const draftCountdownEl = document.getElementById('draftCountdown');
 const draftTimerCardEl = document.getElementById('draftTimerCard');
-const draftSpellPoolDockEl = document.getElementById('draftSpellPoolDock');
-const draftSpellPoolGridEl = document.getElementById('draftSpellPoolGrid');
+const draftSpellIconOverlayEl = document.getElementById('draftSpellIconOverlay');
+const arenaCursorReticleEl = document.getElementById('arenaCursorReticle');
 const draftOrderListEl = document.getElementById('draftOrderList');
 const draftOrderProgressEl = document.getElementById('draftOrderProgress');
 const draftHelperTextEl = document.getElementById('draftHelperText');
@@ -778,7 +797,8 @@ const aimSensitivitySlider = document.getElementById('aimSensitivitySlider');
 const aimSensitivityValue = document.getElementById('aimSensitivityValue');
 const musicVolumeSlider = document.getElementById('musicVolumeSlider');
 const musicVolumeValue = document.getElementById('musicVolumeValue');
-const performanceModeToggleBtn = document.getElementById('performanceModeToggleBtn');
+const soundVolumeSlider = document.getElementById('soundVolumeSlider');
+const soundVolumeValue = document.getElementById('soundVolumeValue');
 
 const nameInput = document.getElementById('nameInput');
 const colorRow = document.getElementById('colorRow');
@@ -806,9 +826,13 @@ const mobileFireBtn = document.getElementById('mobileFireBtn');
 const mobileHookBtn = document.getElementById('mobileHookBtn');
 const mobileTeleportBtn = document.getElementById('mobileTeleportBtn');
 const mobileShieldBtn = document.getElementById('mobileShieldBtn');
+const mobilePrismBtn = document.getElementById('mobilePrismBtn');
 const mobileChargeBtn = document.getElementById('mobileChargeBtn');
 const mobileShockBtn = document.getElementById('mobileShockBtn');
 const mobileGustBtn = document.getElementById('mobileGustBtn');
+const mobileSolarBtn = document.getElementById('mobileSolarBtn');
+const mobileRiftBtn = document.getElementById('mobileRiftBtn');
+const mobilePhantomBtn = document.getElementById('mobilePhantomBtn');
 const mobileWallBtn = document.getElementById('mobileWallBtn');
 const mobileRewindBtn = document.getElementById('mobileRewindBtn');
 
@@ -817,9 +841,13 @@ const skillButtons = {
   hook: mobileHookBtn,
   blink: mobileTeleportBtn,
   shield: mobileShieldBtn,
+  prism: mobilePrismBtn,
   charge: mobileChargeBtn,
   shock: mobileShockBtn,
   gust: mobileGustBtn,
+  solar: mobileSolarBtn,
+  rift: mobileRiftBtn,
+  phantom: mobilePhantomBtn,
   wall: mobileWallBtn,
   rewind: mobileRewindBtn,
 };

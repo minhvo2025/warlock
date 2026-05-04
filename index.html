@@ -68,7 +68,6 @@
 <body>
   <div id="stage">
     <canvas id="game"></canvas>
-    <div id="threeLayer" aria-hidden="true"></div>
     <canvas id="gameFx" aria-hidden="true"></canvas>
   </div>
 
@@ -113,6 +112,13 @@
       <div class="deskSpellKey" id="dkey-shield">Q</div>
     </div>
 
+    <div class="deskSpell" id="dspell-prism">
+      <div class="deskSpellIcon">P</div>
+      <div class="deskSpellCooldown" id="dcd-prism"></div>
+      <div class="deskSpellLabel">Prism</div>
+      <div class="deskSpellKey" id="dkey-prism">G</div>
+    </div>
+
     <div class="deskSpell" id="dspell-charge">
       <div class="deskSpellIcon">⚡</div>
       <div class="deskSpellCooldown" id="dcd-charge"></div>
@@ -132,6 +138,27 @@
       <div class="deskSpellCooldown" id="dcd-gust"></div>
       <div class="deskSpellLabel">Gust</div>
       <div class="deskSpellKey" id="dkey-gust">X</div>
+    </div>
+
+    <div class="deskSpell" id="dspell-solar">
+      <div class="deskSpellIcon">S</div>
+      <div class="deskSpellCooldown" id="dcd-solar"></div>
+      <div class="deskSpellLabel">Solar</div>
+      <div class="deskSpellKey" id="dkey-solar">B</div>
+    </div>
+
+    <div class="deskSpell" id="dspell-rift">
+      <div class="deskSpellIcon">R</div>
+      <div class="deskSpellCooldown" id="dcd-rift"></div>
+      <div class="deskSpellLabel">Rift</div>
+      <div class="deskSpellKey" id="dkey-rift">T</div>
+    </div>
+
+    <div class="deskSpell" id="dspell-phantom">
+      <div class="deskSpellIcon">P</div>
+      <div class="deskSpellCooldown" id="dcd-phantom"></div>
+      <div class="deskSpellLabel">Phantom</div>
+      <div class="deskSpellKey" id="dkey-phantom">Y</div>
     </div>
 
     <div class="deskSpell" id="dspell-wall">
@@ -157,7 +184,126 @@
     </div>
   </div>
 
+  <div id="arenaMatchHud" aria-hidden="true">
+    <section id="arenaScoreboard" class="arenaScoreboard" aria-label="Match scoreboard">
+      <div class="arenaScoreTeam arenaScoreTeamLeft">
+        <div class="arenaScoreName" id="arenaScoreLeftName">OUTRIDER</div>
+        <div class="arenaScoreValue" id="arenaScoreLeftValue">0</div>
+        <div class="arenaScoreMarkers" id="arenaScoreLeftMarkers" aria-hidden="true"></div>
+      </div>
+      <div class="arenaScoreCenter">
+        <div class="arenaScoreMetaTop" id="arenaScoreMetaTop">BO3</div>
+        <div class="arenaScoreRound" id="arenaScoreRound">ROUND 1</div>
+        <div class="arenaScoreTimer" id="arenaScoreTimer">01:30</div>
+      </div>
+      <div class="arenaScoreTeam arenaScoreTeamRight">
+        <div class="arenaScoreName" id="arenaScoreRightName">PLAYER</div>
+        <div class="arenaScoreValue" id="arenaScoreRightValue">0</div>
+        <div class="arenaScoreMarkers" id="arenaScoreRightMarkers" aria-hidden="true"></div>
+      </div>
+    </section>
+
+    <aside class="arenaPlayerPanel arenaPlayerPanelLeft" aria-label="Left player card">
+      <div class="arenaPlayerPortrait">
+        <img
+          class="arenaPlayerPortraitImage"
+          src="/docs/art/character/profile.png"
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
+        <span class="arenaPlayerPortraitGlyph" id="arenaLeftPortraitGlyph">L</span>
+      </div>
+      <div class="arenaPlayerName" id="arenaLeftPanelName">OUTRIDER</div>
+      <div class="arenaPlayerRankLabel" id="arenaLeftRankLabel">RANK 5</div>
+      <div class="arenaPlayerRankTitle" id="arenaLeftRankTitle">EMBER ADEPT</div>
+      <div class="arenaPlayerHpHead">
+        <span>HP</span>
+        <span id="arenaLeftHpText">100 / 100</span>
+      </div>
+      <div class="arenaPlayerHpTrack">
+        <span class="arenaPlayerHpFill" id="arenaLeftHpFill"></span>
+      </div>
+      <div class="arenaPlayerSpellsLabel">SPELLS</div>
+      <div class="arenaPlayerSpells">
+        <div class="arenaSpellSlot">
+          <img id="arenaLeftSpell0Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaLeftSpell0Fallback">Q</span>
+        </div>
+        <div class="arenaSpellSlot">
+          <img id="arenaLeftSpell1Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaLeftSpell1Fallback">W</span>
+        </div>
+        <div class="arenaSpellSlot">
+          <img id="arenaLeftSpell2Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaLeftSpell2Fallback">E</span>
+        </div>
+      </div>
+      <div id="arenaSpellBarMount" class="arenaSpellBarMount" aria-label="Your active spells"></div>
+      <div class="arenaSpellSlot arenaFireSlot has-icon" data-standard-spell-slot="fire" aria-label="Fireball">
+        <img id="arenaLeftFireSpellIcon" class="spellIcon" src="/docs/art/spells/fireball.jpeg" alt="Fireball" loading="lazy" decoding="async" draggable="false" />
+        <div class="deskSpellCooldown arenaSpellCooldown" id="arenaLeftFireSpellCooldown"></div>
+        <div class="deskSpellKey arenaSpellKey" id="arenaLeftFireSpellKey">M1</div>
+        <span class="arenaSpellFallback" id="arenaLeftFireSpellFallback">F</span>
+      </div>
+    </aside>
+
+    <aside class="arenaPlayerPanel arenaPlayerPanelRight" aria-label="Right player card">
+      <div class="arenaPlayerPortrait">
+        <img
+          class="arenaPlayerPortraitImage"
+          src="/docs/art/character/profile.png"
+          alt=""
+          loading="lazy"
+          decoding="async"
+          draggable="false"
+        />
+        <span class="arenaPlayerPortraitGlyph" id="arenaRightPortraitGlyph">R</span>
+      </div>
+      <div class="arenaPlayerName" id="arenaRightPanelName">PLAYER</div>
+      <div class="arenaPlayerRankLabel" id="arenaRightRankLabel">RANK 5</div>
+      <div class="arenaPlayerRankTitle" id="arenaRightRankTitle">FLAME WIELDER</div>
+      <div class="arenaPlayerHpHead">
+        <span>HP</span>
+        <span id="arenaRightHpText">100 / 100</span>
+      </div>
+      <div class="arenaPlayerHpTrack">
+        <span class="arenaPlayerHpFill" id="arenaRightHpFill"></span>
+      </div>
+      <div class="arenaPlayerSpellsLabel">SPELLS</div>
+      <div class="arenaPlayerSpells">
+        <div class="arenaSpellSlot">
+          <img id="arenaRightSpell0Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaRightSpell0Fallback">Q</span>
+        </div>
+        <div class="arenaSpellSlot">
+          <img id="arenaRightSpell1Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaRightSpell1Fallback">W</span>
+        </div>
+        <div class="arenaSpellSlot">
+          <img id="arenaRightSpell2Icon" alt="" loading="lazy" decoding="async" draggable="false" />
+          <span class="arenaSpellFallback" id="arenaRightSpell2Fallback">E</span>
+        </div>
+      </div>
+      <div class="arenaSpellSlot arenaFireSlot has-icon" data-standard-spell-slot="fire" aria-label="Fireball">
+        <img id="arenaRightFireSpellIcon" class="spellIcon" src="/docs/art/spells/fireball.jpeg" alt="Fireball" loading="lazy" decoding="async" draggable="false" />
+        <div class="deskSpellCooldown arenaSpellCooldown" id="arenaRightFireSpellCooldown"></div>
+        <div class="deskSpellKey arenaSpellKey" id="arenaRightFireSpellKey">M1</div>
+        <span class="arenaSpellFallback" id="arenaRightFireSpellFallback">F</span>
+      </div>
+    </aside>
+  </div>
+
+  <div id="perfOverlay" aria-hidden="true">FPS -- | --.- ms</div>
+  <div id="arenaCursorReticle" class="arenaCursorReticle" aria-hidden="true">
+    <span class="arenaCursorReticleHalo"></span>
+    <span class="arenaCursorReticleRing"></span>
+    <span class="arenaCursorReticleDot"></span>
+  </div>
+
   <div id="draftOverlay" aria-hidden="true">
+    <div id="draftSpellIconOverlay" class="draftSpellIconOverlay" aria-hidden="true"></div>
     <div class="draftHudTop">
       <div class="draftPhaseTitle">DRAFT PHASE</div>
       <div id="draftTurnText" class="draftTurnText">TURN 1 - PICK A SPELL</div>
@@ -174,7 +320,7 @@
             <img
               class="draftPlayerAvatarImg"
               data-draft-player-avatar="A"
-              src="/docs/art/pfp.png"
+              src="/docs/art/character/profile.png"
               alt="Player A avatar"
               loading="lazy"
               decoding="async"
@@ -212,7 +358,7 @@
             <img
               class="draftPlayerAvatarImg"
               data-draft-player-avatar="B"
-              src="/docs/art/pfp.png"
+              src="/docs/art/character/profile.png"
               alt="Player B avatar"
               loading="lazy"
               decoding="async"
@@ -292,6 +438,13 @@
           <div class="mobileDragArrow"></div>
         </button>
 
+        <button class="mobileBtn big subSkill" id="mobilePrismBtn">
+          <span class="mobileBtnIcon small">P</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Prism</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
         <button class="mobileBtn big subSkill" id="mobileChargeBtn">
           <span class="mobileBtnIcon small">⚡</span>
           <span class="mobileBtnCooldown"></span>
@@ -310,6 +463,27 @@
           <span class="mobileBtnIcon small">🌪️</span>
           <span class="mobileBtnCooldown"></span>
           <span class="mobileBtnText">Gust</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileSolarBtn">
+          <span class="mobileBtnIcon small">S</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Solar</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobileRiftBtn">
+          <span class="mobileBtnIcon small">R</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Rift</span>
+          <div class="mobileDragArrow"></div>
+        </button>
+
+        <button class="mobileBtn big subSkill" id="mobilePhantomBtn">
+          <span class="mobileBtnIcon small">P</span>
+          <span class="mobileBtnCooldown"></span>
+          <span class="mobileBtnText">Phantom</span>
           <div class="mobileDragArrow"></div>
         </button>
 
@@ -396,7 +570,7 @@
 
     <div id="menuKeybinds" class="menuPage">
       <div id="menuBindList"></div>
-      <div class="hint" style="margin-top: 10px;">Mouse buttons stay fixed to avoid browser conflicts.</div>
+      <div class="hint" style="margin-top: 10px;">Press a key or mouse button while rebinding.</div>
       <div class="row" style="margin-top: 10px;">
         <button id="menuResetBindsBtn" class="secondary">Reset Keys</button>
       </div>
@@ -433,70 +607,183 @@
     <span id="musicVolumeValue" class="tag">38%</span>
   </div>
 
-  <div class="sectionTitle" style="font-size:16px;">Arena Performance</div>
-  <div class="hint">Reduces lava and particle detail for smoother battles.</div>
+  <div class="sectionTitle" style="font-size:16px;">Sound Volume</div>
+  <div class="hint">Adjust the game sound effects volume.</div>
   <div class="row" style="margin-top:10px; align-items:center;">
-    <button id="performanceModeToggleBtn" class="secondary" type="button">Performance Mode: On (Forced)</button>
+    <input
+      id="soundVolumeSlider"
+      type="range"
+      min="0"
+      max="1"
+      step="0.01"
+      value="1"
+      style="width:180px;"
+    />
+    <span id="soundVolumeValue" class="tag">100%</span>
   </div>
+
 </div>
-    </div>
+  </div>
 
   <div id="overlay">
+    <div class="lobbyBgMedia" aria-hidden="true">
+      <img
+        class="lobbyBgImage"
+        src="docs/art/Lobby/bg.jpg"
+        alt=""
+        loading="eager"
+        decoding="async"
+        draggable="false"
+      />
+      <img
+        class="lobbyBgPortalImage"
+        src="docs/art/Lobby/portal.png"
+        alt=""
+        loading="eager"
+        decoding="async"
+        draggable="false"
+      />
+    </div>
     <div class="panel lobbyShell">
 <div class="lobbyTopBar">
-  <div class="lobbyTopLeft">
-    <button id="lobbyMenuBtn" class="secondary lobbyMenuBtn">Menu</button>
-    <button id="lobbyStoreBtn" class="secondary lobbyStoreBtn" data-lobby-tab="store">Store</button>
-    <button id="identitySignOutBtn" class="secondary lobbySignOutBtn" type="button" hidden>Sign out</button>
-  </div>
+  <div class="lobbyTopLeft" aria-hidden="true"></div>
 
   <div class="lobbyBrandWrap">
     <div id="lobbyTopName" class="lobbyBrand">Player</div>
   </div>
 
   <div class="lobbyTopRight">
-    <div class="topCurrencyCard">
-      <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon" />
-      <span id="wlkLobbyTop" data-out-balance>0</span>
+    <div class="lobbyTopActions">
+      <div id="lobbyOutDisplay" class="lobbyTopOutDisplay" aria-label="OUT balance">
+        <img src="docs/art/Lobby/Currency.png" alt="" class="lobbyTopQuickCurrencyIcon" />
+        <span id="wlkLobbyTop" class="lobbyTopOutValue" data-out-balance>0</span>
+      </div>
+      <button id="lobbyFriendsBtn" class="secondary lobbyTopQuickBtn lobbyTopQuickBtn--icon" type="button" aria-label="Friendlist">
+        <span class="lobbyTopQuickIcon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M16 11a4 4 0 1 0-4-4 4 4 0 0 0 4 4Zm-8 0a3 3 0 1 0-3-3 3 3 0 0 0 3 3Zm0 2c-2.8 0-5 1.5-5 3.3V18h10v-1.7C13 14.5 10.8 13 8 13Zm8 0c-.6 0-1.1.1-1.6.2a4.8 4.8 0 0 1 1.6 3.1V18h7v-1.2c0-2.2-2.2-3.8-5-3.8Z" />
+          </svg>
+        </span>
+      </button>
+      <button id="lobbyMessagesBtn" class="secondary lobbyTopQuickBtn lobbyTopQuickBtn--icon" type="button" aria-label="Messages">
+        <span class="lobbyTopQuickIcon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M3 5h18a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H8l-4.7 3.5A.8.8 0 0 1 2 21.9V6a1 1 0 0 1 1-1Zm1.5 3.2 7 5a.9.9 0 0 0 1 0l7-5a.8.8 0 1 0-1-1.3L12 11.5 5.5 6.9a.8.8 0 1 0-1 1.3Z" />
+          </svg>
+        </span>
+      </button>
+      <button id="identitySignOutBtn" class="secondary lobbySignOutBtn" type="button" hidden>Sign out</button>
     </div>
   </div>
 </div>
 
       <div class="lobbyMainGrid immersiveLobbyGrid">
-        <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel">
-          <div class="sidePanelInner">
-            <div id="identityGuestBlock">
-              <div class="sectionTitle sectionCompact">Your Name</div>
-              <div class="nameFieldRow">
-                <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" readonly />
+        <aside class="lobbySide lobbyLeft framedPanel floatingLobbyPanel lobby-left-v2" aria-label="Lobby actions">
+          <div class="sidePanelInner lobby-left-v2-inner">
+            <section class="lobbyProfileCardV2 lobbyProfileCardV2--fallback" aria-label="Player profile">
+              <!-- TODO: replace fallback card with docs/art/Lobby/ui/profile_frame.png when that export is available. -->
+              <div class="lobbyProfileAvatarWrap">
+                <img
+                  id="lobbyProfileAvatar"
+                  class="lobbyProfileAvatar"
+                  src="/docs/art/character/profile.png"
+                  alt="Player avatar"
+                  loading="lazy"
+                  decoding="async"
+                  draggable="false"
+                />
               </div>
-              <div id="identityActionGroup" class="identityActionGroup">
-                <button
-                  id="claimNameBtn"
-                  class="secondary identityBtn identityBtnPrimary"
-                  type="button"
-                  title="Save your name, rank, and progress forever"
-                >
-                  Claim your name
-                </button>
-                <button
-                  id="continueJourneyBtn"
-                  class="secondary identityBtn identityBtnSecondary"
-                  type="button"
-                  title="Already claimed a name? Restore your progress"
-                >
-                  Continue your journey
-                </button>
+
+              <div class="lobbyProfileMeta">
+                <div id="lobbyProfileDisplayTitle" class="lobbyProfileDisplayTitle"></div>
+                <div id="lobbyProfileUsername" class="lobbyProfileUsername">Flamebound9414</div>
+
+                <div class="lobbyProfileRankRow">
+                  <div id="lobbyProfileRankIcon" class="lobbyProfileRankIcon" aria-hidden="true">
+                    <img
+                      id="lobbyProfileRankIconImg"
+                      class="lobbyProfileRankIconImg"
+                      src=""
+                      alt=""
+                      decoding="async"
+                      draggable="false"
+                      hidden
+                    />
+                    <span id="lobbyProfileRankIconFallback" class="lobbyProfileRankIconFallback">R5</span>
+                  </div>
+
+                  <div class="lobbyProfileRankMeta">
+                    <div id="lobbyProfileRankLabel" class="lobbyProfileRankLabel">RANK 5</div>
+                    <div id="lobbyProfileRankTitle" class="lobbyProfileRankTitle">Inferno Commander</div>
+                  </div>
+                </div>
               </div>
-            </div>
-            <div id="identitySignedInBlock" class="identitySignedInBlock" hidden>
-              <div id="identitySignedInText" class="identitySignedInText">Signed in as Traveler</div>
+            </section>
+
+            <div class="lobbyLeftButtonStack" role="group" aria-label="Primary lobby actions">
+              <button id="startBtn" class="lobbyActionBtn lobbyActionBtn--purple" type="button">
+                <span class="lobbyActionBtnIcon" aria-hidden="true">⚔</span>
+                <span class="lobbyActionBtnLabel enterArenaText">ENTER ARENA</span>
+                <span class="lobbyActionBtnSpacer" aria-hidden="true"></span>
+              </button>
+
+              <button id="leftRankingsBtn" class="lobbyActionBtn lobbyActionBtn--grey" type="button">
+                <span class="lobbyActionBtnIcon" aria-hidden="true">🏆</span>
+                <span class="lobbyActionBtnLabel">RANKINGS</span>
+                <span class="lobbyActionBtnSpacer" aria-hidden="true"></span>
+              </button>
+
+              <button
+                id="leftStoreBtn"
+                class="lobbyActionBtn lobbyActionBtn--grey"
+                type="button"
+                data-lobby-tab="store"
+              >
+                <span class="lobbyActionBtnIcon" aria-hidden="true">🛒</span>
+                <span class="lobbyActionBtnLabel">STORE</span>
+                <span class="lobbyActionBtnSpacer" aria-hidden="true"></span>
+              </button>
+
+              <button id="leftSettingsBtn" class="lobbyActionBtn lobbyActionBtn--grey" type="button">
+                <span class="lobbyActionBtnIcon" aria-hidden="true">⚙</span>
+                <span class="lobbyActionBtnLabel">SETTINGS</span>
+                <span class="lobbyActionBtnSpacer" aria-hidden="true"></span>
+              </button>
             </div>
 
-            <div class="sectionTitle">Your Rankings</div>
-            <div id="colorRow" class="colorRowAaa"></div>
+            <!-- Compatibility mount: keep legacy lobby ids alive for existing services/hooks. -->
+            <div id="lobbyLeftLegacyCompat" class="lobbyLeftLegacyCompat" hidden aria-hidden="true">
+              <div id="identityGuestBlock">
+                <div class="nameFieldRow">
+                  <input id="nameInput" type="text" maxlength="16" placeholder="Enter your name" readonly tabindex="-1" />
+                </div>
+                <div id="identityActionGroup" class="identityActionGroup">
+                  <button
+                    id="claimNameBtn"
+                    class="secondary identityBtn identityBtnPrimary"
+                    type="button"
+                    title="Save your name, rank, and progress forever"
+                  >
+                    Claim your name
+                  </button>
+                  <button
+                    id="continueJourneyBtn"
+                    class="secondary identityBtn identityBtnSecondary"
+                    type="button"
+                    title="Already claimed a name? Restore your progress"
+                  >
+                    Continue your journey
+                  </button>
+                </div>
+              </div>
 
-            <div id="inventoryList"></div>
+              <div id="identitySignedInBlock" class="identitySignedInBlock" hidden>
+                <div id="identitySignedInText" class="identitySignedInText">Signed in as Traveler</div>
+              </div>
+
+              <div id="colorRow" class="colorRowAaa"></div>
+              <div id="inventoryList"></div>
+            </div>
           </div>
         </aside>
 
@@ -514,32 +801,71 @@
             </div>
 
             <div class="heroStageFooter">
-              <div class="heroHint immersiveHeroHint">
-                Everyone thinks they’re good.
-              </div>
+              <div class="heroHint immersiveHeroHint"></div>
             </div>
           </div>
 
           <div class="ctaWrap">
-            <div class="ctaButtons">
-              <button id="startBtn" class="enterArenaBtn" type="button">
-                <span class="enterArenaText">Enter Arena</span>
-              </button>
-            </div>
             <div id="quickMatchStateText" class="quickMatchStateText" aria-live="polite"></div>
 
-            <div class="rewardRow">
-
-              <span class="tag">Earn 1 $OUT per win.</span>
-            </div>
+            <div class="rewardRow"></div>
           </div>
 
         </section>
 
-        <aside class="lobbySide lobbyRight framedPanel leaderboardPanelAaa floatingLobbyPanel">
-          <div class="sidePanelInner">
-            <div class="sectionTitle sectionCompact">Leaderboard</div>
-            <div id="leaderboardList"></div>
+        <aside class="lobbySide lobbyRight framedPanel floatingLobbyPanel lobby-right-v2" aria-label="Season and daily quests">
+          <div class="sidePanelInner lobby-right-v2-inner">
+            <section id="lobbySeasonPanel" class="lobbyRightPanelCard lobbySeasonPanel" aria-label="Season progress panel">
+              <div class="lobbyPanelHeadingRow">
+                <h3 id="lobbySeasonName" class="lobbyPanelTitle">SEASON 1</h3>
+                <p class="lobbyPanelSubtle lobbyTimerRow">
+                  <span class="lobbyTimerIcon" aria-hidden="true"></span>
+                  <span id="lobbySeasonCountdown">--</span>
+                </p>
+              </div>
+
+              <div class="lobbySeasonRankWrap">
+                <div id="lobbySeasonRankIconWrap" class="lobbySeasonRankIconWrap" aria-hidden="true">
+                  <img
+                    id="lobbySeasonRankIcon"
+                    class="lobbySeasonRankIcon"
+                    src=""
+                    alt=""
+                    decoding="async"
+                    draggable="false"
+                    hidden
+                  />
+                  <span id="lobbySeasonRankIconFallback" class="lobbySeasonRankIconFallback">R5</span>
+                </div>
+              </div>
+
+              <div id="lobbySeasonRankTitle" class="lobbySeasonRankTitle">Inferno Commander</div>
+              <div id="lobbySeasonStars" class="lobbySeasonStars">
+                <span class="lobbySeasonStarsIcon" aria-hidden="true">&#9733;</span>
+                <span id="lobbySeasonStarsValue" class="lobbySeasonStarsValue">235 STARS</span>
+              </div>
+              <p id="lobbySeasonHelperCopy" class="lobbySeasonHelperCopy">
+                Win matches to earn stars and climb the ranks.
+              </p>
+
+              <div id="lobbySeasonProgressBar" class="lobbyInlineProgressBar" aria-label="Season progress"></div>
+            </section>
+
+            <section id="lobbyDailyPanel" class="lobbyRightPanelCard lobbyDailyPanel" aria-label="Daily quests panel">
+              <div class="lobbyPanelHeadingRow">
+                <h3 class="lobbyPanelTitle">DAILY QUESTS</h3>
+              </div>
+
+              <div id="lobbyDailyQuestList" class="lobbyDailyQuestList"></div>
+
+              <div class="lobbyDailyResetRow">
+                <span class="lobbyTimerIcon" aria-hidden="true"></span>
+                <span id="lobbyDailyResetTimer" class="lobbyDailyResetTimer">Resets in --</span>
+              </div>
+            </section>
+
+            <!-- Compatibility mount for legacy leaderboard updates. -->
+            <div id="leaderboardList" class="lobbyRightLegacyCompat" hidden aria-hidden="true"></div>
           </div>
         </aside>
       </div>
@@ -553,7 +879,7 @@
       <div class="storeModalHeader">
         <div>
           <div class="heroOverline">Arcane Market</div>
-          <div class="heroTitle storeModalTitle">Store</div>
+          <div class="heroTitle storeModalTitle">Character Shop</div>
         </div>
         <div id="wlkLobby" class="storeCurrencyLine" aria-label="Currency">
           <img src="docs/art/Lobby/Currency.png" alt="" class="currencyIcon storeCurrencyIcon" />
@@ -561,7 +887,7 @@
         </div>
       </div>
 
-      <div class="hint storeHint">Buy cosmetics and upgrades with your currency.</div>
+      <div class="hint storeHint">Unlock full character skins and choose who enters the arena.</div>
       <div id="storeList" class="storeModalList"></div>
     </div>
   </div>
@@ -569,18 +895,17 @@
 
   <!-- Scripts: config first, main last -->
   <script src="js/config.js"></script>
+  <script src="js/ui-scale.js"></script>
   <script src="js/vendor/supabase.js"></script>
   <script src="js/lib/supabase.js"></script>
   <script src="js/services/playerService.js"></script>
   <script src="js/rank-config.js"></script>
   <script src="js/audio.js"></script>
-  <script src="js/vendor/three.min.js"></script>
-  <script src="js/vendor/GLTFLoader.js"></script>
+  <script src="js/lobby-right-ui.js"></script>
   <script src="js/ui.js"></script>
   <script src="js/draw.js"></script>
   <script src="js/game.js"></script>
   <script src="js/input.js"></script>
-  <script src="js/three-layer.js"></script>
   <script src="js/vendor/socket.io.min.js"></script>
   <script src="/runtime-config.js"></script>
   <script src="js/multiplayer.js"></script>

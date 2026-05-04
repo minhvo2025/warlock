@@ -1,4 +1,4 @@
-// ── Helpers ───────────────────────────────────────────────────
+﻿// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function escapeHtml(value) {
   return String(value)
     .replaceAll('&', '&amp;')
@@ -11,61 +11,85 @@ function escapeHtml(value) {
 function normalizeKey(key) { return key === ' ' ? 'space' : String(key).toLowerCase(); }
 
 function prettyKey(key) {
+  if (!key) return 'Unbound';
   if (key === ' ' || key === 'space') return 'Space';
   if (key === 'escape') return 'Esc';
   if (key === 'arrowup') return 'Arrow Up';
   if (key === 'arrowdown') return 'Arrow Down';
   if (key === 'arrowleft') return 'Arrow Left';
   if (key === 'arrowright') return 'Arrow Right';
+  if (/^mouse\d+$/.test(key)) {
+    return `Mouse${key.slice(5)}`;
+  }
   return key.length === 1 ? key.toUpperCase() : key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-// ── Spell Tooltip Data ────────────────────────────────────────
+// â”€â”€ Spell Tooltip Data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const SPELL_TOOLTIP_DATA = {
   fire: {
     name: 'Fireblast',
     desc: 'Fast fire projectile',
-    stats: '20 dmg • long range • knockback',
+    stats: '20 dmg ï¿½ long range ï¿½ knockback',
   },
   hook: {
     name: 'Hook',
     desc: 'Pulls enemy to you',
-    stats: '20 dmg • 150 range',
+    stats: '20 dmg ï¿½ 150 range',
   },
   blink: {
     name: 'Blink',
     desc: 'Instant short teleport',
-    stats: '150 range • mobility',
+    stats: '150 range ï¿½ mobility',
   },
   shield: {
     name: 'Shield',
     desc: 'Blocks damage briefly',
-    stats: '1.0s shield • defensive',
+    stats: '1.0s shield ï¿½ defensive',
+  },
+  prism: {
+    name: 'Prism',
+    desc: 'Frontal cone defense that blocks attacks and reflects some projectiles.',
+    stats: '0.6s frontal cone ï¿½ reflects Fireblast/Hook/Gust',
   },
   charge: {
     name: 'Arcane Charge',
     desc: 'Dash forward with impact',
-    stats: '16 dmg • 150 range',
+    stats: '16 dmg ï¿½ 150 range',
   },
   shock: {
     name: 'Shock Blast',
     desc: 'Front cone burst',
-    stats: '14 dmg • 115 range',
+    stats: '14 dmg ï¿½ 115 range',
   },
   gust: {
     name: 'Gust',
     desc: 'Push enemies around you',
-    stats: '4 dmg • 120 radius',
+    stats: '4 dmg ï¿½ 120 radius',
+  },
+  solar: {
+    name: 'Solar',
+    desc: 'Damaging flare projectile that briefly distorts enemy vision.',
+    stats: '13 dmg ï¿½ 1.35u burst ï¿½ 1.2s distortion',
+  },
+  rift: {
+    name: 'Rift',
+    desc: 'Place two linked portals that both players can use.',
+    stats: '2-step placement | 4.0s linked portals',
+  },
+  phantom: {
+    name: 'Phantom',
+    desc: 'Briefly vanish, then split with an illusion to confuse enemies.',
+    stats: '0.3s vanish | 1.0s illusion',
   },
   wall: {
     name: 'Wall',
     desc: 'Creates temporary barrier',
-    stats: '150 width • blocks path',
+    stats: '150 width ï¿½ blocks path',
   },
   rewind: {
     name: 'Rewind',
     desc: 'Return to old position',
-    stats: '1.0s rewind • no heal',
+    stats: '1.0s rewind ï¿½ no heal',
   },
 };
 
@@ -83,6 +107,34 @@ const leaderboardRankIconStatus = {
 
 let leaderboardLastSignature = '';
 let rankedPanelLastSignature = '';
+let lobbyLeftProfileLastSignature = '';
+let keybindsLastSignature = '';
+let inventoryLastSignature = '';
+let storeLastSignature = '';
+let lobbyLeftActionsBound = false;
+const ARENA_CONCEPT_HUD_ENABLED = typeof OUTRA_ENABLE_ARENA_CONCEPT_HUD === 'boolean'
+  ? OUTRA_ENABLE_ARENA_CONCEPT_HUD
+  : true;
+const ARENA_CONCEPT_FALLBACK_SPELLS = ['hook', 'blink', 'shield'];
+const ARENA_CONCEPT_STANDARD_SPELLS = ['fire'];
+
+const LOBBY_LEFT_PROFILE_DEFAULTS = Object.freeze({
+  displayTitle: '',
+  username: 'Flamebound9414',
+  rankLabel: 'RANK 5',
+  rankTitle: 'Inferno Commander',
+  avatarTexture: '/docs/art/character/profile.png',
+  rankIconTexture: '/docs/art/ranks/5.png',
+});
+
+const lobbyLeftProfileOverrides = {
+  displayTitle: LOBBY_LEFT_PROFILE_DEFAULTS.displayTitle,
+  username: LOBBY_LEFT_PROFILE_DEFAULTS.username,
+  rankLabel: LOBBY_LEFT_PROFILE_DEFAULTS.rankLabel,
+  rankTitle: LOBBY_LEFT_PROFILE_DEFAULTS.rankTitle,
+  avatarTexture: LOBBY_LEFT_PROFILE_DEFAULTS.avatarTexture,
+  rankIconTexture: LOBBY_LEFT_PROFILE_DEFAULTS.rankIconTexture,
+};
 
 function preloadLeaderboardRankIcons() {
   Object.entries(LEADERBOARD_RANK_ICON_PATHS).forEach(([rankKey, src]) => {
@@ -280,13 +332,13 @@ function bindDesktopSpellTooltips() {
   });
 }
 
-// ── Tab Switching ─────────────────────────────────────────────
+// â”€â”€ Tab Switching â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let draftOrderBuilt = false;
 let draftOrderSignature = '';
 const DRAFT_PLAYER_IDS = ['A', 'B'];
 const DRAFT_PLAYER_AVATAR_BY_ID = Object.freeze({
-  A: '/docs/art/pfp.png',
-  B: '/docs/art/pfp.png',
+  A: '/docs/art/character/profile.png',
+  B: '/docs/art/character/profile.png',
 });
 const DRAFT_DEFAULT_RANK_ID = '20';
 const DRAFT_EMOTE_LABELS = Object.freeze({
@@ -303,9 +355,13 @@ const draftEmoteHideTimers = {
   B: 0,
 };
 let draftEmoteBindingsReady = false;
-let draftSpellPoolBuilt = false;
-const draftSpellPoolButtons = new Map();
-const draftSpellRecentPickAt = new Map();
+const DRAFT_OVERLAY_STICKY_MS = (() => {
+  const configured = Number(window.OUTRA_MULTIPLAYER_PHASE_STICKY_MS);
+  if (!Number.isFinite(configured)) return 1500;
+  return Math.max(240, configured);
+})();
+const DRAFT_TURN_FLASH_MIN_GAP_MS = 420;
+let draftOverlayLastServerActiveAt = 0;
 const draftUiSpellFxState = {
   initialized: false,
   prevPicks: {
@@ -318,15 +374,20 @@ const draftUiSpellFxState = {
   pendingSpellId: '',
   pendingPlayerId: '',
   pendingStartedAt: 0,
+  lastTurnFlashAt: 0,
 };
 
 const MP_ABILITY_TO_UI_SPELL = Object.freeze({
   fireblast: 'fire',
   blink: 'blink',
   shield: 'shield',
+  prism: 'prism',
   gust: 'gust',
   charge: 'charge',
   shock: 'shock',
+  solar: 'solar',
+  rift: 'rift',
+  phantom: 'phantom',
   wall: 'wall',
   rewind: 'rewind',
   hook: 'hook',
@@ -364,7 +425,7 @@ function clearDraftUiSpellFxState() {
   draftUiSpellFxState.pendingSpellId = '';
   draftUiSpellFxState.pendingPlayerId = '';
   draftUiSpellFxState.pendingStartedAt = 0;
-  draftSpellRecentPickAt.clear();
+  draftUiSpellFxState.lastTurnFlashAt = 0;
   draftState.holdSpellId = null;
   draftState.holdTime = 0;
 }
@@ -375,13 +436,12 @@ function queueDraftPickFxFromSync(playerId, slotIndex, spellId) {
   const normalizedSpellId = toUiSpellFromMultiplayer(spellId);
   if (!normalizedSpellId) return;
   queueDraftPickConfirmationFx(normalizedSpellId, normalizedPlayerId, slotIndex);
-  draftSpellRecentPickAt.set(normalizedSpellId, performance.now());
 }
 
 function syncDraftVisualRuntimeFromSnapshot(order, picksA, picksB, spellPool) {
   const spellOrder = Array.isArray(draftState.spellOrder) && draftState.spellOrder.length
     ? draftState.spellOrder.map((spellId) => toUiSpellFromMultiplayer(spellId)).filter(Boolean)
-    : ['hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall', 'rewind'];
+    : ['charge', 'prism', 'solar', 'rift', 'phantom', 'shock', 'gust', 'wall', 'rewind', 'shield', 'hook', 'blink'];
   const picksByPlayer = {
     A: Array.isArray(picksA) ? picksA : [],
     B: Array.isArray(picksB) ? picksB : [],
@@ -402,12 +462,16 @@ function syncDraftVisualRuntimeFromSnapshot(order, picksA, picksB, spellPool) {
   draftState.order = Array.isArray(order) && order.length ? order.slice() : ['A', 'B', 'B', 'A', 'A', 'B'];
   draftState.spells = spellOrder.map((spellId) => {
     const entry = spellPool && typeof spellPool === 'object' ? spellPool[spellId] : null;
-    const remainingCopies = Number(entry?.remainingCopies);
-    const totalCopies = Number(entry?.totalCopies);
-    const remaining = Number.isFinite(remainingCopies) ? Math.max(0, remainingCopies) : 0;
-    const total = Number.isFinite(totalCopies) ? Math.max(remaining, totalCopies) : remaining;
     const countA = Number(pickedByPlayerCounts.A[spellId]) || 0;
     const countB = Number(pickedByPlayerCounts.B[spellId]) || 0;
+    const fallbackTotal = 1;
+    const remainingCopies = Number(entry?.remainingCopies);
+    const totalCopies = Number(entry?.totalCopies);
+    const total = Number.isFinite(totalCopies) ? Math.max(0, totalCopies) : fallbackTotal;
+    const fallbackRemaining = Math.max(0, total - countA - countB);
+    const remaining = Number.isFinite(remainingCopies)
+      ? Math.max(0, Math.min(total, remainingCopies))
+      : fallbackRemaining;
     const takenBy = countA > countB ? 'A' : countB > countA ? 'B' : countA > 0 ? (draftUiSpellFxState.pendingPlayerId || '') : null;
     return {
       id: spellId,
@@ -418,9 +482,12 @@ function syncDraftVisualRuntimeFromSnapshot(order, picksA, picksB, spellPool) {
       totalCopies: total,
     };
   });
+  if (typeof preloadDraftSpellOrbIcons === 'function') {
+    preloadDraftSpellOrbIcons(spellOrder);
+  }
 
-  if (typeof buildDraftLayout === 'function') {
-    draftState.layout = buildDraftLayout();
+  if (typeof getDraftLayout === 'function') {
+    draftState.layout = getDraftLayout();
   }
 
   const seats = draftState.layout?.seats || {};
@@ -524,8 +591,10 @@ function syncDraftStateFromMultiplayer(multiplayerSnapshot) {
     draftUiSpellFxState.lastActivePlayerId !== activePlayerId
     && typeof queueDraftTurnFlash === 'function'
     && activePlayerId
+    && (performance.now() - Number(draftUiSpellFxState.lastTurnFlashAt || 0)) >= DRAFT_TURN_FLASH_MIN_GAP_MS
   ) {
     queueDraftTurnFlash(activePlayerId);
+    draftUiSpellFxState.lastTurnFlashAt = performance.now();
   }
   draftUiSpellFxState.lastActivePlayerId = activePlayerId || '';
   draftUiSpellFxState.prevPicks.A = picksA.slice();
@@ -849,7 +918,7 @@ function renderDraftPlayerPanel(playerId, activePlayer, activeIndex, order, isCo
 
     if (slotEl.dataset.spellId !== spellToken) {
       if (spellId) {
-        const icon = (SPELL_DEFS[spellId] && SPELL_DEFS[spellId].icon) ? SPELL_DEFS[spellId].icon : '✦';
+        const icon = (SPELL_DEFS[spellId] && SPELL_DEFS[spellId].icon) ? SPELL_DEFS[spellId].icon : 'âœ¦';
         const label = getDraftUiSpellLabel(spellId);
         slotEl.innerHTML = `<span class="draftPickIcon">${escapeHtml(icon)}</span><span class="draftPickName">${escapeHtml(label)}</span>`;
         slotEl.setAttribute('title', label);
@@ -868,25 +937,6 @@ function renderDraftPlayerPanel(playerId, activePlayer, activeIndex, order, isCo
   }
 }
 
-function getDraftSpellPoolEntry(spellId) {
-  const normalizedId = String(spellId || '').trim().toLowerCase();
-  if (!normalizedId) return null;
-  const pool = draftState.spellPool && typeof draftState.spellPool === 'object'
-    ? draftState.spellPool
-    : {};
-  const entry = pool[normalizedId];
-  if (!entry || typeof entry !== 'object') return null;
-  const remainingCopies = Number(entry.remainingCopies);
-  const totalCopies = Number(entry.totalCopies);
-  const remaining = Number.isFinite(remainingCopies) ? Math.max(0, remainingCopies) : 0;
-  const total = Number.isFinite(totalCopies) ? Math.max(remaining, totalCopies) : remaining;
-  return {
-    id: normalizedId,
-    remainingCopies: remaining,
-    totalCopies: total
-  };
-}
-
 function requestMultiplayerDraftPick(spellId) {
   const api = window.outraMultiplayer;
   if (!api || typeof api.requestDraftPick !== 'function') return false;
@@ -903,220 +953,38 @@ function requestMultiplayerDraftPick(spellId) {
   return true;
 }
 
-function renderDraftSpellPoolUi({ isDraft, isComplete, activePlayer, localPlayerId, multiplayerSnapshot }) {
-  if (!draftSpellPoolDockEl || !draftSpellPoolGridEl) return;
-  const isMultiplayerDraft = !!(multiplayerSnapshot && multiplayerSnapshot.isDraftActive);
-  const showPool = isDraft && isMultiplayerDraft;
-
-  draftSpellPoolDockEl.classList.toggle('show', showPool);
-  draftSpellPoolDockEl.setAttribute('aria-hidden', showPool ? 'false' : 'true');
-  if (!showPool) {
-    draftSpellPoolDockEl.classList.remove('is-local-turn', 'is-opponent-turn');
-    if (isMultiplayerDraft || !!multiplayerSnapshot?.active) {
-      draftState.holdSpellId = null;
-      draftState.holdTime = 0;
-    }
-    return;
-  }
-
-  const canPickNow = !isComplete && activePlayer === localPlayerId;
-  const nowMs = performance.now();
-  const myPicks = new Set(
-    (Array.isArray(draftState.picks?.[localPlayerId]) ? draftState.picks[localPlayerId] : [])
-      .map((spellId) => String(spellId || '').trim().toLowerCase())
-      .filter(Boolean)
-  );
-  const picksA = Array.isArray(draftState.picks?.A) ? draftState.picks.A : [];
-  const picksB = Array.isArray(draftState.picks?.B) ? draftState.picks.B : [];
-  const pickCountBySpellA = {};
-  const pickCountBySpellB = {};
-  picksA.forEach((spellId) => {
-    const normalized = toUiSpellFromMultiplayer(spellId);
-    if (!normalized) return;
-    pickCountBySpellA[normalized] = (pickCountBySpellA[normalized] || 0) + 1;
-  });
-  picksB.forEach((spellId) => {
-    const normalized = toUiSpellFromMultiplayer(spellId);
-    if (!normalized) return;
-    pickCountBySpellB[normalized] = (pickCountBySpellB[normalized] || 0) + 1;
-  });
-
-  const spellOrder = Array.isArray(draftState.spellOrder) && draftState.spellOrder.length
-    ? draftState.spellOrder
-    : ['hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall', 'rewind'];
-  const normalizedOrder = spellOrder
-    .map((spellId) => toUiSpellFromMultiplayer(spellId))
-    .filter(Boolean);
-
-  const signature = normalizedOrder.join('|');
-  if (!draftSpellPoolBuilt || draftSpellPoolGridEl.dataset.signature !== signature) {
-    draftSpellPoolGridEl.innerHTML = '';
-    draftSpellPoolButtons.clear();
-    normalizedOrder.forEach((spellId) => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'draftSpellPoolBtn';
-      button.dataset.spellId = spellId;
-      button.innerHTML = `
-        <span class="draftSpellPoolOrb" aria-hidden="true">
-          <span class="draftSpellPoolOrbGlow"></span>
-          <span class="draftSpellPoolOrbCore">
-            <img class="draftSpellPoolOrbIcon" alt="${escapeHtml(getDraftUiSpellLabel(spellId))}" decoding="async" loading="lazy" />
-            <span class="draftSpellPoolOrbFallback">${escapeHtml((SPELL_DEFS[spellId] && SPELL_DEFS[spellId].icon) ? SPELL_DEFS[spellId].icon : '✦')}</span>
-          </span>
-          <span class="draftSpellPoolChannelRing"></span>
-        </span>
-        <span class="draftSpellPoolBtnMeta">
-          <span class="draftSpellPoolBtnName">${escapeHtml(getDraftUiSpellLabel(spellId))}</span>
-          <span class="draftSpellPoolBtnCount">0/0 copies</span>
-        </span>
-        <span class="draftSpellPoolBtnOwner" aria-hidden="true"></span>
-      `;
-      button.addEventListener('mouseenter', () => {
-        draftUiSpellFxState.hoverSpellId = spellId;
-        draftUiSpellFxState.hoverStartedAt = performance.now();
-      });
-      button.addEventListener('mouseleave', () => {
-        if (draftUiSpellFxState.hoverSpellId !== spellId) return;
-        draftUiSpellFxState.hoverSpellId = '';
-        draftUiSpellFxState.hoverStartedAt = 0;
-      });
-      button.addEventListener('focus', () => {
-        draftUiSpellFxState.hoverSpellId = spellId;
-        draftUiSpellFxState.hoverStartedAt = performance.now();
-      });
-      button.addEventListener('blur', () => {
-        if (draftUiSpellFxState.hoverSpellId !== spellId) return;
-        draftUiSpellFxState.hoverSpellId = '';
-        draftUiSpellFxState.hoverStartedAt = 0;
-      });
-      button.addEventListener('click', () => {
-        requestMultiplayerDraftPick(spellId);
-      });
-      draftSpellPoolButtons.set(spellId, button);
-      draftSpellPoolGridEl.appendChild(button);
-
-      const orbIconEl = button.querySelector('.draftSpellPoolOrbIcon');
-      const orbFallbackEl = button.querySelector('.draftSpellPoolOrbFallback');
-      const iconPath = getDraftUiSpellIconPath(spellId);
-      if (orbIconEl) {
-        if (!iconPath) {
-          orbIconEl.remove();
-          if (orbFallbackEl) orbFallbackEl.style.display = 'inline-flex';
-        } else {
-          orbIconEl.src = iconPath;
-          orbIconEl.addEventListener('error', () => {
-            orbIconEl.remove();
-            if (orbFallbackEl) orbFallbackEl.style.display = 'inline-flex';
-          }, { once: true });
-          orbIconEl.addEventListener('load', () => {
-            if (orbFallbackEl) orbFallbackEl.style.display = 'none';
-          }, { once: true });
-        }
-      }
-    });
-    draftSpellPoolBuilt = true;
-    draftSpellPoolGridEl.dataset.signature = signature;
-  }
-
-  normalizedOrder.forEach((spellId) => {
-    const button = draftSpellPoolButtons.get(spellId);
-    if (!button) return;
-    const entry = getDraftSpellPoolEntry(spellId);
-    const remaining = entry ? entry.remainingCopies : 0;
-    const total = entry ? entry.totalCopies : 0;
-    const alreadyPicked = myPicks.has(spellId);
-    const disabled = !canPickNow || remaining <= 0 || alreadyPicked;
-
-    button.disabled = disabled;
-    button.classList.toggle('is-pickable', !disabled);
-    button.classList.toggle('is-disabled', remaining <= 0);
-    button.classList.toggle('is-picked', alreadyPicked);
-    button.classList.toggle('is-active-turn', canPickNow && !disabled);
-
-    const countEl = button.querySelector('.draftSpellPoolBtnCount');
-    if (countEl) countEl.textContent = `${remaining}/${total} copies`;
-
-    const ownerEl = button.querySelector('.draftSpellPoolBtnOwner');
-    const ownerA = Number(pickCountBySpellA[spellId]) || 0;
-    const ownerB = Number(pickCountBySpellB[spellId]) || 0;
-    const ownerText = ownerA > 0 && ownerB > 0 ? 'A+B' : ownerA > 0 ? 'A' : ownerB > 0 ? 'B' : '';
-    if (ownerEl) {
-      ownerEl.textContent = ownerText;
-      ownerEl.classList.toggle('has-owner', !!ownerText);
-      ownerEl.classList.toggle('owner-a', ownerText === 'A');
-      ownerEl.classList.toggle('owner-b', ownerText === 'B');
-      ownerEl.classList.toggle('owner-ab', ownerText === 'A+B');
-    }
-
-    const recentlyPickedAt = Number(draftSpellRecentPickAt.get(spellId)) || 0;
-    const justPicked = recentlyPickedAt > 0 && (nowMs - recentlyPickedAt) <= 760;
-    button.classList.toggle('is-just-picked', justPicked);
-    if (!justPicked && recentlyPickedAt > 0) {
-      draftSpellRecentPickAt.delete(spellId);
-    }
-
-    const pendingChannel = draftUiSpellFxState.pendingSpellId === spellId
-      && (nowMs - Number(draftUiSpellFxState.pendingStartedAt || 0)) <= 900;
-    const hoverChannel = !pendingChannel
-      && draftUiSpellFxState.hoverSpellId === spellId
-      && canPickNow
-      && !disabled;
-    const isChanneling = pendingChannel || hoverChannel;
-    button.classList.toggle('is-channeling', isChanneling);
-
-    let channelRatio = 0;
-    if (pendingChannel) {
-      channelRatio = clampNumber((nowMs - Number(draftUiSpellFxState.pendingStartedAt || 0)) / 540, 0.05, 1);
-    } else if (hoverChannel) {
-      channelRatio = clampNumber((nowMs - Number(draftUiSpellFxState.hoverStartedAt || 0)) / 760, 0.08, 0.82);
-    }
-    button.style.setProperty('--draft-channel-progress', String(channelRatio.toFixed(3)));
-  });
-
-  draftSpellPoolDockEl.classList.toggle('is-local-turn', canPickNow && !isComplete);
-  draftSpellPoolDockEl.classList.toggle('is-opponent-turn', !canPickNow && !isComplete);
-
-  let channelSpellId = '';
-  let channelRatio = 0;
-  const pendingAge = nowMs - Number(draftUiSpellFxState.pendingStartedAt || 0);
-  const pendingIsFresh = !!draftUiSpellFxState.pendingSpellId && pendingAge <= 900;
-  if (pendingIsFresh) {
-    channelSpellId = draftUiSpellFxState.pendingSpellId;
-    channelRatio = clampNumber(pendingAge / 540, 0.08, 1);
-  } else if (canPickNow && draftUiSpellFxState.hoverSpellId) {
-    const hoverAge = nowMs - Number(draftUiSpellFxState.hoverStartedAt || 0);
-    channelSpellId = draftUiSpellFxState.hoverSpellId;
-    channelRatio = clampNumber(hoverAge / 760, 0.10, 0.82);
-  }
-  if (pendingAge > 1200 && draftUiSpellFxState.pendingSpellId) {
-    draftUiSpellFxState.pendingSpellId = '';
-    draftUiSpellFxState.pendingPlayerId = '';
-    draftUiSpellFxState.pendingStartedAt = 0;
-  }
-  draftState.holdSpellId = channelSpellId || null;
-  draftState.holdTime = channelSpellId
-    ? Math.max(0, Math.min(Number(draftState.holdDuration) || 0.6, (Number(draftState.holdDuration) || 0.6) * channelRatio))
-    : 0;
-}
-
 function updateDraftOverlayUi(multiplayerSnapshot = null) {
   if (!draftOverlay) return;
   const snapshot = multiplayerSnapshot || getMultiplayerPresentationSnapshot();
-  if (snapshot?.isDraftActive) {
+  const nowMs = performance.now();
+  const wasDraftVisible = draftOverlay.classList.contains('show');
+  const snapshotDraftActive = !!snapshot?.isDraftActive;
+  if (snapshotDraftActive) {
+    draftOverlayLastServerActiveAt = nowMs;
     syncDraftStateFromMultiplayer(snapshot);
   }
 
-  const isDraft = gameState === 'draft' || !!snapshot?.isDraftActive;
+  const shouldStickToDraft =
+    !!snapshot?.active
+    && !snapshot?.isArenaActive
+    && !snapshot?.isArenaPending
+    && !snapshot?.isMatchEnd
+    && draftOverlayLastServerActiveAt > 0
+    && (nowMs - draftOverlayLastServerActiveAt) <= DRAFT_OVERLAY_STICKY_MS;
+  const isDraft = gameState === 'draft' || snapshotDraftActive || shouldStickToDraft;
+  if (!isDraft) {
+    draftOverlayLastServerActiveAt = 0;
+  }
   draftOverlay.classList.toggle('show', isDraft);
   draftOverlay.setAttribute('aria-hidden', isDraft ? 'false' : 'true');
+  if (isDraft && !wasDraftVisible && typeof invalidateDraftLayout === 'function') {
+    invalidateDraftLayout({ settleFrames: 3 });
+  }
   if (!isDraft) {
     clearDraftUiSpellFxState();
     clearAllDraftEmoteToasts();
-    if (draftSpellPoolDockEl) {
-      draftSpellPoolDockEl.classList.remove('show');
-      draftSpellPoolDockEl.classList.remove('is-local-turn', 'is-opponent-turn');
-      draftSpellPoolDockEl.setAttribute('aria-hidden', 'true');
+    if (wasDraftVisible && typeof invalidateDraftLayout === 'function') {
+      invalidateDraftLayout();
     }
     return;
   }
@@ -1186,13 +1054,6 @@ function updateDraftOverlayUi(multiplayerSnapshot = null) {
 
   for (const playerId of DRAFT_PLAYER_IDS) {
     renderDraftPlayerPanel(playerId, activePlayer, activeIndex, order, isComplete);
-  }
-  // Spell picking now happens on the original in-room draft grid (canvas),
-  // so keep the auxiliary overlay spell-pool dock hidden.
-  if (draftSpellPoolDockEl) {
-    draftSpellPoolDockEl.classList.remove('show');
-    draftSpellPoolDockEl.classList.remove('is-local-turn', 'is-opponent-turn');
-    draftSpellPoolDockEl.setAttribute('aria-hidden', 'true');
   }
 
   if (!draftOrderListEl) return;
@@ -1277,7 +1138,7 @@ function setLobbyTab(tab) {
   }
 }
 
-// ── Mobile Controls Visibility ────────────────────────────────
+// â”€â”€ Mobile Controls Visibility â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function refreshMobileControls() {
   const snapshot = getMultiplayerPresentationSnapshot();
   const inArenaPhase = gameState === 'playing'
@@ -1286,14 +1147,14 @@ function refreshMobileControls() {
   mobileControls.classList.toggle('show', isTouchDevice && inArenaPhase);
 }
 
-// ── Ranked Panel (replaces color chooser) ─────────────────────
+// â”€â”€ Ranked Panel (replaces color chooser) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function getRankStarsHtml(stars, totalStars) {
   const safeTotalStars = Math.max(0, Number(totalStars) || 0);
   if (safeTotalStars <= 0) return '';
 
   let html = '';
   for (let i = 0; i < safeTotalStars; i++) {
-    html += `<span style="font-size:18px; letter-spacing:1px; color:${i < stars ? '#ffd36b' : 'rgba(255,255,255,0.24)'}">★</span>`;
+    html += `<span style="font-size:18px; letter-spacing:1px; color:${i < stars ? '#ffd36b' : 'rgba(255,255,255,0.24)'}">â˜…</span>`;
   }
   return html;
 }
@@ -1321,6 +1182,8 @@ function getRankBadgeAssetPath(tier) {
   if (typeof tier?.badge === 'string' && tier.badge) return tier.badge;
   const fromConfig = window.OUTRA_RANKS?.getById?.(tier?.id)?.badge;
   if (typeof fromConfig === 'string' && fromConfig) return fromConfig;
+  const rankNumber = Number(tier?.rankNumber);
+  if (Number.isFinite(rankNumber)) return `/docs/art/ranks/${rankNumber}.png`;
   return window.OUTRA_RANKS?.placeholderBadge || '/docs/art/ranks/20.png';
 }
 
@@ -1328,6 +1191,129 @@ function getRankBadgeFallbackToken(tier) {
   if (Number.isFinite(Number(tier?.rankNumber))) return String(Number(tier.rankNumber));
   return 'M';
 }
+
+function getLobbyLeftProfileElements() {
+  return {
+    displayTitleEl: document.getElementById('lobbyProfileDisplayTitle'),
+    usernameEl: document.getElementById('lobbyProfileUsername'),
+    rankLabelEl: document.getElementById('lobbyProfileRankLabel'),
+    rankTitleEl: document.getElementById('lobbyProfileRankTitle'),
+    avatarEl: document.getElementById('lobbyProfileAvatar'),
+    rankIconImgEl: document.getElementById('lobbyProfileRankIconImg'),
+    rankIconFallbackEl: document.getElementById('lobbyProfileRankIconFallback'),
+  };
+}
+
+function getLobbyLeftProfileData() {
+  const snapshot = typeof getRankedSnapshot === 'function' ? getRankedSnapshot() : null;
+  const tier = snapshot?.tier || null;
+  const resolvedDisplayName = String(window.playerProfile?.display_name || player?.name || '').trim();
+  const rankNumber = Number.isFinite(Number(tier?.rankNumber)) ? Number(tier.rankNumber) : 5;
+  const rankIconTier = tier || { id: String(rankNumber), rankNumber };
+  const rankTitle = tier ? getRankLabelFromTier(tier) : lobbyLeftProfileOverrides.rankTitle;
+  const rankLabel = Number.isFinite(rankNumber) ? `RANK ${rankNumber}` : lobbyLeftProfileOverrides.rankLabel;
+  const rankIconTexture = String(getRankBadgeAssetPath(rankIconTier) || lobbyLeftProfileOverrides.rankIconTexture || LOBBY_LEFT_PROFILE_DEFAULTS.rankIconTexture).trim();
+
+  return {
+    displayTitle: String(lobbyLeftProfileOverrides.displayTitle || LOBBY_LEFT_PROFILE_DEFAULTS.displayTitle).trim() || LOBBY_LEFT_PROFILE_DEFAULTS.displayTitle,
+    username: resolvedDisplayName || String(lobbyLeftProfileOverrides.username || LOBBY_LEFT_PROFILE_DEFAULTS.username).trim(),
+    rankLabel,
+    rankTitle: String(rankTitle || lobbyLeftProfileOverrides.rankTitle || LOBBY_LEFT_PROFILE_DEFAULTS.rankTitle).trim(),
+    avatarTexture: String(lobbyLeftProfileOverrides.avatarTexture || LOBBY_LEFT_PROFILE_DEFAULTS.avatarTexture).trim(),
+    rankIconTexture,
+  };
+}
+
+function renderLobbyLeftProfile(profileData = null, force = false) {
+  const elements = getLobbyLeftProfileElements();
+  if (!elements.displayTitleEl || !elements.usernameEl || !elements.rankLabelEl || !elements.rankTitleEl) return;
+
+  const data = profileData && typeof profileData === 'object'
+    ? profileData
+    : getLobbyLeftProfileData();
+
+  const signature = JSON.stringify({
+    displayTitle: data.displayTitle,
+    username: data.username,
+    rankLabel: data.rankLabel,
+    rankTitle: data.rankTitle,
+    avatarTexture: data.avatarTexture,
+    rankIconTexture: data.rankIconTexture,
+  });
+  if (!force && signature === lobbyLeftProfileLastSignature) return;
+  lobbyLeftProfileLastSignature = signature;
+
+  elements.displayTitleEl.textContent = data.displayTitle;
+  elements.usernameEl.textContent = data.username;
+  elements.rankLabelEl.textContent = data.rankLabel;
+  elements.rankTitleEl.textContent = data.rankTitle;
+
+  if (elements.avatarEl && data.avatarTexture) {
+    elements.avatarEl.src = data.avatarTexture;
+  }
+
+  const fallbackMatch = String(data.rankLabel || '').match(/\d+/);
+  const fallbackToken = fallbackMatch ? `R${fallbackMatch[0]}` : 'R';
+  const hasRankIconTexture = !!data.rankIconTexture;
+
+  if (elements.rankIconImgEl) {
+    if (hasRankIconTexture) {
+      elements.rankIconImgEl.src = data.rankIconTexture;
+      elements.rankIconImgEl.hidden = false;
+    } else {
+      elements.rankIconImgEl.hidden = true;
+      elements.rankIconImgEl.removeAttribute('src');
+    }
+  }
+
+  if (elements.rankIconFallbackEl) {
+    elements.rankIconFallbackEl.textContent = fallbackToken;
+    elements.rankIconFallbackEl.hidden = hasRankIconTexture;
+  }
+}
+
+function bindLobbyLeftActions() {
+  if (lobbyLeftActionsBound) return;
+  lobbyLeftActionsBound = true;
+
+  const rankingsBtn = document.getElementById('leftRankingsBtn');
+  if (rankingsBtn) {
+    rankingsBtn.addEventListener('click', () => {
+      if (typeof playMenuClickSound === 'function') {
+        playMenuClickSound();
+      } else if (typeof soundClick === 'function') {
+        soundClick();
+      }
+      console.info('[Lobby] Rankings panel is not implemented yet.');
+    });
+  }
+
+  const settingsBtn = document.getElementById('leftSettingsBtn');
+  if (settingsBtn) {
+    settingsBtn.addEventListener('click', () => {
+      if (typeof playMenuClickSound === 'function') {
+        playMenuClickSound();
+      } else if (typeof soundClick === 'function') {
+        soundClick();
+      }
+      if (typeof setMenuTab === 'function') setMenuTab('settings');
+      if (typeof openMenu === 'function') {
+        openMenu();
+        return;
+      }
+      if (typeof toggleMenu === 'function') {
+        toggleMenu();
+      }
+    });
+  }
+}
+
+window.setLobbyLeftProfileConfig = function setLobbyLeftProfileConfig(nextConfig = {}) {
+  if (!nextConfig || typeof nextConfig !== 'object') return;
+  Object.assign(lobbyLeftProfileOverrides, nextConfig);
+  rankedPanelLastSignature = '';
+  renderLobbyLeftProfile(null, true);
+};
 
 function renderRankBadgeDisplay(tier, options = {}) {
   const size = Math.max(24, Number(options.size) || 64);
@@ -1388,76 +1374,28 @@ function bindRankBadgeDisplayFallbacks(scope) {
 }
 
 function buildRankedPanel() {
-  if (!colorRow) return;
-
-  const snapshot = getRankedSnapshot();
-  const rankLabel = getRankLabelFromTier(snapshot.tier);
-  const rankHeading = Number.isFinite(Number(snapshot?.tier?.rankNumber))
-    ? `RANK ${Number(snapshot.tier.rankNumber)}`
-    : 'MASTER';
-  const tierStars = Math.max(0, Number(snapshot?.tier?.stars) || 0);
-  const starProgressText = tierStars > 0
-    ? `${snapshot.stars}/${tierStars} stars`
-    : 'Master tier';
-  const rankBadgePath = getRankBadgeAssetPath(snapshot.tier);
-  const renderSignature = JSON.stringify({
-    tierId: snapshot?.tier?.id || '',
-    rankNumber: Number.isFinite(Number(snapshot?.tier?.rankNumber)) ? Number(snapshot.tier.rankNumber) : 'master',
-    rankLabel,
-    rankBadgePath,
-    stars: Number(snapshot.stars) || 0,
-    tierStars,
-    winStreak: Number(snapshot.winStreak) || 0,
-    wins: Number(snapshot.wins) || 0,
-    losses: Number(snapshot.losses) || 0,
-  });
-
+  bindLobbyLeftActions();
+  const profileData = getLobbyLeftProfileData();
+  const renderSignature = JSON.stringify(profileData);
   if (renderSignature === rankedPanelLastSignature) return;
   rankedPanelLastSignature = renderSignature;
   hideRankTooltip();
+  renderLobbyLeftProfile(profileData, true);
 
-  colorRow.innerHTML = `
-    <div style="
-      width:100%;
-      max-width:100%;
-      box-sizing:border-box;
-      padding:12px 12px;
-      border-radius:12px;
-      background:linear-gradient(180deg, var(--inner-card-top), var(--inner-card-bottom));
-      border:1px solid var(--inner-card-border);
-      box-shadow:inset 0 1px 0 var(--inner-card-highlight), inset 0 -1px 0 rgba(0,0,0,0.26);
-      color:#fff;
-    ">
-      <div class="rankHeadingHighlight">${escapeHtml(rankHeading)}</div>
-
-      <div style="display:flex; align-items:center; gap:14px;">
-        ${renderRankBadgeDisplay(snapshot.tier, { size: 64 })}
-
-        <div style="min-width:0; flex:1;">
-          <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:6px;">
-            <div style="font-size:18px; font-weight:800; line-height:1.2;">${escapeHtml(rankLabel)}</div>
-          </div>
-
-          <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
-            <div>${getRankStarsHtml(snapshot.stars, tierStars)}</div>
-            <div style="font-size:12px; opacity:.78;">
-              ${starProgressText}
-            </div>
-          </div>
-
-<div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;">
-  <div style="font-size:12px; opacity:.78;">Streak ${snapshot.winStreak || 0}</div>
-  <div style="font-size:12px; opacity:.78;">W ${snapshot.wins} • L ${snapshot.losses}</div>
-</div>
-      </div>
-    </div>
-  `;
-
-  bindRankBadgeDisplayFallbacks(colorRow);
+  // Legacy mount stays empty so old rank card art is no longer used on the left side.
+  if (colorRow) {
+    colorRow.innerHTML = '';
+  }
 }
 
-// ── Keybinds UI ───────────────────────────────────────────────
+// â”€â”€ Keybinds UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function buildKeybindsUI() {
+  const signature = Object.keys(bindLabels)
+    .map((action) => `${action}:${String(keybinds[action] || '')}`)
+    .join('|') + `|waiting:${String(waitingForBind || '')}`;
+  if (signature === keybindsLastSignature) return;
+  keybindsLastSignature = signature;
+
   bindList.innerHTML = '';
   Object.keys(bindLabels).forEach(action => {
     const row = document.createElement('div');
@@ -1468,7 +1406,7 @@ function buildKeybindsUI() {
 
     const btn = document.createElement('button');
     btn.className = 'secondary bindBtn' + (waitingForBind === action ? ' waiting' : '');
-    btn.textContent = waitingForBind === action ? 'Press a key...' : prettyKey(keybinds[action]);
+    btn.textContent = waitingForBind === action ? 'Press a key or mouse...' : prettyKey(keybinds[action]);
     btn.addEventListener('click', () => {
       waitingForBind = action;
       buildKeybindsUI();
@@ -1480,8 +1418,12 @@ function buildKeybindsUI() {
   });
 }
 
-// ── Leaderboard ───────────────────────────────────────────────
+// â”€â”€ Leaderboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderLeaderboard() {
+  if (!leaderboardList) return;
+  // Legacy leaderboard mount is currently hidden in lobby v2; skip expensive DOM work until it is shown again.
+  if (leaderboardList.hidden || leaderboardList.getAttribute('aria-hidden') === 'true') return;
+
   const entries = getLeaderboard().slice().sort((a, b) => {
     const pointsDiff = (Number(b?.points) || 0) - (Number(a?.points) || 0);
     if (pointsDiff !== 0) return pointsDiff;
@@ -1567,7 +1509,7 @@ function renderLeaderboard() {
         <div class="lbMeta">
           <div class="lbName">${escapeHtml(entry.name)}${row.isMe ? ' <span class="lbYouTag">YOU</span>' : ''}</div>
           <div class="lbPoints">${Number(entry.points) || 0} pts</div>
-          <div class="lbRecord">${Number(entry.wins) || 0}W • ${Number(entry.losses) || 0}L</div>
+          <div class="lbRecord">${Number(entry.wins) || 0}W â€¢ ${Number(entry.losses) || 0}L</div>
         </div>
       </div>
     `;
@@ -1591,99 +1533,182 @@ function renderLeaderboard() {
   });
 }
 
-// ── Inventory ─────────────────────────────────────────────────
-function equipItem(id) {
-  const item = storeItems.find(x => x.id === id);
-  if (!item || !profile.store[id]) return;
+// â”€â”€ Inventory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const CHARACTER_RARITY_PRIORITY = Object.freeze({
+  common: 0,
+  rare: 1,
+  epic: 2,
+  legendary: 3,
+});
 
-  if (item.type === 'hat') profile.equipped.hat = id;
-  if (item.type === 'sweater') profile.equipped.sweater = true;
-  if (item.type === 'boots') profile.equipped.boots = true;
+const CHARACTER_RARITY_LABELS = Object.freeze({
+  common: 'Common',
+  rare: 'Rare',
+  epic: 'Epic',
+  legendary: 'Legendary',
+});
 
-  saveProfile();
-  renderStore();
-  renderInventory();
-  drawLobbyPreview();
+let selectedStoreCharacterId = '';
+
+function normalizeCharacterRarity(rarity) {
+  const key = String(rarity || '').trim().toLowerCase();
+  return CHARACTER_RARITY_LABELS[key] ? key : 'common';
 }
 
-function unwearItem(id) {
-  const item = storeItems.find(x => x.id === id);
-  if (!item) return;
+function getCharacterRarityLabel(rarity) {
+  return CHARACTER_RARITY_LABELS[normalizeCharacterRarity(rarity)];
+}
 
-  if (item.type === 'hat' && profile.equipped.hat === id) profile.equipped.hat = null;
-  if (item.type === 'sweater') profile.equipped.sweater = false;
-  if (item.type === 'boots') profile.equipped.boots = false;
+function getCharacterRarityClass(rarity) {
+  return `storeRarity-${normalizeCharacterRarity(rarity)}`;
+}
+
+function getCharacterStoreItems() {
+  if (!Array.isArray(storeItems)) return [];
+  return storeItems
+    .filter((item) => item && item.type === 'character')
+    .slice()
+    .sort((a, b) => {
+      const rarityDiff =
+        (CHARACTER_RARITY_PRIORITY[normalizeCharacterRarity(a.rarity)] ?? 0)
+        - (CHARACTER_RARITY_PRIORITY[normalizeCharacterRarity(b.rarity)] ?? 0);
+      if (rarityDiff !== 0) return rarityDiff;
+      return String(a.name || '').localeCompare(String(b.name || ''));
+    });
+}
+
+function getCharacterStoreItemById(id) {
+  const targetId = String(id || '').trim();
+  if (!targetId) return null;
+  return storeItems.find((item) => item && item.type === 'character' && item.id === targetId) || null;
+}
+
+function resolveCharacterPreviewPath(item) {
+  const previewPath = Array.isArray(item?.previewImages)
+    ? item.previewImages.find((path) => typeof path === 'string' && path.trim())
+    : '';
+  const thumbnailPath = String(item?.thumbnail || '').trim();
+  return String(previewPath || thumbnailPath || '/docs/art/character/zarok/zarok.png').trim();
+}
+
+function ensureEquippedCharacterId(characters) {
+  if (!Array.isArray(characters) || !characters.length) return '';
+
+  const equippedId = String(profile?.equipped?.character || '').trim();
+  const equippedValid = !!(
+    equippedId &&
+    profile.store[equippedId] &&
+    characters.some((item) => item.id === equippedId)
+  );
+  if (equippedValid) return equippedId;
+
+  const firstOwned = characters.find((item) => profile.store[item.id]);
+  const fallbackId = firstOwned ? firstOwned.id : String(characters[0].id || '');
+  profile.equipped.character = fallbackId;
+  return fallbackId;
+}
+
+function ensureSelectedStoreCharacterId(characters) {
+  if (!Array.isArray(characters) || !characters.length) return '';
+
+  if (selectedStoreCharacterId && characters.some((item) => item.id === selectedStoreCharacterId)) {
+    return selectedStoreCharacterId;
+  }
+
+  const equippedId = ensureEquippedCharacterId(characters);
+  if (equippedId && characters.some((item) => item.id === equippedId)) {
+    selectedStoreCharacterId = equippedId;
+    return selectedStoreCharacterId;
+  }
+
+  selectedStoreCharacterId = String(characters[0].id || '');
+  return selectedStoreCharacterId;
+}
+
+function equipCharacterSkin(id) {
+  const character = getCharacterStoreItemById(id);
+  if (!character || !profile.store[character.id]) return;
+
+  profile.equipped.character = character.id;
+  selectedStoreCharacterId = character.id;
+  saveProfile();
+  renderStore();
+  renderInventory();
+  drawLobbyPreview();
+  updateHud();
+}
+
+function unlockCharacterSkin(id) {
+  const character = getCharacterStoreItemById(id);
+  if (!character || profile.store[character.id]) return;
+
+  const cost = Math.max(0, Number(character.cost) || 0);
+  const currentBalance = Math.max(0, Math.floor(Number(profile.wlk) || 0));
+  if (currentBalance < cost) return;
+
+  profile.wlk = currentBalance - cost;
+  if (typeof character.apply === 'function') {
+    character.apply(profile);
+  } else {
+    profile.store[character.id] = true;
+  }
+
+  if (!profile.store[profile.equipped.character]) {
+    profile.equipped.character = character.id;
+  }
+  selectedStoreCharacterId = character.id;
 
   saveProfile();
   renderStore();
   renderInventory();
   drawLobbyPreview();
+  updateHud();
 }
 
 function renderInventory() {
-  const slotCount = 12;
+  if (!inventoryList) return;
 
-  function isEquipped(item) {
-    if (item.type === 'hat') return profile.equipped.hat === item.id;
-    if (item.type === 'sweater') return !!profile.equipped.sweater;
-    if (item.type === 'boots') return !!profile.equipped.boots;
-    return false;
+  const characters = getCharacterStoreItems();
+  const equippedCharacterId = ensureEquippedCharacterId(characters);
+  const ownedCharacters = characters.filter((item) => !!profile.store[item.id]);
+  const slotCount = Math.max(8, ownedCharacters.length);
+  const renderSignature = [
+    equippedCharacterId,
+    slotCount,
+    ownedCharacters.map((item) => `${item.id}:${normalizeCharacterRarity(item.rarity)}`).join(','),
+  ].join('|');
+  if (renderSignature === inventoryLastSignature) return;
+  inventoryLastSignature = renderSignature;
+
+  if (!ownedCharacters.length) {
+    inventoryList.innerHTML = `
+      <div class="inventoryGridWrap">
+        <div class="inventoryGridHead">
+          <span class="inventoryGridLabel">Skins</span>
+          <span class="inventoryGridCount">0/0</span>
+        </div>
+        <div class="hint">No skins unlocked yet.</div>
+      </div>
+    `;
+    return;
   }
-
-  function getTypeTag(item) {
-    if (item.type === 'hat') return 'Head';
-    if (item.type === 'sweater') return 'Chest';
-    if (item.type === 'boots') return 'Feet';
-    return 'Item';
-  }
-
-  function getTypeEmblem(item) {
-    if (item.type === 'hat') return 'H';
-    if (item.type === 'sweater') return 'C';
-    if (item.type === 'boots') return 'F';
-    return 'I';
-  }
-
-  const typeOrder = { hat: 0, sweater: 1, boots: 2 };
-
-  const ownedItems = storeItems
-    .filter(item =>
-      (item.type === 'hat' || item.type === 'sweater' || item.type === 'boots') &&
-      profile.store[item.id]
-    )
-    .sort((a, b) => {
-      const equippedDiff = Number(isEquipped(b)) - Number(isEquipped(a));
-      if (equippedDiff !== 0) return equippedDiff;
-
-      const typeDiff = (typeOrder[a.type] ?? 99) - (typeOrder[b.type] ?? 99);
-      if (typeDiff !== 0) return typeDiff;
-
-      return String(a.name).localeCompare(String(b.name));
-    });
-
-  const visibleItems = ownedItems.slice(0, slotCount);
-  const hiddenCount = Math.max(0, ownedItems.length - slotCount);
 
   const slots = [];
   for (let i = 0; i < slotCount; i += 1) {
-    const item = visibleItems[i];
+    const item = ownedCharacters[i];
     if (!item) {
-      slots.push(
-        `<div class="inventorySlot inventorySlotEmpty" aria-hidden="true"></div>`
-      );
+      slots.push('<div class="inventorySlot inventorySlotEmpty" aria-hidden="true"></div>');
       continue;
     }
 
-    const equipped = isEquipped(item);
-    const actionAttr = equipped
-      ? `data-inv-unwear="${item.id}"`
-      : `data-inv-wear="${item.id}"`;
-
+    const equipped = item.id === equippedCharacterId;
+    const rarityLabel = getCharacterRarityLabel(item.rarity);
+    const actionAttr = equipped ? '' : `data-inv-character-equip="${escapeHtml(item.id)}"`;
     slots.push(
-      `<button class="inventorySlot${equipped ? ' equipped' : ''}" data-slot-type="${item.type}" type="button" ${actionAttr}>
-        <span class="inventorySlotEmblem" aria-hidden="true">${getTypeEmblem(item)}</span>
+      `<button class="inventorySlot${equipped ? ' equipped' : ''}" data-slot-type="character" type="button" ${actionAttr} ${equipped ? 'disabled' : ''}>
+        <span class="inventorySlotEmblem ${getCharacterRarityClass(item.rarity)}" aria-hidden="true">${escapeHtml(rarityLabel.charAt(0))}</span>
         <span class="inventorySlotMeta">
-          <span class="inventorySlotTag">${getTypeTag(item)}</span>
+          <span class="inventorySlotTag">${escapeHtml(rarityLabel)}</span>
           <span class="inventorySlotName">${escapeHtml(item.name)}</span>
         </span>
         ${equipped ? '<span class="inventorySlotEquipped">EQ</span>' : ''}
@@ -1694,118 +1719,193 @@ function renderInventory() {
   inventoryList.innerHTML = `
     <div class="inventoryGridWrap">
       <div class="inventoryGridHead">
-        <span class="inventoryGridLabel">Bag</span>
-        <span class="inventoryGridCount">${Math.min(ownedItems.length, slotCount)}/${slotCount}${hiddenCount ? ` +${hiddenCount}` : ''}</span>
+        <span class="inventoryGridLabel">Skins</span>
+        <span class="inventoryGridCount">${ownedCharacters.length}/${slotCount}</span>
       </div>
       <div class="inventoryGrid">${slots.join('')}</div>
     </div>
   `;
 
-  inventoryList.querySelectorAll('[data-inv-wear]').forEach(btn =>
+  inventoryList.querySelectorAll('[data-inv-character-equip]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (typeof soundClick === 'function') {
-        soundClick();
-      }
-      equipItem(btn.getAttribute('data-inv-wear'));
-    })
-  );
-  inventoryList.querySelectorAll('[data-inv-unwear]').forEach(btn =>
-    btn.addEventListener('click', () => {
-      if (typeof soundClick === 'function') {
-        soundClick();
-      }
-      unwearItem(btn.getAttribute('data-inv-unwear'));
-    })
-  );
+      if (typeof soundClick === 'function') soundClick();
+      equipCharacterSkin(btn.getAttribute('data-inv-character-equip'));
+    });
+  });
 }
 
-// ── Store ─────────────────────────────────────────────────────
+// â”€â”€ Store â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function renderStore() {
+  if (!storeList) return;
+
   const currencyIconPath = escapeHtml(
-    window.OUTRA_3D_CONFIG?.lobbyArt?.currency || 'docs/art/Lobby/Currency.png'
+    window.OUTRA_VISUAL_CONFIG?.lobbyArt?.currency || 'docs/art/Lobby/Currency.png'
   );
+  const currentBalance = Math.max(0, Math.floor(Number(profile.wlk) || 0));
 
   if (wlkLobbyEl) {
     wlkLobbyEl.innerHTML = `
       <img src="${currencyIconPath}" alt="" class="currencyIcon storeCurrencyIcon" />
-      <span class="storeCurrencyValue" data-out-balance>${profile.wlk}</span>
+      <span class="storeCurrencyValue" data-out-balance>${currentBalance}</span>
     `;
   }
-  if (wlkLobbyTopEl) wlkLobbyTopEl.textContent = String(profile.wlk);
+  if (wlkLobbyTopEl) wlkLobbyTopEl.textContent = String(currentBalance);
 
-  storeList.innerHTML = storeItems.map(item => {
+  const characters = getCharacterStoreItems();
+  if (!characters.length) {
+    if (storeLastSignature === '__empty__') return;
+    storeLastSignature = '__empty__';
+    storeList.innerHTML = '<div class="hint">Character skins will appear here.</div>';
+    return;
+  }
+
+  const selectedId = ensureSelectedStoreCharacterId(characters);
+  const selectedCharacter = characters.find((item) => item.id === selectedId) || characters[0];
+  const selectedOwned = !!profile.store[selectedCharacter.id];
+  const selectedEquipped = String(profile?.equipped?.character || '') === selectedCharacter.id;
+  const selectedCost = Math.max(0, Number(selectedCharacter.cost) || 0);
+  const canBuySelected = !selectedOwned && currentBalance >= selectedCost;
+  const selectedRarityLabel = getCharacterRarityLabel(selectedCharacter.rarity);
+  const selectedRarityClass = getCharacterRarityClass(selectedCharacter.rarity);
+  const selectedPreviewSrc = escapeHtml(resolveCharacterPreviewPath(selectedCharacter));
+  const renderSignature = [
+    currentBalance,
+    selectedId,
+    String(profile?.equipped?.character || ''),
+    characters.map((item) => `${item.id}:${profile.store[item.id] ? 1 : 0}`).join(','),
+  ].join('|');
+  if (renderSignature === storeLastSignature) return;
+  storeLastSignature = renderSignature;
+
+  let actionHtml = '';
+  if (!selectedOwned) {
+    const shortfall = Math.max(0, selectedCost - currentBalance);
+    actionHtml = `
+      <button
+        class="secondary storeCharacterActionBtn"
+        type="button"
+        data-store-character-buy="${escapeHtml(selectedCharacter.id)}"
+        ${canBuySelected ? '' : 'disabled'}
+      >${canBuySelected ? 'Unlock Skin' : `Need ${shortfall} more OUT`}</button>
+    `;
+  } else if (!selectedEquipped) {
+    actionHtml = `
+      <button
+        class="secondary storeCharacterActionBtn"
+        type="button"
+        data-store-character-equip="${escapeHtml(selectedCharacter.id)}"
+      >Equip Skin</button>
+    `;
+  } else {
+    actionHtml = `
+      <button class="secondary storeCharacterActionBtn" type="button" disabled>Equipped</button>
+    `;
+  }
+
+  storeList.innerHTML = `
+    <div class="storeCharacterLayout">
+      <div class="storeCharacterRail" aria-label="Character list">
+        ${characters.map((item) => {
+    const selected = item.id === selectedCharacter.id;
     const owned = !!profile.store[item.id];
-    const canBuy = profile.wlk >= item.cost && !owned;
-    let actionHtml = '';
-
-    if (!owned) {
-      actionHtml = `<button class="secondary" data-store-id="${item.id}" ${canBuy ? '' : 'disabled'}>Buy</button>`;
-    } else if (item.type === 'hat') {
-      const wearing = profile.equipped.hat === item.id;
-      actionHtml = `<div>
-        <button class="secondary" data-wear-id="${item.id}">${wearing ? 'Equiped' : 'Equip'}</button>
-        ${wearing ? ` <button class="secondary" data-unwear-id="${item.id}">Unequip</button>` : ''}
-      </div>`;
-    } else if (item.type === 'sweater') {
-      const wearing = profile.equipped.sweater;
-      actionHtml = `<div>
-        <button class="secondary" data-wear-id="${item.id}">${wearing ? 'Equiped' : 'Equip'}</button>
-        ${wearing ? ` <button class="secondary" data-unwear-id="${item.id}">Unequip</button>` : ''}
-      </div>`;
-    } else if (item.type === 'boots') {
-      const wearing = profile.equipped.boots;
-      actionHtml = `<div>
-        <button class="secondary" data-wear-id="${item.id}">${wearing ? 'Equiped' : 'Equip'}</button>
-        ${wearing ? ` <button class="secondary" data-unwear-id="${item.id}">Unequip</button>` : ''}
-      </div>`;
-    } else if (item.type === 'emote') {
-      actionHtml = '<button class="secondary" disabled>Unlocked</button>';
-    } else {
-      actionHtml = '<button class="secondary" disabled>Owned</button>';
-    }
-
-    return `<div class="storeRow">
-      <div>
-        <div class="storeRowTitleLine">
-          <span class="storeRowTitle">${escapeHtml(item.name)}</span>
-          <span class="storePriceTag">
-            <img src="${currencyIconPath}" alt="" class="storePriceIcon" />
-            <span>${item.cost}</span>
-          </span>
-        </div>
-        <div class="hint">${escapeHtml(item.description)}</div>
+    const equipped = String(profile?.equipped?.character || '') === item.id;
+    const rarityLabel = getCharacterRarityLabel(item.rarity);
+    const rarityClass = getCharacterRarityClass(item.rarity);
+    const thumbSrc = escapeHtml(String(item.thumbnail || resolveCharacterPreviewPath(item)));
+    const stateLabel = equipped ? 'Equipped' : (owned ? 'Owned' : 'Locked');
+    return `
+            <button
+              class="storeCharacterEntry${selected ? ' is-selected' : ''}"
+              type="button"
+              data-character-select="${escapeHtml(item.id)}"
+              aria-pressed="${selected ? 'true' : 'false'}"
+            >
+              <span class="storeCharacterThumbWrap">
+                <img
+                  class="storeCharacterThumb"
+                  src="${thumbSrc}"
+                  alt="${escapeHtml(item.name)} thumbnail"
+                  loading="lazy"
+                  decoding="async"
+                  draggable="false"
+                />
+              </span>
+              <span class="storeCharacterEntryCopy">
+                <span class="storeCharacterNameLine">
+                  <span class="storeCharacterName">${escapeHtml(item.name)}</span>
+                  <span class="storeCharacterRarityTag ${rarityClass}">${escapeHtml(rarityLabel)}</span>
+                </span>
+                <span class="storeCharacterSummary">${escapeHtml(item.description)}</span>
+                <span class="storeCharacterState">${escapeHtml(stateLabel)}</span>
+              </span>
+            </button>
+          `;
+  }).join('')}
       </div>
-      ${actionHtml}
-    </div>`;
-  }).join('');
 
-  storeList.querySelectorAll('[data-store-id]').forEach(btn => {
+      <section class="storeCharacterPreviewPanel" aria-live="polite">
+        <div class="storeCharacterPreviewFrame">
+          <img
+            class="storeCharacterPreviewImage"
+            src="${selectedPreviewSrc}"
+            alt="${escapeHtml(selectedCharacter.name)} preview"
+            decoding="async"
+            draggable="false"
+          />
+        </div>
+        <div class="storeCharacterPreviewBody">
+          <div class="storeCharacterPreviewTop">
+            <div class="storeCharacterPreviewName">${escapeHtml(selectedCharacter.name)}</div>
+            <span class="storeCharacterRarityTag ${selectedRarityClass}">${escapeHtml(selectedRarityLabel)}</span>
+          </div>
+          <p class="storeCharacterPreviewDescription">${escapeHtml(selectedCharacter.description)}</p>
+
+          <div class="storeCharacterPreviewMeta">
+            <span class="storePriceTag">
+              <img src="${currencyIconPath}" alt="" class="storePriceIcon" />
+              <span>${selectedCost}</span>
+            </span>
+            <span class="storeCharacterOwnership ${selectedOwned ? 'is-owned' : 'is-locked'}">
+              ${selectedEquipped ? 'Currently equipped' : (selectedOwned ? 'Unlocked' : 'Locked')}
+            </span>
+          </div>
+
+          <div class="storeCharacterActionRow">
+            ${actionHtml}
+          </div>
+        </div>
+      </section>
+    </div>
+  `;
+
+  storeList.querySelectorAll('[data-character-select]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const id = btn.getAttribute('data-store-id');
-      const item = storeItems.find(x => x.id === id);
-      if (!item || profile.wlk < item.cost || profile.store[id]) return;
-
-      profile.wlk -= item.cost;
-      item.apply(profile);
-      saveProfile();
+      const targetId = String(btn.getAttribute('data-character-select') || '').trim();
+      if (!targetId || targetId === selectedStoreCharacterId) return;
+      if (typeof soundClick === 'function') soundClick();
+      selectedStoreCharacterId = targetId;
       renderStore();
-      renderInventory();
-      drawLobbyPreview();
-      updateHud();
-      updateSkillCooldownButtons();
-      updateMusicVolumeUI();
     });
   });
 
-  storeList.querySelectorAll('[data-wear-id]').forEach(btn =>
-    btn.addEventListener('click', () => equipItem(btn.getAttribute('data-wear-id')))
-  );
-  storeList.querySelectorAll('[data-unwear-id]').forEach(btn =>
-    btn.addEventListener('click', () => unwearItem(btn.getAttribute('data-unwear-id')))
-  );
+  const buyBtn = storeList.querySelector('[data-store-character-buy]');
+  if (buyBtn) {
+    buyBtn.addEventListener('click', () => {
+      if (typeof soundClick === 'function') soundClick();
+      unlockCharacterSkin(buyBtn.getAttribute('data-store-character-buy'));
+    });
+  }
+
+  const equipBtn = storeList.querySelector('[data-store-character-equip]');
+  if (equipBtn) {
+    equipBtn.addEventListener('click', () => {
+      if (typeof soundClick === 'function') soundClick();
+      equipCharacterSkin(equipBtn.getAttribute('data-store-character-equip'));
+    });
+  }
 }
 
-// ── Spell Icons ───────────────────────────────────────────────
+// â”€â”€ Spell Icons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function applySpellIconsDesktop() {
   Object.entries(SPELL_ICONS).forEach(([key, path]) => {
     const cell = document.getElementById(`dspell-${key}`);
@@ -1815,6 +1915,8 @@ function applySpellIconsDesktop() {
     if (!img) {
       img = document.createElement('img');
       img.className = 'spellIcon';
+      img.decoding = 'async';
+      img.loading = 'eager';
       img.alt = '';
       img.style.position = 'absolute';
       img.style.inset = '0';
@@ -1827,18 +1929,51 @@ function applySpellIconsDesktop() {
       cell.appendChild(img);
     }
 
-    img.src = path;
+    const nextPath = String(path || '').trim();
+    if (!nextPath) return;
+    if (img.dataset.spellIconSrc !== nextPath) {
+      img.dataset.spellIconSrc = nextPath;
+      img.src = nextPath;
+    }
   });
 
   bindDesktopSpellTooltips();
 }
 
-// ── HUD ───────────────────────────────────────────────────────
+// â”€â”€ HUD â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function triggerReadyFlash(el) {
   if (!el) return;
   el.classList.remove('readyFlash');
   void el.offsetWidth;
   el.classList.add('readyFlash');
+}
+
+function syncArenaSpellCooldownSlot(cooldownEl, cooldownSeconds) {
+  const slotEl = cooldownEl?.closest?.('.arenaSpellSlot') || null;
+  if (!slotEl || !cooldownEl) return;
+
+  const cd = Math.max(0, Number(cooldownSeconds) || 0);
+  const wasOnCooldown = slotEl.classList.contains('onCooldown');
+
+  if (cd > 0.02) {
+    slotEl.classList.add('onCooldown');
+    cooldownEl.textContent = String(Math.ceil(cd));
+    slotEl.dataset.readyFlashed = '0';
+    return;
+  }
+
+  slotEl.classList.remove('onCooldown');
+  cooldownEl.textContent = '';
+
+  if (wasOnCooldown && slotEl.dataset.readyFlashed !== '1') {
+    triggerReadyFlash(slotEl);
+    slotEl.dataset.readyFlashed = '1';
+  }
+}
+
+function syncArenaFireSpellCooldowns(leftCooldownSeconds, rightCooldownSeconds) {
+  syncArenaSpellCooldownSlot(arenaLeftFireSpellCooldownEl, leftCooldownSeconds);
+  syncArenaSpellCooldownSlot(arenaRightFireSpellCooldownEl, rightCooldownSeconds);
 }
 
 function updateSkillCooldownButtons(multiplayerSnapshot = null) {
@@ -1934,13 +2069,23 @@ function updateSkillCooldownButtons(multiplayerSnapshot = null) {
     }
   });
 
+  const localFireCooldown = cooldowns.fire || 0;
+  const opponentFireCooldown = multiplayerArena
+    ? Math.max(0, Number(multiplayerArena.opponentCooldownSecondsBySpell?.fire) || 0)
+    : Math.max(0, (Number(dummy?.fireReadyAt) || 0) - now);
+  syncArenaFireSpellCooldowns(localFireCooldown, opponentFireCooldown);
+
   const keyMap = {
     hook: 'dkey-hook',
     blink: 'dkey-blink',
     shield: 'dkey-shield',
+    prism: 'dkey-prism',
     charge: 'dkey-charge',
     shock: 'dkey-shock',
     gust: 'dkey-gust',
+    solar: 'dkey-solar',
+    rift: 'dkey-rift',
+    phantom: 'dkey-phantom',
     wall: 'dkey-wall',
     rewind: 'dkey-rewind'
   };
@@ -1949,9 +2094,13 @@ function updateSkillCooldownButtons(multiplayerSnapshot = null) {
     hook: keybinds.hook,
     blink: keybinds.teleport,
     shield: keybinds.shield,
+    prism: keybinds.prism,
     charge: keybinds.charge,
     shock: keybinds.shock,
     gust: keybinds.gust,
+    solar: keybinds.solar,
+    rift: keybinds.rift,
+    phantom: keybinds.phantom,
     wall: keybinds.wall,
     rewind: keybinds.rewind
   };
@@ -1966,19 +2115,68 @@ function updateSkillCooldownButtons(multiplayerSnapshot = null) {
     Object.entries(keyMap).forEach(([skill, elId]) => {
       const el = document.getElementById(elId);
       if (!el) return;
-      const mappedKey = keyBySpell[skill] || '—';
+      const mappedKey = keyBySpell[skill] || 'â€”';
       el.textContent = mappedKey;
     });
     const fireKeyEl = document.querySelector('#dspell-fire .deskSpellKey');
     if (fireKeyEl) fireKeyEl.textContent = 'M1';
+    setArenaConceptHudText(arenaLeftFireSpellKeyEl, 'M1');
+    setArenaConceptHudText(arenaRightFireSpellKeyEl, 'M1');
   } else {
     Object.entries(keyMap).forEach(([skill, elId]) => {
       const el = document.getElementById(elId);
       if (el) el.textContent = prettyKey(bindMap[skill]);
     });
     const fireKeyEl = document.querySelector('#dspell-fire .deskSpellKey');
-    if (fireKeyEl) fireKeyEl.textContent = 'M1';
+    const fireKeyText = prettyKey(keybinds.fire);
+    if (fireKeyEl) fireKeyEl.textContent = fireKeyText;
+    setArenaConceptHudText(arenaLeftFireSpellKeyEl, fireKeyText);
+    setArenaConceptHudText(arenaRightFireSpellKeyEl, fireKeyText);
   }
+}
+
+const desktopSpellBarHome = {
+  parent: null,
+  nextSibling: null,
+};
+
+function shouldDockDesktopSpellBarInArenaCard() {
+  if (typeof window === 'undefined') return true;
+  if (typeof window.matchMedia !== 'function') return true;
+  return window.matchMedia('(min-width: 981px)').matches;
+}
+
+function setArenaSpellBarDocked(spellBar, shouldDock) {
+  if (!spellBar) return false;
+
+  const mount = arenaSpellBarMountEl || document.getElementById('arenaSpellBarMount');
+  if (!desktopSpellBarHome.parent && spellBar.parentNode) {
+    desktopSpellBarHome.parent = spellBar.parentNode;
+    desktopSpellBarHome.nextSibling = spellBar.nextSibling;
+  }
+
+  const canDock = !!shouldDock && !!mount;
+  if (canDock) {
+    if (spellBar.parentNode !== mount) {
+      mount.appendChild(spellBar);
+    }
+  } else if (desktopSpellBarHome.parent && spellBar.parentNode !== desktopSpellBarHome.parent) {
+    if (
+      desktopSpellBarHome.nextSibling
+      && desktopSpellBarHome.nextSibling.parentNode === desktopSpellBarHome.parent
+    ) {
+      desktopSpellBarHome.parent.insertBefore(spellBar, desktopSpellBarHome.nextSibling);
+    } else {
+      desktopSpellBarHome.parent.appendChild(spellBar);
+    }
+  }
+
+  const isDocked = canDock && spellBar.parentNode === mount;
+  spellBar.classList.toggle('arenaProfileSpellBar', isDocked);
+  if (document?.body) {
+    document.body.classList.toggle('arenaSpellBarDocked', isDocked);
+  }
+  return isDocked;
 }
 
 function syncArenaSpellBarLayout(multiplayerSnapshot = null) {
@@ -1989,19 +2187,27 @@ function syncArenaSpellBarLayout(multiplayerSnapshot = null) {
   const inArenaPhase = gameState === 'playing'
     || gameState === 'result'
     || !!snapshot?.isArenaActive;
+  const shouldShowSpellBar = inArenaPhase && !isTouchDevice;
+  const isDocked = setArenaSpellBarDocked(
+    spellBar,
+    shouldShowSpellBar && shouldDockDesktopSpellBarInArenaCard()
+  );
+  spellBar.style.display = shouldShowSpellBar ? (isDocked ? 'grid' : 'flex') : 'none';
+
   const effectiveLoadout = Array.isArray(snapshot?.arena?.loadout) && snapshot.arena.loadout.length
     ? snapshot.arena.loadout
     : activeSpellLoadout;
   const isDraftLoadout = Array.isArray(effectiveLoadout)
     && effectiveLoadout.includes('fire')
     && effectiveLoadout.length <= 4;
+  const shouldUseCompactLoadout = isDraftLoadout || isDocked;
   const visibleDraftSpells = new Set(
-    isDraftLoadout
+    shouldUseCompactLoadout
       ? effectiveLoadout.filter((spellId) => spellId !== 'fire').slice(0, 3)
       : []
   );
 
-  const desktopSpellOrder = ['fire', 'hook', 'blink', 'shield', 'charge', 'shock', 'gust', 'wall', 'rewind'];
+  const desktopSpellOrder = ['fire', 'hook', 'blink', 'shield', 'prism', 'charge', 'shock', 'gust', 'solar', 'rift', 'phantom', 'wall', 'rewind'];
   for (const spellId of desktopSpellOrder) {
     const cell = document.getElementById(`dspell-${spellId}`);
     if (!cell) continue;
@@ -2011,16 +2217,24 @@ function syncArenaSpellBarLayout(multiplayerSnapshot = null) {
       continue;
     }
 
-    if (!isDraftLoadout) {
+    if (!shouldUseCompactLoadout) {
       cell.style.display = '';
       continue;
     }
 
-    const shouldShow = spellId === 'fire' || visibleDraftSpells.has(spellId);
+    const shouldShow = isDocked
+      ? visibleDraftSpells.has(spellId)
+      : (spellId === 'fire' || visibleDraftSpells.has(spellId));
     cell.style.display = shouldShow ? '' : 'none';
   }
 
-  spellBar.classList.toggle('draftSpellBarOnlyPicks', inArenaPhase && isDraftLoadout);
+  spellBar.classList.toggle('draftSpellBarOnlyPicks', inArenaPhase && shouldUseCompactLoadout);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('resize', () => {
+    syncArenaSpellBarLayout();
+  }, { passive: true });
 }
 
 function updateGodModeMenuState() {
@@ -2047,26 +2261,346 @@ function updateGodModeMenuState() {
 }
 
 function updateLeaveGameMenuState(multiplayerSnapshot = null) {
-  if (!leaveGameBtn) return;
   const snapshot = multiplayerSnapshot || getMultiplayerPresentationSnapshot();
-  const showLeaveGame = !!snapshot?.active
-    && (snapshot.isDraftActive || snapshot.isArenaActive);
-  leaveGameBtn.hidden = !showLeaveGame;
+  const inMultiplayerMatchFlow = !!snapshot?.active
+    && (
+      snapshot.isDraftActive
+      || snapshot.isArenaActive
+      || snapshot.isArenaPending
+      || snapshot.isMatchEnd
+    );
+  if (leaveGameBtn) {
+    leaveGameBtn.hidden = !inMultiplayerMatchFlow;
+  }
+  if (toLobbyBtn) {
+    toLobbyBtn.hidden = inMultiplayerMatchFlow;
+  }
+}
+
+function setArenaConceptHudText(el, value) {
+  if (!el) return;
+  const next = String(value ?? '');
+  if (el.textContent !== next) {
+    el.textContent = next;
+  }
+}
+
+function normalizeArenaConceptSpellList(loadout) {
+  if (!Array.isArray(loadout)) return [];
+  const normalized = [];
+  const seen = new Set();
+  loadout.forEach((entry) => {
+    const mapped = toUiSpellFromMultiplayer(entry);
+    const spellId = String(mapped || '').trim().toLowerCase();
+    if (!spellId || spellId === 'fire' || seen.has(spellId)) return;
+    seen.add(spellId);
+    normalized.push(spellId);
+  });
+  return normalized.slice(0, 3);
+}
+
+function completeArenaConceptSpellList(spells) {
+  const output = Array.isArray(spells) ? [...spells] : [];
+  for (const fallbackSpellId of ARENA_CONCEPT_FALLBACK_SPELLS) {
+    if (output.length >= 3) break;
+    if (!output.includes(fallbackSpellId)) output.push(fallbackSpellId);
+  }
+  while (output.length < 3) output.push('');
+  return output.slice(0, 3);
+}
+
+function getArenaConceptLocalRankData() {
+  const rankedSnapshot = typeof getRankedSnapshot === 'function' ? getRankedSnapshot() : null;
+  const tier = rankedSnapshot?.tier || null;
+  const rankNumber = Number(tier?.rankNumber);
+  const rankLabel = Number.isFinite(rankNumber) ? `RANK ${rankNumber}` : 'RANK ?';
+  const rankTitle = tier ? getRankLabelFromTier(tier) : 'Unranked';
+  return { rankLabel, rankTitle };
+}
+
+function renderArenaConceptScoreMarkers(container, earned, total) {
+  if (!container) return;
+  const safeTotal = Math.max(1, Number(total) || 1);
+  const safeEarned = Math.max(0, Math.min(safeTotal, Number(earned) || 0));
+  const key = `${safeEarned}/${safeTotal}`;
+  if (container.dataset.markerKey === key) return;
+  container.dataset.markerKey = key;
+  container.replaceChildren();
+  for (let i = 0; i < safeTotal; i += 1) {
+    const marker = document.createElement('span');
+    marker.className = 'arenaScoreMarker';
+    if (i < safeEarned) marker.classList.add('is-earned');
+    container.appendChild(marker);
+  }
+}
+
+function updateArenaConceptSpellSlots(iconEls, fallbackEls, spellIds) {
+  const icons = Array.isArray(iconEls) ? iconEls : [];
+  const fallbacks = Array.isArray(fallbackEls) ? fallbackEls : [];
+  const spells = Array.isArray(spellIds) ? spellIds : [];
+  const slotCount = Math.max(3, icons.length, fallbacks.length, spells.length);
+  for (let i = 0; i < slotCount; i += 1) {
+    const iconEl = icons[i] || null;
+    const fallbackEl = fallbacks[i] || null;
+    const slotEl = iconEl?.closest?.('.arenaSpellSlot') || fallbackEl?.closest?.('.arenaSpellSlot') || null;
+    const spellId = String(spells[i] || '').trim().toLowerCase();
+    const spellDef = spellId ? SPELL_DEFS?.[spellId] : null;
+    const spellLabel = spellId === 'fire'
+      ? 'Fireball'
+      : (spellDef?.name || (spellId ? spellId.toUpperCase() : 'Empty'));
+    const iconPath = spellId ? String(SPELL_ICONS?.[spellId] || '').trim() : '';
+    const fallbackToken = spellId
+      ? String(spellDef?.icon || spellLabel.slice(0, 2)).toUpperCase()
+      : '--';
+
+    if (fallbackEl) {
+      setArenaConceptHudText(fallbackEl, fallbackToken);
+    }
+
+    if (iconEl) {
+      if (iconPath) {
+        if (iconEl.dataset.spellIconSrc !== iconPath) {
+          iconEl.dataset.spellIconSrc = iconPath;
+          iconEl.src = iconPath;
+        }
+        if (iconEl.alt !== spellLabel) iconEl.alt = spellLabel;
+      } else {
+        if (iconEl.dataset.spellIconSrc !== '') {
+          iconEl.dataset.spellIconSrc = '';
+          iconEl.removeAttribute('src');
+        }
+        if (iconEl.alt !== '') iconEl.alt = '';
+      }
+    }
+
+    if (slotEl) {
+      slotEl.classList.toggle('has-icon', !!iconPath);
+      if (spellId) {
+        slotEl.dataset.spellId = spellId;
+        slotEl.setAttribute('aria-label', spellLabel);
+        slotEl.title = spellLabel;
+      } else {
+        delete slotEl.dataset.spellId;
+        slotEl.setAttribute('aria-label', 'Empty');
+        slotEl.removeAttribute('title');
+      }
+    }
+  }
+}
+
+function formatArenaConceptClock(totalSeconds) {
+  const safeSeconds = Math.max(0, Number(totalSeconds) || 0);
+  const mins = Math.floor(safeSeconds / 60);
+  const secs = Math.floor(safeSeconds % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+function setArenaConceptHp(fillEl, textEl, currentHp, maxHp) {
+  const safeMax = Math.max(1, Number(maxHp) || 1);
+  const safeCurrent = Math.max(0, Math.min(safeMax, Number(currentHp) || 0));
+  setArenaConceptHudText(textEl, `${Math.ceil(safeCurrent)} / ${Math.ceil(safeMax)}`);
+  if (fillEl) {
+    const pct = Math.max(0, Math.min(100, (safeCurrent / safeMax) * 100));
+    const widthText = `${pct.toFixed(1)}%`;
+    if (fillEl.style.width !== widthText) {
+      fillEl.style.width = widthText;
+    }
+  }
+}
+
+function updateArenaConceptHud(multiplayerSnapshot, inArenaPhase) {
+  if (!arenaMatchHudEl) {
+    if (document?.body) document.body.classList.remove('arenaConceptHudActive');
+    return;
+  }
+
+  const shouldShow = ARENA_CONCEPT_HUD_ENABLED && inArenaPhase;
+  arenaMatchHudEl.classList.toggle('show', shouldShow);
+  arenaMatchHudEl.setAttribute('aria-hidden', shouldShow ? 'false' : 'true');
+  if (document?.body) {
+    document.body.classList.toggle('arenaConceptHudActive', shouldShow);
+  }
+  if (!shouldShow) return;
+
+  const multiplayerRuntime = typeof getMultiplayerArenaRuntimeSnapshot === 'function'
+    ? getMultiplayerArenaRuntimeSnapshot()
+    : null;
+  const multiplayerFlowActive = !!multiplayerSnapshot?.active && (
+    !!multiplayerSnapshot?.isArenaActive
+    || !!multiplayerSnapshot?.isArenaPending
+    || !!multiplayerSnapshot?.isRoundEnd
+    || !!multiplayerSnapshot?.isMatchEnd
+    || !!multiplayerSnapshot?.isCountdownActive
+  );
+  const multiplayerArenaActive = !!multiplayerSnapshot?.active && !!multiplayerSnapshot?.isArenaActive;
+
+  const localNameRaw = String(window.playerProfile?.display_name || player?.name || 'Player').trim() || 'Player';
+  const fallbackOpponentName = !multiplayerFlowActive
+    ? (dummyEnabled ? (dummyBehavior === 'standing' ? 'Standing Dummy' : 'Practice Dummy') : 'No Dummy')
+    : 'Opponent';
+  const opponentNameRaw = String(dummy?.name || fallbackOpponentName).trim() || fallbackOpponentName;
+
+  let leftScore = Math.max(0, Number(player?.score) || 0);
+  let rightScore = 0;
+  let roundsNeeded = 2;
+  let scoreMetaTop = 'SOLO';
+  let scoreRound = gameState === 'result'
+    ? 'RESULT'
+    : (arena.shrinkEnabled === false ? 'Practice\nStable' : 'Practice');
+  let scoreTimer = arena.shrinkEnabled === false
+    ? ''
+    : formatArenaConceptClock(Math.ceil(Math.max(0, Number(arena.shrinkTimer) || 0)));
+
+  if (multiplayerFlowActive) {
+    const bo3 = multiplayerSnapshot?.bo3 && typeof multiplayerSnapshot.bo3 === 'object'
+      ? multiplayerSnapshot.bo3
+      : {};
+    const winsMap = bo3.roundWinsByPlayerNumber && typeof bo3.roundWinsByPlayerNumber === 'object'
+      ? bo3.roundWinsByPlayerNumber
+      : {};
+    const myNumber = Number(multiplayerRuntime?.myPlayerNumber);
+    const opponentNumber = Number(multiplayerRuntime?.opponentPlayerNumber);
+    const fallbackWinsLeft = Math.max(0, Number(winsMap?.[1]) || 0);
+    const fallbackWinsRight = Math.max(0, Number(winsMap?.[2]) || 0);
+    leftScore = Number.isFinite(myNumber) ? Math.max(0, Number(winsMap?.[myNumber]) || 0) : fallbackWinsLeft;
+    rightScore = Number.isFinite(opponentNumber) ? Math.max(0, Number(winsMap?.[opponentNumber]) || 0) : fallbackWinsRight;
+    roundsNeeded = Math.max(1, Number(bo3.roundsNeededToWin) || 2);
+    const roundNumber = Math.max(1, Number(bo3.roundNumber) || 1);
+    scoreMetaTop = String(bo3.matchFormat || 'bo3').toUpperCase();
+    scoreRound = `ROUND ${roundNumber}`;
+
+    if (multiplayerSnapshot?.isMatchEnd) {
+      scoreTimer = 'MATCH END';
+    } else if (multiplayerSnapshot?.isRoundEnd) {
+      const intermissionSec = Math.ceil(
+        Math.max(0, Number(bo3.roundIntermissionRemainingMs) || 0) / 1000
+      );
+      scoreTimer = intermissionSec > 0 ? `NEXT ${intermissionSec}s` : 'ROUND END';
+    } else if (multiplayerSnapshot?.isCountdownActive) {
+      scoreTimer = 'READY';
+    } else {
+      scoreTimer = 'COMBAT';
+    }
+  }
+
+  const localRank = getArenaConceptLocalRankData();
+  const opponentRankLabel = multiplayerFlowActive ? 'RANK ?' : 'RANK BOT';
+  const opponentRankTitle = multiplayerFlowActive
+    ? 'Challenger'
+    : (dummyEnabled ? 'Practice Dummy' : 'Inactive');
+
+  const localSpellSource = multiplayerFlowActive
+    ? (Array.isArray(multiplayerSnapshot?.arena?.loadout) ? multiplayerSnapshot.arena.loadout : activeSpellLoadout)
+    : activeSpellLoadout;
+  const localSpells = completeArenaConceptSpellList(normalizeArenaConceptSpellList(localSpellSource));
+
+  let opponentSpells = [];
+  if (multiplayerFlowActive) {
+    const localDraftPlayerId = multiplayerSnapshot?.draft?.localPlayerId === 'B' ? 'B' : 'A';
+    const opponentDraftPlayerId = localDraftPlayerId === 'A' ? 'B' : 'A';
+    opponentSpells = normalizeArenaConceptSpellList(multiplayerSnapshot?.draft?.picks?.[opponentDraftPlayerId]);
+  } else {
+    opponentSpells = normalizeArenaConceptSpellList(activeSpellLoadout);
+  }
+  if (!opponentSpells.length) {
+    opponentSpells = [...localSpells];
+  }
+  opponentSpells = completeArenaConceptSpellList(opponentSpells);
+
+  const leftHpCurrent = multiplayerArenaActive
+    ? Math.max(0, Number(multiplayerSnapshot?.arena?.myHealth) || 0)
+    : Math.max(0, Number(player?.hp) || 0);
+  const leftHpMax = multiplayerArenaActive
+    ? Math.max(1, Number(multiplayerSnapshot?.arena?.myMaxHealth) || 100)
+    : Math.max(1, Number(player?.maxHp) || 100);
+  const rightHpCurrent = multiplayerArenaActive
+    ? Math.max(0, Number(multiplayerSnapshot?.arena?.opponentHealth) || 0)
+    : Math.max(0, Number(dummy?.hp) || 0);
+  const rightHpMax = multiplayerArenaActive
+    ? Math.max(1, Number(multiplayerSnapshot?.arena?.opponentMaxHealth) || 100)
+    : Math.max(1, Number(dummy?.maxHp) || 100);
+
+  const localNameDisplay = localNameRaw.toUpperCase();
+  const opponentNameDisplay = opponentNameRaw.toUpperCase();
+  const localGlyph = (localNameRaw.match(/[A-Za-z0-9]/)?.[0] || 'L').toUpperCase();
+  const opponentGlyph = (opponentNameRaw.match(/[A-Za-z0-9]/)?.[0] || 'R').toUpperCase();
+
+  setArenaConceptHudText(arenaScoreMetaTopEl, scoreMetaTop);
+  setArenaConceptHudText(arenaScoreRoundEl, scoreRound);
+  setArenaConceptHudText(arenaScoreTimerEl, scoreTimer);
+  setArenaConceptHudText(arenaScoreLeftNameEl, localNameDisplay);
+  setArenaConceptHudText(arenaScoreLeftValueEl, leftScore);
+  setArenaConceptHudText(arenaScoreRightNameEl, opponentNameDisplay);
+  setArenaConceptHudText(arenaScoreRightValueEl, rightScore);
+  renderArenaConceptScoreMarkers(arenaScoreLeftMarkersEl, leftScore, roundsNeeded);
+  renderArenaConceptScoreMarkers(arenaScoreRightMarkersEl, rightScore, roundsNeeded);
+
+  setArenaConceptHudText(arenaLeftPortraitGlyphEl, localGlyph);
+  setArenaConceptHudText(arenaLeftPanelNameEl, localNameDisplay);
+  setArenaConceptHudText(arenaLeftRankLabelEl, localRank.rankLabel);
+  setArenaConceptHudText(arenaLeftRankTitleEl, String(localRank.rankTitle || 'Unranked').toUpperCase());
+  setArenaConceptHp(arenaLeftHpFillEl, arenaLeftHpTextEl, leftHpCurrent, leftHpMax);
+  updateArenaConceptSpellSlots(arenaLeftSpellIconEls, arenaLeftSpellFallbackEls, localSpells);
+  updateArenaConceptSpellSlots(
+    [arenaLeftFireSpellIconEl],
+    [arenaLeftFireSpellFallbackEl],
+    ARENA_CONCEPT_STANDARD_SPELLS
+  );
+
+  setArenaConceptHudText(arenaRightPortraitGlyphEl, opponentGlyph);
+  setArenaConceptHudText(arenaRightPanelNameEl, opponentNameDisplay);
+  setArenaConceptHudText(arenaRightRankLabelEl, opponentRankLabel);
+  setArenaConceptHudText(arenaRightRankTitleEl, opponentRankTitle.toUpperCase());
+  setArenaConceptHp(arenaRightHpFillEl, arenaRightHpTextEl, rightHpCurrent, rightHpMax);
+  updateArenaConceptSpellSlots(arenaRightSpellIconEls, arenaRightSpellFallbackEls, opponentSpells);
+  updateArenaConceptSpellSlots(
+    [arenaRightFireSpellIconEl],
+    [arenaRightFireSpellFallbackEl],
+    ARENA_CONCEPT_STANDARD_SPELLS
+  );
 }
 
 function updateHud() {
   const multiplayerSnapshot = getMultiplayerPresentationSnapshot();
-  const multiplayerMatchFlowActive = !!multiplayerSnapshot?.active
-    && (!!multiplayerSnapshot?.isDraftActive || !!multiplayerSnapshot?.isArenaActive);
+  const nowMs = performance.now();
+  const snapshotDraftActive = !!multiplayerSnapshot?.isDraftActive;
+  if (snapshotDraftActive) {
+    draftOverlayLastServerActiveAt = nowMs;
+  }
+  const stickyDraftMatchFlow =
+    !!multiplayerSnapshot?.active
+    && !multiplayerSnapshot?.isArenaActive
+    && !multiplayerSnapshot?.isArenaPending
+    && !multiplayerSnapshot?.isMatchEnd
+    && draftOverlayLastServerActiveAt > 0
+    && (nowMs - draftOverlayLastServerActiveAt) <= DRAFT_OVERLAY_STICKY_MS;
+  const multiplayerMatchFlowActive = !!multiplayerSnapshot?.active && (
+    !!multiplayerSnapshot?.isArenaActive
+    || !!multiplayerSnapshot?.isArenaPending
+    || !!multiplayerSnapshot?.isMatchEnd
+    || snapshotDraftActive
+    || stickyDraftMatchFlow
+  );
   if (document?.body) {
     document.body.classList.toggle('mpMatchFlowActive', multiplayerMatchFlowActive);
+    const devicePixelRatioValue = Number(window.devicePixelRatio) || 1;
+    const fractionalDevicePixelRatio = Math.abs(devicePixelRatioValue - Math.round(devicePixelRatioValue)) > 0.01;
+    // Fractional DPR (for example 1.25) can trigger expensive compositor paths in match HUD layers.
+    // Enable a lighter style profile only during multiplayer match flow on those displays.
+    document.body.classList.toggle(
+      'mpCompositorLite',
+      multiplayerMatchFlowActive && fractionalDevicePixelRatio
+    );
   }
   const inArenaPhase = gameState === 'playing'
     || gameState === 'result'
     || !!multiplayerSnapshot?.isArenaActive;
   updateDraftOverlayUi(multiplayerSnapshot);
+  updateArenaConceptHud(multiplayerSnapshot, inArenaPhase);
 
-  applySpellIconsDesktop();
+  if (inArenaPhase && !isTouchDevice) {
+    applySpellIconsDesktop();
+  }
 
   const multiplayerArenaActive = !!multiplayerSnapshot?.active && !!multiplayerSnapshot?.isArenaActive;
   if (multiplayerArenaActive) {
@@ -2118,19 +2652,27 @@ function updateHud() {
     const storeValueEl = wlkLobbyEl.querySelector('.storeCurrencyValue');
     if (storeValueEl) storeValueEl.textContent = currencyValueText;
   }
-  roundTimerHudEl.textContent = `Shrink In: ${Math.ceil(arena.shrinkTimer)}s`;
+  roundTimerHudEl.textContent = arena.shrinkEnabled === false
+    ? 'Arena Stable'
+    : `Shrink In: ${Math.ceil(arena.shrinkTimer)}s`;
 
   controlsHudEl.textContent = isTouchDevice
     ? 'Touch: Move stick | Pull skill and release to cast | Top-right Menu'
-    : `Fire: Mouse1 | Hook: ${prettyKey(keybinds.hook)} | Teleport: ${prettyKey(keybinds.teleport)} | Shield: ${prettyKey(keybinds.shield)} | Charge: ${prettyKey(keybinds.charge)} | Shock: ${prettyKey(keybinds.shock)} | Gust: ${prettyKey(keybinds.gust)} | Wall: hold ${prettyKey(keybinds.wall)} and release | Rewind: ${prettyKey(keybinds.rewind)} | Menu: ${prettyKey(keybinds.menu)}`;
+    : `Fire: ${prettyKey(keybinds.fire)} | Hook: ${prettyKey(keybinds.hook)} | Teleport: ${prettyKey(keybinds.teleport)} | Shield: ${prettyKey(keybinds.shield)} | Charge: ${prettyKey(keybinds.charge)} | Shock: ${prettyKey(keybinds.shock)} | Gust: ${prettyKey(keybinds.gust)} | Wall: hold ${prettyKey(keybinds.wall)} and release | Rewind: ${prettyKey(keybinds.rewind)} | Menu: ${prettyKey(keybinds.menu)}`;
 
-  musicToggleBtn.textContent = `Music: ${musicMuted ? 'Off' : 'On'}`;
-  musicToggleBtn.className = musicMuted ? 'musicToggleOff' : 'musicToggleOn';
-  updatePerformanceModeUI();
+  const musicLabelText = `Music: ${musicMuted ? 'Off' : 'On'}`;
+  const musicLabelEl = musicToggleBtn?.querySelector?.('.menuBtnLabel');
+  if (musicLabelEl) {
+    musicLabelEl.textContent = musicLabelText;
+  } else if (musicToggleBtn) {
+    musicToggleBtn.textContent = musicLabelText;
+  }
+  if (musicToggleBtn) {
+    musicToggleBtn.classList.toggle('musicToggleOn', !musicMuted);
+    musicToggleBtn.classList.toggle('musicToggleOff', musicMuted);
+  }
   hud.style.display = (inArenaPhase && hudVisible) ? 'block' : 'none';
 
-  const spellBar = document.getElementById('desktopSpellBar');
-  if (spellBar) spellBar.style.display = (inArenaPhase && !isTouchDevice) ? 'flex' : 'none';
   syncArenaSpellBarLayout(multiplayerSnapshot);
 
   updateSkillCooldownButtons(multiplayerSnapshot);
@@ -2142,7 +2684,7 @@ function updateHud() {
   updateLeaveGameMenuState(multiplayerSnapshot);
 }
 
-// ── Aim Sensitivity UI ────────────────────────────────────────
+// â”€â”€ Aim Sensitivity UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function updateAimSensitivityUI() {
   const value = Math.min(1.4, Math.max(0.35, Number(profile.aimSensitivity) || 0.7));
   profile.aimSensitivity = value;
@@ -2157,7 +2699,8 @@ function updateAimSensitivityUI() {
 }
 
 function updateMusicVolumeUI() {
-  const value = Math.min(1, Math.max(0, Number(profile.musicVolume) || 0.38));
+  const raw = Number(profile.musicVolume);
+  const value = Math.min(1, Math.max(0, Number.isFinite(raw) ? raw : 0.38));
   profile.musicVolume = value;
 
   if (musicVolumeSlider) {
@@ -2169,23 +2712,20 @@ function updateMusicVolumeUI() {
   }
 }
 
-function updatePerformanceModeUI() {
-  if (!performanceModeToggleBtn) return;
-  const forced = typeof FORCE_ARENA_PERFORMANCE_MODE !== 'undefined' && !!FORCE_ARENA_PERFORMANCE_MODE;
-  if (forced) {
-    performanceModeToggleBtn.textContent = 'Performance Mode: On (Forced)';
-    performanceModeToggleBtn.disabled = true;
-    performanceModeToggleBtn.setAttribute('aria-disabled', 'true');
-    return;
+function updateSoundVolumeUI() {
+  const raw = Number(profile.soundVolume);
+  const value = Math.min(1, Math.max(0, Number.isFinite(raw) ? raw : 1));
+  profile.soundVolume = value;
+
+  if (soundVolumeSlider) {
+    soundVolumeSlider.value = value.toFixed(2);
   }
 
-  const enabled = !!profile.performanceMode;
-  performanceModeToggleBtn.textContent = `Performance Mode: ${enabled ? 'On' : 'Off'}`;
-  performanceModeToggleBtn.disabled = false;
-  performanceModeToggleBtn.removeAttribute('aria-disabled');
+  if (soundVolumeValue) {
+    soundVolumeValue.textContent = `${Math.round(value * 100)}%`;
+  }
 }
 
-// —— Lobby Depth FX (background parallax) ————————————————————————————————
 const lobbyDepthFx = {
   initialized: false,
   enabled: !isTouchDevice,

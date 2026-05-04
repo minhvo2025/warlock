@@ -50,19 +50,45 @@ const ROOM_STATES = Object.freeze({
 const MATCH_PHASE_DRAFT = 'draft';
 const MATCH_PHASE_COMBAT_COUNTDOWN = 'combat_countdown';
 const MATCH_PHASE_COMBAT = 'combat';
+const MATCH_PHASE_ROUND_END = 'round_end';
 const MATCH_PHASE_MATCH_END = 'match_end';
-const PLAYER_MOVE_SPEED = 8;
+const MATCH_FORMAT_BO3 = 'bo3';
+const MATCH_ROUNDS_NEEDED_TO_WIN = 2;
+const MATCH_MAX_ROUNDS = 3;
+const ROUND_END_INTERMISSION_MS = 2800;
+const PLAYER_BASE_MOVE_SPEED = 8;
+const PLAYER_MOVE_SPEED = PLAYER_BASE_MOVE_SPEED * 1.4;
 // Increased from 30 Hz -> 60 Hz for smoother multiplayer simulation
 const MATCH_TICK_MS = 1000 / 60;
 const MATCH_STATE_BROADCAST_MS = 20; // ~50 network snapshots/sec while sim runs at 60 Hz
 const MATCH_MAX_DELTA_MS = 100;
 const ARENA_BOUNDARY_CENTER = Object.freeze({ x: 0, y: 0 });
-const ARENA_BOUNDARY_RADIUS = 12;
+const ARENA_BOUNDARY_RADIUS = 14;
+// Matches arena_platform.png alpha bounds (1620x1530).
+// Keep in sync with js/game.js octagon constants.
+const ARENA_OCTAGON_HALF_WIDTH_SCALE = 1.0588235294117647;
+const ARENA_OCTAGON_CORNER_LIMIT_SCALE = 1.715032679738562;
 const ARENA_HARD_OUT_OF_BOUNDS_RADIUS = ARENA_BOUNDARY_RADIUS + 4.8;
 const LAVA_DAMAGE_INTERVAL_MS = 250;
 const LAVA_DAMAGE_PER_TICK = 10;
 const PLAYER_MAX_HEALTH = 100;
 const PLAYER_RADIUS = 0.72;
+// Derived from arena_platform.png pillar bases (alpha bounds 1620x1530).
+// Offsets are normalized by arena half-height to match local client colliders.
+const ROUND_PILLAR_LAYOUT = Object.freeze([
+  Object.freeze({ offsetX: -0.433, offsetY: -0.512, radiusScale: 0.090 }),
+  Object.freeze({ offsetX: 0.429, offsetY: -0.513, radiusScale: 0.090 }),
+  Object.freeze({ offsetX: -0.445, offsetY: 0.461, radiusScale: 0.090 }),
+  Object.freeze({ offsetX: 0.438, offsetY: 0.460, radiusScale: 0.090 })
+]);
+const ROUND_PILLAR_COUNT = ROUND_PILLAR_LAYOUT.length;
+const ROUND_PILLAR_RADIUS_MIN = 0.88;
+const ROUND_PILLAR_RADIUS_MAX = 1.28;
+const ROUND_PILLAR_MIN_CENTER_DISTANCE = 2.15;
+const ROUND_PILLAR_SPAWN_CLEARANCE = 3.1;
+const ROUND_PILLAR_MIN_SEPARATION = 1.2;
+const ROUND_PILLAR_BOUNDARY_PADDING = 0.34;
+const ROUND_PILLAR_MAX_ATTEMPTS = 360;
 const PLAYER_KNOCKBACK_DAMPING_PER_SECOND = 6.9;
 const ABILITY_REQUEST_MIN_INTERVAL_MS = 70;
 const ABILITY_REQUEST_CACHE_TTL_MS = 12000;
@@ -79,6 +105,10 @@ const ENABLE_VERBOSE_RUNTIME_LOGS = process.env.OUTRA_VERBOSE_RUNTIME_LOGS === '
 const KILL_CREDIT_TIMEOUT_MS = 2600;
 const DRAFT_SPELL_POOL = Object.freeze([
   'charge',
+  'prism',
+  'solar',
+  'rift',
+  'phantom',
   'shock',
   'gust',
   'wall',
@@ -92,6 +122,10 @@ const DRAFT_SPELL_COPY_LIMITS = Object.freeze({
   blink: 1,
   shield: 1,
   charge: 1,
+  prism: 1,
+  solar: 1,
+  rift: 1,
+  phantom: 1,
   shock: 1,
   gust: 1,
   wall: 1,
@@ -99,13 +133,14 @@ const DRAFT_SPELL_COPY_LIMITS = Object.freeze({
 });
 const DRAFT_TURN_ORDER = Object.freeze([1, 2, 2, 1, 1, 2]);
 const SPAWN_POSITIONS = Object.freeze({
-  1: Object.freeze({ x: -5, y: 0 }),
-  2: Object.freeze({ x: 5, y: 0 })
+  1: Object.freeze({ x: -5.8, y: 0 }),
+  2: Object.freeze({ x: 5.8, y: 0 })
 });
 const PHASE_TRANSITIONS = Object.freeze({
   [MATCH_PHASE_DRAFT]: Object.freeze([MATCH_PHASE_COMBAT_COUNTDOWN, MATCH_PHASE_MATCH_END]),
   [MATCH_PHASE_COMBAT_COUNTDOWN]: Object.freeze([MATCH_PHASE_COMBAT, MATCH_PHASE_MATCH_END]),
-  [MATCH_PHASE_COMBAT]: Object.freeze([MATCH_PHASE_MATCH_END]),
+  [MATCH_PHASE_COMBAT]: Object.freeze([MATCH_PHASE_ROUND_END, MATCH_PHASE_MATCH_END]),
+  [MATCH_PHASE_ROUND_END]: Object.freeze([MATCH_PHASE_COMBAT_COUNTDOWN, MATCH_PHASE_MATCH_END]),
   [MATCH_PHASE_MATCH_END]: Object.freeze([])
 });
 const ABILITY_DEFS = Object.freeze({
@@ -122,6 +157,11 @@ const ABILITY_DEFS = Object.freeze({
   [ABILITY_IDS.SHIELD]: Object.freeze({
     id: ABILITY_IDS.SHIELD,
     event: 'cast_shield',
+    requiresDrafted: true
+  }),
+  [ABILITY_IDS.PRISM]: Object.freeze({
+    id: ABILITY_IDS.PRISM,
+    event: 'cast_prism',
     requiresDrafted: true
   }),
   [ABILITY_IDS.GUST]: Object.freeze({
@@ -142,6 +182,21 @@ const ABILITY_DEFS = Object.freeze({
   [ABILITY_IDS.HOOK]: Object.freeze({
     id: ABILITY_IDS.HOOK,
     event: 'cast_hook',
+    requiresDrafted: true
+  }),
+  [ABILITY_IDS.SOLAR]: Object.freeze({
+    id: ABILITY_IDS.SOLAR,
+    event: 'cast_solar',
+    requiresDrafted: true
+  }),
+  [ABILITY_IDS.RIFT]: Object.freeze({
+    id: ABILITY_IDS.RIFT,
+    event: 'cast_rift',
+    requiresDrafted: true
+  }),
+  [ABILITY_IDS.PHANTOM]: Object.freeze({
+    id: ABILITY_IDS.PHANTOM,
+    event: 'cast_phantom',
     requiresDrafted: true
   }),
   [ABILITY_IDS.WALL]: Object.freeze({
@@ -207,6 +262,38 @@ function getFireblastHitRadiusDefault() {
 
 function getHookHitRadiusDefault() {
   return getAbilityNumber(ABILITY_IDS.HOOK, 'hitRadius', 0.38, 0.05);
+}
+
+function getSolarHitRadiusDefault() {
+  return getAbilityNumber(ABILITY_IDS.SOLAR, 'hitRadius', 0.38, 0.05);
+}
+
+function getSolarImpactRadiusDefault() {
+  return getAbilityNumber(ABILITY_IDS.SOLAR, 'impactRadius', 1.35, 0.1);
+}
+
+function getSolarDebuffDurationMsDefault() {
+  return getAbilityNumber(ABILITY_IDS.SOLAR, 'debuffDurationMs', 1200, 50);
+}
+
+function getRiftPortalRadiusDefault() {
+  return getAbilityNumber(ABILITY_IDS.RIFT, 'portalRadius', 0.9, 0.05);
+}
+
+function getRiftTeleportDelayMsDefault() {
+  return getAbilityNumber(ABILITY_IDS.RIFT, 'teleportDelayMs', 80, 1);
+}
+
+function getRiftExitVelocityMultiplierDefault() {
+  return getAbilityNumber(ABILITY_IDS.RIFT, 'exitVelocityMultiplier', 0.70, 0);
+}
+
+function getRiftReuseLockoutMsDefault() {
+  return getAbilityNumber(ABILITY_IDS.RIFT, 'perPlayerReuseLockoutMs', 500, 0);
+}
+
+function getRiftUnfinishedTimeoutMsDefault() {
+  return getAbilityNumber(ABILITY_IDS.RIFT, 'unfinishedPlacementTimeoutMs', 6000, 100);
 }
 
 function normalizeRoomCode(value) {
@@ -593,8 +680,8 @@ function positionsEqual(positionA, positionB) {
 }
 
 function buildSpawnPositions() {
-  const player1 = clonePosition(SPAWN_POSITIONS[1]) || { x: -5, y: 0 };
-  const player2 = clonePosition(SPAWN_POSITIONS[2]) || { x: 5, y: 0 };
+  const player1 = clonePosition(SPAWN_POSITIONS[1]) || { x: -5.8, y: 0 };
+  const player2 = clonePosition(SPAWN_POSITIONS[2]) || { x: 5.8, y: 0 };
 
   // Safety guard: never allow both players to spawn at the exact same coordinates.
   if (positionsEqual(player1, player2)) {
@@ -636,6 +723,16 @@ function createProjectileId(match) {
 function createWallId(match) {
   match.nextWallSequence = (Number(match.nextWallSequence) || 0) + 1;
   return `${match.matchId}-W${match.nextWallSequence}`;
+}
+
+function createRiftId(match) {
+  match.nextRiftSequence = (Number(match.nextRiftSequence) || 0) + 1;
+  return `${match.matchId}-R${match.nextRiftSequence}`;
+}
+
+function createRoundPillarId(match) {
+  match.nextRoundPillarSequence = (Number(match.nextRoundPillarSequence) || 0) + 1;
+  return `${match.matchId}-O${match.nextRoundPillarSequence}`;
 }
 
 function markProjectileResolved(match, projectileId, timestamp = Date.now()) {
@@ -720,6 +817,36 @@ function createDraftPoolState() {
     };
   });
   return pool;
+}
+
+function ensureDraftPoolEntries(draft) {
+  if (!draft || typeof draft !== 'object') return {};
+  if (!draft.pool || typeof draft.pool !== 'object') {
+    draft.pool = {};
+  }
+
+  DRAFT_SPELL_POOL.forEach((spellId) => {
+    const entry = draft.pool[spellId];
+    const configuredCopies = Number(DRAFT_SPELL_COPY_LIMITS[spellId]) || 0;
+    const totalCopiesRaw = Number(entry?.totalCopies);
+    const remainingCopiesRaw = Number(entry?.remainingCopies);
+    const totalCopies = Number.isFinite(totalCopiesRaw) && totalCopiesRaw > 0
+      ? totalCopiesRaw
+      : configuredCopies;
+    let remainingCopies = Number.isFinite(remainingCopiesRaw)
+      ? Math.max(0, remainingCopiesRaw)
+      : totalCopies;
+    if (remainingCopies > totalCopies) {
+      remainingCopies = totalCopies;
+    }
+
+    draft.pool[spellId] = {
+      totalCopies,
+      remainingCopies
+    };
+  });
+
+  return draft.pool;
 }
 
 function createDraftState(startedAt) {
@@ -826,6 +953,7 @@ function getDraftCurrentTurnPlayerNumber(match) {
 
 function getValidDraftSpellsForMatchPlayer(match, matchPlayer) {
   if (!match || !matchPlayer || match.phase !== MATCH_PHASE_DRAFT) return [];
+  const draftPool = ensureDraftPoolEntries(match.draft);
   const draftedSpells = new Set(
     (Array.isArray(matchPlayer.draftedSpells) ? matchPlayer.draftedSpells : [])
       .map((spellId) => normalizeSpellId(spellId))
@@ -833,7 +961,7 @@ function getValidDraftSpellsForMatchPlayer(match, matchPlayer) {
   );
 
   return DRAFT_SPELL_POOL.filter((spellId) => {
-    const poolEntry = match?.draft?.pool?.[spellId];
+    const poolEntry = draftPool?.[spellId];
     const remainingCopies = Number(poolEntry?.remainingCopies) || 0;
     if (remainingCopies <= 0) return false;
     if (draftedSpells.has(spellId)) return false;
@@ -915,16 +1043,57 @@ function createHookProjectile(match, ownerPlayer, direction, now) {
   };
 }
 
+function createSolarProjectile(match, ownerPlayer, direction, now) {
+  const spawnOffset = getAbilityNumber(ABILITY_IDS.SOLAR, 'spawnOffset', 0.92, 0);
+  const speed = getAbilityNumber(ABILITY_IDS.SOLAR, 'speed', 16.2, 0.01);
+  const hitRadius = getSolarHitRadiusDefault();
+  const lifetimeMs = getAbilityNumber(ABILITY_IDS.SOLAR, 'lifetimeMs', Math.round((12 / 16.2) * 1000), 10);
+  const normalizedDirection = normalizeInputVector(direction);
+  const spawnBase = clonePosition(ownerPlayer.position) || { x: 0, y: 0 };
+  const spawnPosition = {
+    x: spawnBase.x + normalizedDirection.x * spawnOffset,
+    y: spawnBase.y + normalizedDirection.y * spawnOffset
+  };
+
+  return {
+    projectileId: createProjectileId(match),
+    abilityId: ABILITY_IDS.SOLAR,
+    ownerPlayerNumber: ownerPlayer.matchPlayerNumber,
+    position: spawnPosition,
+    direction: normalizedDirection,
+    speed,
+    hitRadius,
+    spawnedAt: now,
+    expiresAt: now + lifetimeMs
+  };
+}
+
 function getOpponentPlayer(match, ownerPlayerNumber) {
   return (Array.isArray(match?.players) ? match.players : [])
     .find((player) => Number(player?.matchPlayerNumber) !== Number(ownerPlayerNumber)) || null;
 }
 
-function isOutsideArenaBoundary(position) {
+function getArenaOctagonMetrics(radius = ARENA_BOUNDARY_RADIUS, padding = 0) {
+  const safeRadius = Math.max(0.01, Number(radius) || ARENA_BOUNDARY_RADIUS);
+  const safePadding = Number.isFinite(Number(padding)) ? Number(padding) : 0;
+  const halfHeight = Math.max(0, safeRadius - safePadding);
+  const halfWidth = Math.max(0, (safeRadius * ARENA_OCTAGON_HALF_WIDTH_SCALE) - safePadding);
+  const cornerLimit = Math.max(0, (safeRadius * ARENA_OCTAGON_CORNER_LIMIT_SCALE) - (safePadding * Math.SQRT2));
+  return { halfWidth, halfHeight, cornerLimit };
+}
+
+function isPointInsideArenaOctagon(position, padding = 0, radius = ARENA_BOUNDARY_RADIUS) {
   const pos = clonePosition(position) || { x: 0, y: 0 };
-  const dx = pos.x - ARENA_BOUNDARY_CENTER.x;
-  const dy = pos.y - ARENA_BOUNDARY_CENTER.y;
-  return (dx * dx + dy * dy) > (ARENA_BOUNDARY_RADIUS * ARENA_BOUNDARY_RADIUS);
+  const metrics = getArenaOctagonMetrics(radius, padding);
+  if (metrics.halfWidth <= 0 || metrics.halfHeight <= 0 || metrics.cornerLimit <= 0) return false;
+  const dx = Math.abs(pos.x - ARENA_BOUNDARY_CENTER.x);
+  const dy = Math.abs(pos.y - ARENA_BOUNDARY_CENTER.y);
+  if (dx > metrics.halfWidth || dy > metrics.halfHeight) return false;
+  return (dx + dy) <= metrics.cornerLimit;
+}
+
+function isOutsideArenaBoundary(position) {
+  return !isPointInsideArenaOctagon(position, 0, ARENA_BOUNDARY_RADIUS);
 }
 
 function getDistanceFromArenaCenter(position) {
@@ -935,30 +1104,347 @@ function getDistanceFromArenaCenter(position) {
 }
 
 function isInLavaHazard(position) {
-  return getDistanceFromArenaCenter(position) > ARENA_BOUNDARY_RADIUS;
+  return !isPointInsideArenaOctagon(position, 0, ARENA_BOUNDARY_RADIUS);
 }
 
 function isBeyondHardOutOfBounds(position) {
-  return getDistanceFromArenaCenter(position) > ARENA_HARD_OUT_OF_BOUNDS_RADIUS;
+  const extraPadding = ARENA_HARD_OUT_OF_BOUNDS_RADIUS - ARENA_BOUNDARY_RADIUS;
+  return !isPointInsideArenaOctagon(position, -extraPadding, ARENA_BOUNDARY_RADIUS);
 }
 
 function clampPositionInsideArena(position, padding = 0) {
   const pos = clonePosition(position) || { x: 0, y: 0 };
-  const safePadding = Math.max(0, Number(padding) || 0);
-  const maxRadius = Math.max(0, ARENA_BOUNDARY_RADIUS - safePadding);
-  const dx = pos.x - ARENA_BOUNDARY_CENTER.x;
-  const dy = pos.y - ARENA_BOUNDARY_CENTER.y;
-  const distance = Math.hypot(dx, dy);
-
-  if (distance <= maxRadius || distance <= 0) {
+  const safePadding = Number.isFinite(Number(padding)) ? Number(padding) : 0;
+  if (isPointInsideArenaOctagon(pos, safePadding, ARENA_BOUNDARY_RADIUS)) {
     return pos;
   }
-
-  const scale = maxRadius / distance;
+  const dx = pos.x - ARENA_BOUNDARY_CENTER.x;
+  const dy = pos.y - ARENA_BOUNDARY_CENTER.y;
+  if ((dx * dx + dy * dy) <= 0.000001) {
+    return { x: ARENA_BOUNDARY_CENTER.x, y: ARENA_BOUNDARY_CENTER.y };
+  }
+  let low = 0;
+  let high = 1;
+  for (let iteration = 0; iteration < 20; iteration += 1) {
+    const mid = (low + high) * 0.5;
+    const candidate = {
+      x: ARENA_BOUNDARY_CENTER.x + (dx * mid),
+      y: ARENA_BOUNDARY_CENTER.y + (dy * mid),
+    };
+    if (isPointInsideArenaOctagon(candidate, safePadding, ARENA_BOUNDARY_RADIUS)) {
+      low = mid;
+    } else {
+      high = mid;
+    }
+  }
   return {
-    x: ARENA_BOUNDARY_CENTER.x + (dx * scale),
-    y: ARENA_BOUNDARY_CENTER.y + (dy * scale)
+    x: ARENA_BOUNDARY_CENTER.x + (dx * low),
+    y: ARENA_BOUNDARY_CENTER.y + (dy * low)
   };
+}
+
+function ensureMatchRoundPillars(match) {
+  if (!match || typeof match !== 'object') return [];
+  if (!Array.isArray(match.roundPillars)) {
+    match.roundPillars = [];
+  }
+  return match.roundPillars;
+}
+
+function getRoundPillarRadius(pillar, fallbackRadius = ROUND_PILLAR_RADIUS_MIN) {
+  return Math.max(0.05, Number(pillar?.radius) || fallbackRadius);
+}
+
+function findBlockingRoundPillarForPoint(point, match, options = {}) {
+  const safePoint = clonePosition(point);
+  if (!safePoint) return null;
+  const padding = Math.max(0, Number(options?.padding) || 0);
+  const pillars = ensureMatchRoundPillars(match);
+  for (const pillar of pillars) {
+    const center = clonePosition(pillar?.position);
+    if (!center) continue;
+    const combinedRadius = getRoundPillarRadius(pillar) + padding;
+    const dx = safePoint.x - center.x;
+    const dy = safePoint.y - center.y;
+    if ((dx * dx + dy * dy) <= (combinedRadius * combinedRadius)) {
+      return pillar;
+    }
+  }
+  return null;
+}
+
+function distanceSqPointToSegment(point, segmentStart, segmentEnd) {
+  const p = clonePosition(point);
+  const a = clonePosition(segmentStart);
+  const b = clonePosition(segmentEnd);
+  if (!p || !a || !b) return Number.POSITIVE_INFINITY;
+  const abx = b.x - a.x;
+  const aby = b.y - a.y;
+  const abLenSq = (abx * abx) + (aby * aby);
+  if (abLenSq <= 1e-8) {
+    const dx = p.x - a.x;
+    const dy = p.y - a.y;
+    return (dx * dx) + (dy * dy);
+  }
+  const apx = p.x - a.x;
+  const apy = p.y - a.y;
+  const t = clamp(((apx * abx) + (apy * aby)) / abLenSq, 0, 1);
+  const cx = a.x + (abx * t);
+  const cy = a.y + (aby * t);
+  const dx = p.x - cx;
+  const dy = p.y - cy;
+  return (dx * dx) + (dy * dy);
+}
+
+function findBlockingRoundPillarForMovement(previousPoint, currentPoint, match, options = {}) {
+  const from = clonePosition(previousPoint) || clonePosition(currentPoint);
+  const to = clonePosition(currentPoint) || clonePosition(previousPoint);
+  if (!to) return null;
+  const padding = Math.max(0, Number(options?.padding) || 0);
+  const pillars = ensureMatchRoundPillars(match);
+  for (const pillar of pillars) {
+    const center = clonePosition(pillar?.position);
+    if (!center) continue;
+    const combinedRadius = getRoundPillarRadius(pillar) + padding;
+    const combinedRadiusSq = combinedRadius * combinedRadius;
+    const toDx = to.x - center.x;
+    const toDy = to.y - center.y;
+    if ((toDx * toDx + toDy * toDy) <= combinedRadiusSq) {
+      return pillar;
+    }
+    if (from) {
+      const fromDx = from.x - center.x;
+      const fromDy = from.y - center.y;
+      if ((fromDx * fromDx + fromDy * fromDy) <= combinedRadiusSq) {
+        return pillar;
+      }
+      if (distanceSqPointToSegment(center, from, to) <= combinedRadiusSq) {
+        return pillar;
+      }
+    }
+  }
+  return null;
+}
+
+function resolvePointAgainstRoundPillars(nextPoint, previousPoint, match, options = {}) {
+  const fallback = clonePosition(previousPoint) || { x: 0, y: 0 };
+  const resolved = clonePosition(nextPoint) || clonePosition(previousPoint) || { x: 0, y: 0 };
+  const padding = Math.max(0, Number(options?.padding) || 0);
+  let safePoint = { ...resolved };
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    const blockingPillar = findBlockingRoundPillarForPoint(safePoint, match, { padding });
+    if (!blockingPillar) break;
+    const center = clonePosition(blockingPillar?.position);
+    if (!center) break;
+    const targetDistance = getRoundPillarRadius(blockingPillar) + padding + 0.001;
+    let dx = safePoint.x - center.x;
+    let dy = safePoint.y - center.y;
+    let distance = Math.hypot(dx, dy);
+    if (distance <= 1e-6) {
+      const fallbackDirection = normalizeInputVector({
+        x: safePoint.x - fallback.x,
+        y: safePoint.y - fallback.y
+      });
+      dx = fallbackDirection.x;
+      dy = fallbackDirection.y;
+      distance = Math.hypot(dx, dy);
+      if (distance <= 1e-6) {
+        dx = 1;
+        dy = 0;
+        distance = 1;
+      }
+    }
+    safePoint = {
+      x: center.x + ((dx / distance) * targetDistance),
+      y: center.y + ((dy / distance) * targetDistance)
+    };
+  }
+  return safePoint;
+}
+
+function resolvePointAgainstArenaBlockers(nextPoint, previousPoint, match, options = {}) {
+  const padding = Math.max(0, Number(options?.padding) || 0);
+  const timestamp = Number(options?.timestamp) || Date.now();
+  const wallResolvedPoint = resolvePointAgainstWalls(
+    nextPoint,
+    previousPoint,
+    match?.walls,
+    buildWallCollisionOptions(padding, timestamp)
+  );
+  const pillarResolvedPoint = resolvePointAgainstRoundPillars(
+    wallResolvedPoint,
+    previousPoint,
+    match,
+    { padding }
+  );
+  return resolvePointAgainstWalls(
+    pillarResolvedPoint,
+    previousPoint,
+    match?.walls,
+    buildWallCollisionOptions(padding, timestamp)
+  );
+}
+
+function resolveSlidingMovementAgainstRoundPillar(previousPoint, desiredPoint, blockingPillar, match, options = {}) {
+  const from = clonePosition(previousPoint);
+  const desired = clonePosition(desiredPoint);
+  const center = clonePosition(blockingPillar?.position);
+  if (!from || !desired || !center) return null;
+
+  const padding = Math.max(0, Number(options?.padding) || 0);
+  const timestamp = Number(options?.timestamp) || Date.now();
+
+  const moveX = desired.x - from.x;
+  const moveY = desired.y - from.y;
+  const moveDistance = Math.hypot(moveX, moveY);
+  if (moveDistance <= 1e-6) return null;
+
+  let normalX = desired.x - center.x;
+  let normalY = desired.y - center.y;
+  let normalLength = Math.hypot(normalX, normalY);
+  if (normalLength <= 1e-6) {
+    normalX = from.x - center.x;
+    normalY = from.y - center.y;
+    normalLength = Math.hypot(normalX, normalY);
+  }
+  if (normalLength <= 1e-6) {
+    normalX = -moveY;
+    normalY = moveX;
+    normalLength = Math.hypot(normalX, normalY);
+  }
+  if (normalLength <= 1e-6) return null;
+  normalX /= normalLength;
+  normalY /= normalLength;
+
+  const moveDirX = moveX / moveDistance;
+  const moveDirY = moveY / moveDistance;
+  const intoNormal = (moveDirX * normalX) + (moveDirY * normalY);
+  let slideX = moveDirX - (intoNormal * normalX);
+  let slideY = moveDirY - (intoNormal * normalY);
+  let slideLength = Math.hypot(slideX, slideY);
+
+  if (slideLength <= 1e-6) {
+    slideX = -normalY;
+    slideY = normalX;
+    if (((slideX * moveDirX) + (slideY * moveDirY)) < 0) {
+      slideX = -slideX;
+      slideY = -slideY;
+    }
+    slideLength = Math.hypot(slideX, slideY);
+  }
+  if (slideLength <= 1e-6) return null;
+
+  slideX /= slideLength;
+  slideY /= slideLength;
+  const slideTarget = {
+    x: from.x + (slideX * moveDistance),
+    y: from.y + (slideY * moveDistance)
+  };
+
+  const wallOptions = buildWallCollisionOptions(padding, timestamp);
+  if (findBlockingWallForMovement(from, slideTarget, match?.walls, wallOptions)) {
+    return null;
+  }
+  if (findBlockingRoundPillarForPoint(slideTarget, match, { padding })) {
+    return null;
+  }
+
+  const resolvedSlideTarget = resolvePointAgainstArenaBlockers(
+    slideTarget,
+    from,
+    match,
+    { padding, timestamp }
+  );
+  if (!resolvedSlideTarget) return null;
+
+  if (findBlockingWallForMovement(from, resolvedSlideTarget, match?.walls, wallOptions)) {
+    return null;
+  }
+  if (findBlockingRoundPillarForPoint(resolvedSlideTarget, match, { padding })) {
+    return null;
+  }
+
+  return resolvedSlideTarget;
+}
+
+function isRoundPillarSpawnBlocked(candidate, radius, existingPillars, spawnPoints) {
+  const point = clonePosition(candidate);
+  if (!point) return true;
+  const safeRadius = Math.max(0.05, Number(radius) || ROUND_PILLAR_RADIUS_MIN);
+  if (!isPointInsideArenaOctagon(point, safeRadius + ROUND_PILLAR_BOUNDARY_PADDING, ARENA_BOUNDARY_RADIUS)) {
+    return true;
+  }
+  const centerDistance = getDistanceFromArenaCenter(point);
+  if (centerDistance < (ROUND_PILLAR_MIN_CENTER_DISTANCE + (safeRadius * 0.25))) return true;
+
+  const spawnList = Array.isArray(spawnPoints) ? spawnPoints : [];
+  for (const spawnPoint of spawnList) {
+    const spawn = clonePosition(spawnPoint);
+    if (!spawn) continue;
+    const dx = point.x - spawn.x;
+    const dy = point.y - spawn.y;
+    const minimumDistance = safeRadius + PLAYER_RADIUS + ROUND_PILLAR_SPAWN_CLEARANCE;
+    if ((dx * dx + dy * dy) < (minimumDistance * minimumDistance)) {
+      return true;
+    }
+  }
+
+  const placedPillars = Array.isArray(existingPillars) ? existingPillars : [];
+  for (const otherPillar of placedPillars) {
+    const otherCenter = clonePosition(otherPillar?.position);
+    if (!otherCenter) continue;
+    const otherRadius = getRoundPillarRadius(otherPillar);
+    const dx = point.x - otherCenter.x;
+    const dy = point.y - otherCenter.y;
+    const minimumDistance = safeRadius + otherRadius + ROUND_PILLAR_MIN_SEPARATION;
+    if ((dx * dx + dy * dy) < (minimumDistance * minimumDistance)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function createRoundPillarCandidate(radius, angle, distanceFromCenter) {
+  return {
+    x: ARENA_BOUNDARY_CENTER.x + (Math.cos(angle) * distanceFromCenter),
+    y: ARENA_BOUNDARY_CENTER.y + (Math.sin(angle) * distanceFromCenter),
+    radius
+  };
+}
+
+function generateRoundPillarsForMatchRound(match, timestamp = Date.now()) {
+  if (!match) return [];
+  const now = Number(timestamp) || Date.now();
+  const generatedPillars = [];
+  const fallbackRadius = Math.max(
+    0.05,
+    (Math.max(ROUND_PILLAR_RADIUS_MIN, ROUND_PILLAR_RADIUS_MAX) + Math.min(ROUND_PILLAR_RADIUS_MIN, ROUND_PILLAR_RADIUS_MAX)) * 0.5
+  );
+
+  for (const layoutPillar of ROUND_PILLAR_LAYOUT) {
+    const radius = Math.max(
+      0.05,
+      Number(layoutPillar?.radius)
+      || ((Number(layoutPillar?.radiusScale) || 0) * ARENA_BOUNDARY_RADIUS)
+      || fallbackRadius
+    );
+    const candidate = clampPositionInsideArena(
+      {
+        x: ARENA_BOUNDARY_CENTER.x + ((Number(layoutPillar?.offsetX) || 0) * ARENA_BOUNDARY_RADIUS),
+        y: ARENA_BOUNDARY_CENTER.y + ((Number(layoutPillar?.offsetY) || 0) * ARENA_BOUNDARY_RADIUS)
+      },
+      radius + ROUND_PILLAR_BOUNDARY_PADDING
+    );
+    generatedPillars.push({
+      pillarId: createRoundPillarId(match),
+      position: candidate,
+      radius,
+      spawnedAt: now
+    });
+  }
+
+  return generatedPillars;
 }
 
 function getPlayerMaxHealth(matchPlayer) {
@@ -1085,6 +1571,9 @@ function getAbilityReadyAt(matchPlayer, abilityId) {
   if (normalizedAbilityId === ABILITY_IDS.SHIELD) {
     return Number(matchPlayer.nextShieldAt) || 0;
   }
+  if (normalizedAbilityId === ABILITY_IDS.PRISM) {
+    return Number(matchPlayer.nextPrismAt) || 0;
+  }
   if (normalizedAbilityId === ABILITY_IDS.GUST) {
     return Number(matchPlayer.nextGustAt) || 0;
   }
@@ -1096,6 +1585,15 @@ function getAbilityReadyAt(matchPlayer, abilityId) {
   }
   if (normalizedAbilityId === ABILITY_IDS.HOOK) {
     return Number(matchPlayer.nextHookAt) || 0;
+  }
+  if (normalizedAbilityId === ABILITY_IDS.SOLAR) {
+    return Number(matchPlayer.nextSolarAt) || 0;
+  }
+  if (normalizedAbilityId === ABILITY_IDS.RIFT) {
+    return Number(matchPlayer.nextRiftAt) || 0;
+  }
+  if (normalizedAbilityId === ABILITY_IDS.PHANTOM) {
+    return Number(matchPlayer.nextPhantomAt) || 0;
   }
   if (normalizedAbilityId === ABILITY_IDS.WALL) {
     return Number(matchPlayer.nextWallAt) || 0;
@@ -1120,6 +1618,8 @@ function setAbilityReadyAt(matchPlayer, abilityId, readyAt) {
     matchPlayer.nextBlinkAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.SHIELD) {
     matchPlayer.nextShieldAt = nextReadyAt;
+  } else if (normalizedAbilityId === ABILITY_IDS.PRISM) {
+    matchPlayer.nextPrismAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.GUST) {
     matchPlayer.nextGustAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.CHARGE) {
@@ -1128,6 +1628,12 @@ function setAbilityReadyAt(matchPlayer, abilityId, readyAt) {
     matchPlayer.nextShockAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.HOOK) {
     matchPlayer.nextHookAt = nextReadyAt;
+  } else if (normalizedAbilityId === ABILITY_IDS.SOLAR) {
+    matchPlayer.nextSolarAt = nextReadyAt;
+  } else if (normalizedAbilityId === ABILITY_IDS.RIFT) {
+    matchPlayer.nextRiftAt = nextReadyAt;
+  } else if (normalizedAbilityId === ABILITY_IDS.PHANTOM) {
+    matchPlayer.nextPhantomAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.WALL) {
     matchPlayer.nextWallAt = nextReadyAt;
   } else if (normalizedAbilityId === ABILITY_IDS.REWIND) {
@@ -1158,6 +1664,743 @@ function setPlayerActiveShieldUntil(matchPlayer, shieldUntil) {
 
 function isShieldActive(matchPlayer, timestamp = Date.now()) {
   return getPlayerActiveShieldUntil(matchPlayer) > (Number(timestamp) || Date.now());
+}
+
+function getPlayerActivePrismUntil(matchPlayer) {
+  const fromLegacy = Number(matchPlayer?.activePrismUntil) || 0;
+  const fromEffects = Number(matchPlayer?.activeEffects?.prismUntil) || 0;
+  return Math.max(fromLegacy, fromEffects, 0);
+}
+
+function setPlayerActivePrismUntil(matchPlayer, prismUntil) {
+  const nextPrismUntil = Math.max(0, Number(prismUntil) || 0);
+  matchPlayer.activePrismUntil = nextPrismUntil;
+  matchPlayer.activeEffects = {
+    ...(matchPlayer.activeEffects || {}),
+    prismUntil: nextPrismUntil
+  };
+}
+
+function isPrismActive(matchPlayer, timestamp = Date.now()) {
+  return getPlayerActivePrismUntil(matchPlayer) > (Number(timestamp) || Date.now());
+}
+
+function getPlayerSolarDistortionUntil(matchPlayer) {
+  const fromLegacy = Number(matchPlayer?.solarDistortionUntil) || 0;
+  const fromEffects = Number(matchPlayer?.activeEffects?.solarDistortionUntil) || 0;
+  return Math.max(fromLegacy, fromEffects, 0);
+}
+
+function setPlayerSolarDistortionUntil(matchPlayer, distortionUntil) {
+  const nextDistortionUntil = Math.max(0, Number(distortionUntil) || 0);
+  matchPlayer.solarDistortionUntil = nextDistortionUntil;
+  matchPlayer.activeEffects = {
+    ...(matchPlayer.activeEffects || {}),
+    solarDistortionUntil: nextDistortionUntil
+  };
+}
+
+function isSolarDistortionActive(matchPlayer, timestamp = Date.now()) {
+  return getPlayerSolarDistortionUntil(matchPlayer) > (Number(timestamp) || Date.now());
+}
+
+function getPlayerRiftPendingState(matchPlayer) {
+  const pending = matchPlayer?.activeEffects?.riftPending;
+  if (!pending || typeof pending !== 'object') return null;
+  const portalA = clonePosition(pending.portalA);
+  if (!portalA) return null;
+  const expiresAt = Number(pending.expiresAt) || 0;
+  const createdAt = Number(pending.createdAt) || 0;
+  return {
+    portalA,
+    createdAt,
+    expiresAt
+  };
+}
+
+function setPlayerRiftPendingState(matchPlayer, pendingState) {
+  if (!matchPlayer) return;
+  const normalizedPending = pendingState && typeof pendingState === 'object'
+    ? {
+      portalA: clonePosition(pendingState.portalA) || null,
+      createdAt: Number(pendingState.createdAt) || Date.now(),
+      expiresAt: Number(pendingState.expiresAt) || 0
+    }
+    : null;
+  matchPlayer.activeEffects = {
+    ...(matchPlayer.activeEffects || {}),
+    riftPending: normalizedPending
+  };
+}
+
+function clearPlayerRiftPendingState(matchPlayer) {
+  if (!matchPlayer) return;
+  matchPlayer.activeEffects = {
+    ...(matchPlayer.activeEffects || {}),
+    riftPending: null
+  };
+}
+
+function getPlayerPhantomState(matchPlayer) {
+  const phantom = matchPlayer?.activeEffects?.phantom;
+  if (!phantom || typeof phantom !== 'object') return null;
+  return phantom;
+}
+
+function setPlayerPhantomState(matchPlayer, phantomState) {
+  if (!matchPlayer) return;
+  matchPlayer.activeEffects = {
+    ...(matchPlayer.activeEffects || {}),
+    phantom: phantomState && typeof phantomState === 'object'
+      ? { ...phantomState }
+      : null
+  };
+}
+
+function clearPlayerPhantomState(matchPlayer) {
+  if (!matchPlayer) return;
+  setPlayerPhantomState(matchPlayer, null);
+}
+
+function getPlayerPhantomVanishUntil(matchPlayer) {
+  const phantom = getPlayerPhantomState(matchPlayer);
+  return Math.max(0, Number(phantom?.vanishUntil) || 0);
+}
+
+function isPlayerPhantomUntargetable(matchPlayer, timestamp = Date.now()) {
+  const now = Number(timestamp) || Date.now();
+  return getPlayerPhantomVanishUntil(matchPlayer) > now;
+}
+
+function isPlayerTargetableForCombatHit(matchPlayer, timestamp = Date.now()) {
+  if (!matchPlayer) return false;
+  if (matchPlayer.connected === false) return false;
+  if (getPlayerCurrentHealth(matchPlayer) <= 0) return false;
+  if (isPlayerPhantomUntargetable(matchPlayer, timestamp)) return false;
+  return true;
+}
+
+function getPrismFacingDirection(matchPlayer, fallbackDirection = { x: 1, y: 0 }) {
+  const fromAim = normalizeInputVector(matchPlayer?.aim);
+  if (fromAim.x !== 0 || fromAim.y !== 0) return fromAim;
+  return normalizeInputVector(fallbackDirection);
+}
+
+function isPointInsidePrismCone(matchPlayer, incomingPoint, timestamp = Date.now()) {
+  if (!matchPlayer) return false;
+  const now = Number(timestamp) || Date.now();
+  if (!isPrismActive(matchPlayer, now)) return false;
+  const point = clonePosition(incomingPoint);
+  const source = clonePosition(matchPlayer.position);
+  if (!point || !source) return false;
+  const dx = point.x - source.x;
+  const dy = point.y - source.y;
+  const distance = Math.hypot(dx, dy);
+  const coneRange = getAbilityNumber(ABILITY_IDS.PRISM, 'range', 4.2, 0.1);
+  if (distance > coneRange) return false;
+  if (distance <= 0.0001) return true;
+  const toPoint = { x: dx / distance, y: dy / distance };
+  const facing = getPrismFacingDirection(matchPlayer, { x: -toPoint.x, y: -toPoint.y });
+  const halfAngleDeg = Math.max(1, getAbilityNumber(ABILITY_IDS.PRISM, 'coneAngleDeg', 80, 1) * 0.5);
+  const cosThreshold = Math.cos((halfAngleDeg * Math.PI) / 180);
+  return dotProduct(facing, toPoint) >= cosThreshold;
+}
+
+function getPrismShieldGeometry(matchPlayer, timestamp = Date.now(), fallbackDirection = { x: 1, y: 0 }) {
+  if (!matchPlayer) return null;
+  const now = Number(timestamp) || Date.now();
+  if (!isPrismActive(matchPlayer, now)) return null;
+  const center = clonePosition(matchPlayer.position);
+  if (!center) return null;
+  const facing = getPrismFacingDirection(matchPlayer, fallbackDirection);
+  const shieldOffsetFromCaster = getAbilityNumber(ABILITY_IDS.PRISM, 'shieldOffsetFromCaster', 0.40, 0);
+  const shieldThickness = getAbilityNumber(ABILITY_IDS.PRISM, 'shieldThickness', 0.2736, 0.01);
+  const shieldArcDeg = getAbilityNumber(ABILITY_IDS.PRISM, 'shieldArcDeg', 120, 1);
+  const innerRadius = Math.max(PLAYER_RADIUS + 0.01, PLAYER_RADIUS + shieldOffsetFromCaster);
+  const outerRadius = innerRadius + Math.max(0.01, shieldThickness);
+  const halfAngleDeg = Math.max(1, shieldArcDeg * 0.5);
+  const cosThreshold = Math.cos((halfAngleDeg * Math.PI) / 180);
+  return {
+    center,
+    facing,
+    innerRadius,
+    outerRadius,
+    cosThreshold
+  };
+}
+
+function isPointInsidePrismShieldBand(matchPlayer, point, timestamp = Date.now(), options = {}) {
+  const safePoint = clonePosition(point);
+  if (!safePoint) return false;
+  const radiusPadding = Math.max(0, Number(options?.radiusPadding) || 0);
+  const fallbackDirection = normalizeInputVector(options?.fallbackDirection || { x: 1, y: 0 });
+  const geometry = getPrismShieldGeometry(matchPlayer, timestamp, fallbackDirection);
+  if (!geometry) return false;
+  const dx = safePoint.x - geometry.center.x;
+  const dy = safePoint.y - geometry.center.y;
+  const distance = Math.hypot(dx, dy);
+  const innerBound = Math.max(0, geometry.innerRadius - radiusPadding);
+  const outerBound = geometry.outerRadius + radiusPadding;
+  if (distance < innerBound || distance > outerBound) return false;
+  if (distance <= 0.0001) return false;
+  const toPoint = { x: dx / distance, y: dy / distance };
+  return dotProduct(geometry.facing, toPoint) >= geometry.cosThreshold;
+}
+
+function isPathIntersectingPrismShieldBand(matchPlayer, previousPoint, currentPoint, timestamp = Date.now(), options = {}) {
+  const from = clonePosition(previousPoint) || clonePosition(currentPoint);
+  const to = clonePosition(currentPoint) || clonePosition(previousPoint);
+  if (!to) return false;
+  const radiusPadding = Math.max(0, Number(options?.radiusPadding) || 0);
+  const fallbackDirection = normalizeInputVector(options?.fallbackDirection || { x: 1, y: 0 });
+
+  if (isPointInsidePrismShieldBand(matchPlayer, from, timestamp, { radiusPadding, fallbackDirection })) return true;
+  if (isPointInsidePrismShieldBand(matchPlayer, to, timestamp, { radiusPadding, fallbackDirection })) return true;
+  if (!from) return false;
+
+  const travelDx = to.x - from.x;
+  const travelDy = to.y - from.y;
+  const travelDistance = Math.hypot(travelDx, travelDy);
+  if (travelDistance <= 0.0001) return false;
+  const sampleStep = Math.max(0.04, radiusPadding * 0.65);
+  const sampleCount = clamp(Math.ceil(travelDistance / sampleStep), 1, 18);
+  for (let index = 1; index < sampleCount; index += 1) {
+    const t = index / sampleCount;
+    const samplePoint = {
+      x: from.x + (travelDx * t),
+      y: from.y + (travelDy * t)
+    };
+    if (isPointInsidePrismShieldBand(matchPlayer, samplePoint, timestamp, { radiusPadding, fallbackDirection })) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function ensureMatchRifts(match) {
+  if (!match || typeof match !== 'object') return [];
+  if (!Array.isArray(match.rifts)) {
+    match.rifts = [];
+  }
+  return match.rifts;
+}
+
+function isRiftPortalPointBlocked(match, point, portalRadius, timestamp = Date.now(), ignoreRiftId = '') {
+  const now = Number(timestamp) || Date.now();
+  const safePoint = clonePosition(point);
+  if (!safePoint) return true;
+  if (isInLavaHazard(safePoint)) return true;
+  const blockingWall = findBlockingWallForPoint(
+    safePoint,
+    match?.walls,
+    buildWallCollisionOptions(Math.max(0.02, Number(portalRadius) || 0.02), now)
+  );
+  if (blockingWall) return true;
+  const blockingPillar = findBlockingRoundPillarForPoint(
+    safePoint,
+    match,
+    { padding: Math.max(0.02, Number(portalRadius) || 0.02) }
+  );
+  if (blockingPillar) return true;
+
+  const activeRifts = ensureMatchRifts(match);
+  const safePortalRadius = Math.max(0.05, Number(portalRadius) || 0.05);
+  for (const rift of activeRifts) {
+    if (!rift || String(rift.riftId || '') === String(ignoreRiftId || '')) continue;
+    if ((Number(rift.expiresAt) || 0) <= now) continue;
+    const portalA = clonePosition(rift.portalA);
+    const portalB = clonePosition(rift.portalB);
+    if (!portalA || !portalB) continue;
+    const otherRadius = Math.max(0.05, Number(rift.portalRadius) || safePortalRadius);
+    const minDistance = safePortalRadius + otherRadius + 0.16;
+    if (Math.hypot(safePoint.x - portalA.x, safePoint.y - portalA.y) < minDistance) return true;
+    if (Math.hypot(safePoint.x - portalB.x, safePoint.y - portalB.y) < minDistance) return true;
+  }
+  return false;
+}
+
+function findRiftPortalPlacement(match, origin, direction, maxDistance, portalRadius, timestamp = Date.now(), ignoreRiftId = '') {
+  const now = Number(timestamp) || Date.now();
+  const baseOrigin = clonePosition(origin);
+  if (!baseOrigin) return null;
+  const dir = normalizeInputVector(direction);
+  const maxRange = Math.max(0, Number(maxDistance) || 0);
+  const safetyPadding = Math.max(0.05, Number(portalRadius) || 0.05) + 0.02;
+  const candidateCount = 24;
+
+  for (let index = 0; index <= candidateCount; index += 1) {
+    const t = 1 - (index / candidateCount);
+    const distance = maxRange * t;
+    const rawCandidate = (dir.x === 0 && dir.y === 0)
+      ? baseOrigin
+      : {
+        x: baseOrigin.x + (dir.x * distance),
+        y: baseOrigin.y + (dir.y * distance)
+      };
+    const clampedCandidate = clampPositionInsideArena(rawCandidate, safetyPadding);
+    const resolvedCandidate = resolvePointAgainstArenaBlockers(
+      clampedCandidate,
+      baseOrigin,
+      match,
+      {
+        padding: Math.max(0.02, Number(portalRadius) || 0.02),
+        timestamp: now
+      }
+    );
+    if (!isRiftPortalPointBlocked(match, resolvedCandidate, portalRadius, now, ignoreRiftId)) {
+      return resolvedCandidate;
+    }
+  }
+
+  return null;
+}
+
+function createRiftPair(match, ownerPlayerNumber, portalA, portalB, now) {
+  const durationMs = getAbilityNumber(ABILITY_IDS.RIFT, 'durationMs', 4000, 100);
+  const portalRadius = getRiftPortalRadiusDefault();
+  return {
+    riftId: createRiftId(match),
+    ownerPlayerNumber: Number(ownerPlayerNumber) || 0,
+    portalA: clonePosition(portalA) || { x: 0, y: 0 },
+    portalB: clonePosition(portalB) || { x: 0, y: 0 },
+    portalRadius,
+    teleportDelayMs: getRiftTeleportDelayMsDefault(),
+    exitVelocityMultiplier: getRiftExitVelocityMultiplierDefault(),
+    perPlayerReuseLockoutMs: getRiftReuseLockoutMsDefault(),
+    linkedAt: Number(now) || Date.now(),
+    expiresAt: (Number(now) || Date.now()) + durationMs,
+    pendingTeleports: [],
+    portalEntriesRemainingBySide: { A: 1, B: 1 },
+    reuseLockoutUntilByPlayerNumber: {}
+  };
+}
+
+function normalizeRiftPortalKey(portalKey) {
+  return String(portalKey || '').toUpperCase() === 'B' ? 'B' : 'A';
+}
+
+function ensureRiftPortalEntriesRemainingBySide(rift) {
+  const source = rift?.portalEntriesRemainingBySide;
+  const normalized = source && typeof source === 'object'
+    ? source
+    : { A: 1, B: 1 };
+  const sideA = Math.max(0, Number(normalized.A));
+  const sideB = Math.max(0, Number(normalized.B));
+  const resolved = {
+    A: Number.isFinite(sideA) ? sideA : 1,
+    B: Number.isFinite(sideB) ? sideB : 1
+  };
+  if (rift) {
+    rift.portalEntriesRemainingBySide = resolved;
+  }
+  return resolved;
+}
+
+function queueRiftTeleport(rift, player, fromPortalKey, tickTimestamp) {
+  if (!rift || !player) return false;
+  const now = Number(tickTimestamp) || Date.now();
+  const playerNumber = Number(player.matchPlayerNumber) || 0;
+  if (playerNumber <= 0) return false;
+  const fromPortal = normalizeRiftPortalKey(fromPortalKey);
+  const entriesRemainingBySide = ensureRiftPortalEntriesRemainingBySide(rift);
+  if ((Number(entriesRemainingBySide[fromPortal]) || 0) <= 0) return false;
+  const pendingQueue = Array.isArray(rift.pendingTeleports) ? rift.pendingTeleports : [];
+  if (pendingQueue.some((entry) => Number(entry?.playerNumber) === playerNumber)) return false;
+
+  const teleportDelayMs = Math.max(1, Number(rift.teleportDelayMs) || getRiftTeleportDelayMsDefault());
+  const toPortalKey = fromPortal === 'A' ? 'B' : 'A';
+  const entryVelocity = sanitizeVector(player.velocity);
+  const entryFacing = normalizeInputVector(player.aim);
+  pendingQueue.push({
+    playerNumber,
+    fromPortal,
+    toPortal: toPortalKey,
+    queuedAt: now,
+    executeAt: now + teleportDelayMs,
+    entryVelocity,
+    entryFacing
+  });
+  rift.pendingTeleports = pendingQueue;
+  rift.portalEntriesRemainingBySide = {
+    ...entriesRemainingBySide,
+    [fromPortal]: Math.max(0, (Number(entriesRemainingBySide[fromPortal]) || 0) - 1)
+  };
+  rift.reuseLockoutUntilByPlayerNumber = {
+    ...(rift.reuseLockoutUntilByPlayerNumber || {}),
+    [playerNumber]: now + teleportDelayMs
+  };
+  return true;
+}
+
+function processRiftPendingTeleports(room, match, rift, tickTimestamp) {
+  if (!rift || !match) return;
+  const now = Number(tickTimestamp) || Date.now();
+  const queue = Array.isArray(rift.pendingTeleports) ? rift.pendingTeleports : [];
+  if (!queue.length) return;
+  const remaining = [];
+
+  queue.forEach((teleport) => {
+    const executeAt = Number(teleport?.executeAt) || 0;
+    if (executeAt > now) {
+      remaining.push(teleport);
+      return;
+    }
+    const playerNumber = Number(teleport?.playerNumber) || 0;
+    const player = getMatchPlayerByNumber(match, playerNumber);
+    if (!player || !isPlayerTargetableForCombatHit(player, now)) {
+      return;
+    }
+
+    const destinationPortal = String(teleport?.toPortal || '').toUpperCase() === 'A'
+      ? clonePosition(rift.portalA)
+      : clonePosition(rift.portalB);
+    if (!destinationPortal) return;
+
+    const exitFacing = normalizeInputVector(teleport?.entryFacing);
+    const safeExitFacing = (exitFacing.x !== 0 || exitFacing.y !== 0)
+      ? exitFacing
+      : normalizeInputVector(player.aim);
+    const outwardDistance = Math.max(0.05, Number(rift.portalRadius) || getRiftPortalRadiusDefault()) + PLAYER_RADIUS + 0.06;
+    const rawDestination = {
+      x: destinationPortal.x + (safeExitFacing.x * outwardDistance),
+      y: destinationPortal.y + (safeExitFacing.y * outwardDistance)
+    };
+    const clampedDestination = clampPositionInsideArena(rawDestination, PLAYER_RADIUS + 0.02);
+    const safeDestination = resolvePointAgainstArenaBlockers(
+      clampedDestination,
+      player.position,
+      match,
+      {
+        padding: PLAYER_RADIUS,
+        timestamp: now
+      }
+    );
+
+    player.position = safeDestination;
+    const entryVelocity = sanitizeVector(teleport?.entryVelocity);
+    const exitVelocityMultiplier = Math.max(0, Number(rift.exitVelocityMultiplier) || getRiftExitVelocityMultiplierDefault());
+    player.velocity = {
+      x: entryVelocity.x * exitVelocityMultiplier,
+      y: entryVelocity.y * exitVelocityMultiplier
+    };
+    if (safeExitFacing.x !== 0 || safeExitFacing.y !== 0) {
+      player.aim = safeExitFacing;
+    }
+    player.lastUpdated = now;
+    ensurePlayerPositionHistory(player, now);
+
+    const reuseLockoutMs = Math.max(0, Number(rift.perPlayerReuseLockoutMs) || getRiftReuseLockoutMsDefault());
+    rift.reuseLockoutUntilByPlayerNumber = {
+      ...(rift.reuseLockoutUntilByPlayerNumber || {}),
+      [playerNumber]: now + reuseLockoutMs
+    };
+
+    const teleportEvent = createCombatEvent(match, {
+      type: 'rift_teleport',
+      abilityId: ABILITY_IDS.RIFT,
+      sourcePlayerNumber: Number(rift.ownerPlayerNumber) || 0,
+      targetPlayerNumber: playerNumber,
+      timestamp: now,
+      metadata: {
+        riftId: String(rift.riftId || ''),
+        fromPortal: String(teleport?.fromPortal || ''),
+        toPortal: String(teleport?.toPortal || ''),
+        exitVelocityMultiplier
+      }
+    });
+    pushMatchHitEvent(match, teleportEvent);
+    logLifecycle('ability', 'rift_teleport', {
+      code: room.code,
+      riftId: rift.riftId,
+      player: playerNumber
+    });
+  });
+
+  rift.pendingTeleports = remaining;
+}
+
+function handleRiftRuntimeTick({ room, match, tickTimestamp }) {
+  if (!room || !match) return;
+  const now = Number(tickTimestamp) || Date.now();
+
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    const pending = getPlayerRiftPendingState(player);
+    if (!pending) return;
+    if (Number(pending.expiresAt) > now) return;
+    clearPlayerRiftPendingState(player);
+    logLifecycle('ability', 'rift_pending_expired', {
+      code: room.code,
+      player: player.matchPlayerNumber
+    });
+  });
+
+  const rifts = ensureMatchRifts(match);
+  const activeRifts = [];
+  rifts.forEach((rift) => {
+    if (!rift) return;
+    if ((Number(rift.expiresAt) || 0) <= now) return;
+
+    processRiftPendingTeleports(room, match, rift, now);
+    const entriesRemainingBySide = ensureRiftPortalEntriesRemainingBySide(rift);
+    const portalRadius = Math.max(0.05, Number(rift.portalRadius) || getRiftPortalRadiusDefault());
+    const lockouts = rift.reuseLockoutUntilByPlayerNumber && typeof rift.reuseLockoutUntilByPlayerNumber === 'object'
+      ? rift.reuseLockoutUntilByPlayerNumber
+      : {};
+    rift.reuseLockoutUntilByPlayerNumber = lockouts;
+
+    (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+      if (!isPlayerTargetableForCombatHit(player, now)) return;
+      const playerNumber = Number(player.matchPlayerNumber) || 0;
+      if (playerNumber <= 0) return;
+      const lockoutUntil = Number(lockouts[playerNumber]) || 0;
+      if (lockoutUntil > now) return;
+      if (Array.isArray(rift.pendingTeleports) && rift.pendingTeleports.some((entry) => Number(entry?.playerNumber) === playerNumber)) {
+        return;
+      }
+
+      const playerPosition = clonePosition(player.position);
+      const portalA = clonePosition(rift.portalA);
+      const portalB = clonePosition(rift.portalB);
+      if (!playerPosition || !portalA || !portalB) return;
+      const inPortalA = Math.hypot(playerPosition.x - portalA.x, playerPosition.y - portalA.y) <= portalRadius;
+      const inPortalB = Math.hypot(playerPosition.x - portalB.x, playerPosition.y - portalB.y) <= portalRadius;
+      if (!inPortalA && !inPortalB) return;
+      const fromPortal = inPortalA ? 'A' : 'B';
+      if ((Number(entriesRemainingBySide[fromPortal]) || 0) <= 0) return;
+
+      const queued = queueRiftTeleport(rift, player, fromPortal, now);
+      if (!queued) return;
+      const enterEvent = createCombatEvent(match, {
+        type: 'rift_enter',
+        abilityId: ABILITY_IDS.RIFT,
+        sourcePlayerNumber: Number(rift.ownerPlayerNumber) || 0,
+        targetPlayerNumber: playerNumber,
+        timestamp: now,
+        metadata: {
+          riftId: String(rift.riftId || ''),
+          portal: fromPortal
+        }
+      });
+      pushMatchHitEvent(match, enterEvent);
+    });
+
+    const pendingCount = Array.isArray(rift.pendingTeleports) ? rift.pendingTeleports.length : 0;
+    const sideARemaining = Number(rift.portalEntriesRemainingBySide?.A) || 0;
+    const sideBRemaining = Number(rift.portalEntriesRemainingBySide?.B) || 0;
+    if (sideARemaining <= 0 && sideBRemaining <= 0 && pendingCount <= 0) {
+      return;
+    }
+
+    activeRifts.push(rift);
+  });
+  match.rifts = activeRifts;
+}
+
+function createPhantomSplitOffset(splitRadius) {
+  const radius = Math.max(0.05, Number(splitRadius) || 0.65);
+  const angle = Math.random() * Math.PI * 2;
+  const distance = radius * (0.45 + (Math.random() * 0.55));
+  return {
+    x: Math.cos(angle) * distance,
+    y: Math.sin(angle) * distance
+  };
+}
+
+function createPhantomIllusionVelocity(speed = PLAYER_BASE_MOVE_SPEED * 0.7) {
+  const safeSpeed = Math.max(0.2, Number(speed) || (PLAYER_BASE_MOVE_SPEED * 0.7));
+  const angle = Math.random() * Math.PI * 2;
+  return {
+    x: Math.cos(angle) * safeSpeed,
+    y: Math.sin(angle) * safeSpeed
+  };
+}
+
+function getNextPhantomIllusionRetargetAt(now = Date.now()) {
+  const baseNow = Number(now) || Date.now();
+  return baseNow + 240 + Math.round(Math.random() * 320);
+}
+
+function getPhantomIllusionFacingTowardOpponent(match, ownerPlayer, illusionPosition, fallbackDirection = { x: 1, y: 0 }) {
+  const sourcePosition = clonePosition(illusionPosition) || clonePosition(ownerPlayer?.position);
+  const opponent = getOpponentPlayer(match, ownerPlayer?.matchPlayerNumber);
+  const opponentPosition = clonePosition(opponent?.position);
+
+  if (sourcePosition && opponentPosition) {
+    const directionToOpponent = normalizeInputVector({
+      x: opponentPosition.x - sourcePosition.x,
+      y: opponentPosition.y - sourcePosition.y
+    });
+    if (directionToOpponent.x !== 0 || directionToOpponent.y !== 0) {
+      return directionToOpponent;
+    }
+  }
+
+  const ownerAim = normalizeInputVector(ownerPlayer?.aim);
+  if (ownerAim.x !== 0 || ownerAim.y !== 0) {
+    return ownerAim;
+  }
+
+  const fallback = normalizeInputVector(fallbackDirection);
+  if (fallback.x !== 0 || fallback.y !== 0) {
+    return fallback;
+  }
+
+  return { x: 1, y: 0 };
+}
+
+function handlePhantomRuntimeTick({ room, match, tickTimestamp }) {
+  if (!room || !match) return;
+  const now = Number(tickTimestamp) || Date.now();
+  const illusionLifetimeMs = getAbilityNumber(ABILITY_IDS.PHANTOM, 'illusionLifetimeMs', 2000, 50);
+  const illusionSpeed = Math.max(0.2, PLAYER_BASE_MOVE_SPEED * 0.68);
+
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    const phantom = getPlayerPhantomState(player);
+    if (!phantom) return;
+
+    const vanishUntil = Number(phantom.vanishUntil) || 0;
+    if (vanishUntil > now) {
+      const origin = clonePosition(phantom.origin) || clonePosition(player.position);
+      if (origin) {
+        player.position = origin;
+      }
+      player.velocity = { x: 0, y: 0 };
+      player.input = { x: 0, y: 0 };
+      player.lastUpdated = now;
+      return;
+    }
+
+    const hasSplitApplied = phantom.splitApplied === true;
+    if (!hasSplitApplied) {
+      const splitOffset = sanitizeVector(phantom.splitOffset);
+      const origin = clonePosition(phantom.origin) || clonePosition(player.position) || { x: 0, y: 0 };
+      const rawRealPosition = {
+        x: origin.x + splitOffset.x,
+        y: origin.y + splitOffset.y
+      };
+      const clampedRealPosition = clampPositionInsideArena(rawRealPosition, PLAYER_RADIUS + 0.02);
+      const safeRealPosition = resolvePointAgainstArenaBlockers(
+        clampedRealPosition,
+        player.position,
+        match,
+        {
+          padding: PLAYER_RADIUS,
+          timestamp: now
+        }
+      );
+      player.position = safeRealPosition;
+      player.velocity = { x: 0, y: 0 };
+      player.input = { x: 0, y: 0 };
+      player.lastUpdated = now;
+      ensurePlayerPositionHistory(player, now);
+
+      const illusionOffset = {
+        x: -splitOffset.x * 2,
+        y: -splitOffset.y * 2
+      };
+      const initialIllusionPosition = clampPositionInsideArena({
+        x: safeRealPosition.x + illusionOffset.x,
+        y: safeRealPosition.y + illusionOffset.y
+      }, 0.02);
+      const illusionVelocity = createPhantomIllusionVelocity(illusionSpeed);
+      const illusionFacing = getPhantomIllusionFacingTowardOpponent(
+        match,
+        player,
+        initialIllusionPosition,
+        illusionVelocity
+      );
+
+      setPlayerPhantomState(player, {
+        ...phantom,
+        vanishUntil: 0,
+        splitApplied: true,
+        illusionOffset,
+        illusionPosition: initialIllusionPosition,
+        illusionFacing,
+        illusionVelocity,
+        illusionRetargetAt: getNextPhantomIllusionRetargetAt(now),
+        illusionLastUpdatedAt: now,
+        illusionExpiresAt: now + illusionLifetimeMs
+      });
+
+      const splitEvent = createCombatEvent(match, {
+        type: 'phantom_split',
+        abilityId: ABILITY_IDS.PHANTOM,
+        sourcePlayerNumber: player.matchPlayerNumber,
+        targetPlayerNumber: player.matchPlayerNumber,
+        timestamp: now,
+        metadata: {
+          illusionLifetimeMs,
+          splitRadius: Math.hypot(splitOffset.x, splitOffset.y)
+        }
+      });
+      pushMatchHitEvent(match, splitEvent);
+      return;
+    }
+
+    const illusionExpiresAt = Number(phantom.illusionExpiresAt) || 0;
+    if (illusionExpiresAt <= now) {
+      clearPlayerPhantomState(player);
+      return;
+    }
+
+    const previousIllusionPosition = clonePosition(phantom.illusionPosition)
+      || clonePosition(player.position)
+      || { x: 0, y: 0 };
+    const lastUpdatedAt = Number(phantom.illusionLastUpdatedAt) || now;
+    const deltaSec = Math.max(0, Math.min(0.08, (now - lastUpdatedAt) / 1000));
+    let illusionVelocity = sanitizeVector(phantom.illusionVelocity);
+    let illusionRetargetAt = Number(phantom.illusionRetargetAt) || 0;
+
+    if (illusionVelocity.x === 0 && illusionVelocity.y === 0) {
+      illusionVelocity = createPhantomIllusionVelocity(illusionSpeed);
+    }
+
+    if (illusionRetargetAt <= now) {
+      illusionVelocity = createPhantomIllusionVelocity(illusionSpeed);
+      illusionRetargetAt = getNextPhantomIllusionRetargetAt(now);
+    }
+
+    const proposedIllusionPosition = {
+      x: previousIllusionPosition.x + (illusionVelocity.x * deltaSec),
+      y: previousIllusionPosition.y + (illusionVelocity.y * deltaSec)
+    };
+    const clampedIllusionPosition = clampPositionInsideArena(proposedIllusionPosition, 0.06);
+    const resolvedIllusionPosition = resolvePointAgainstArenaBlockers(
+      clampedIllusionPosition,
+      previousIllusionPosition,
+      match,
+      {
+        padding: 0.05,
+        timestamp: now
+      }
+    );
+    const movedDistance = Math.hypot(
+      resolvedIllusionPosition.x - previousIllusionPosition.x,
+      resolvedIllusionPosition.y - previousIllusionPosition.y
+    );
+    if (deltaSec > 0.001 && movedDistance < (illusionSpeed * deltaSec * 0.2)) {
+      illusionVelocity = createPhantomIllusionVelocity(illusionSpeed);
+      illusionRetargetAt = Math.min(illusionRetargetAt, now + 120);
+    }
+
+    const nextFacing = getPhantomIllusionFacingTowardOpponent(
+      match,
+      player,
+      resolvedIllusionPosition,
+      illusionVelocity
+    );
+    setPlayerPhantomState(player, {
+      ...phantom,
+      vanishUntil: 0,
+      splitApplied: true,
+      illusionPosition: resolvedIllusionPosition,
+      illusionFacing: nextFacing,
+      illusionVelocity,
+      illusionRetargetAt,
+      illusionLastUpdatedAt: now
+    });
+  });
 }
 
 function buildAbilityCooldownSnapshot(matchPlayer, now = Date.now()) {
@@ -1220,11 +2463,217 @@ function resetTransientMatchPlayerState(matchPlayer, timestamp = Date.now()) {
   matchPlayer.velocity = { x: 0, y: 0 };
   matchPlayer.lastUpdated = now;
   setPlayerActiveShieldUntil(matchPlayer, 0);
+  setPlayerActivePrismUntil(matchPlayer, 0);
+  setPlayerSolarDistortionUntil(matchPlayer, 0);
+  clearPlayerRiftPendingState(matchPlayer);
+  clearPlayerPhantomState(matchPlayer);
   matchPlayer.activeEffects = {
     ...(matchPlayer.activeEffects || {}),
     shieldUntil: 0,
-    charge: null
+    prismUntil: 0,
+    solarDistortionUntil: 0,
+    charge: null,
+    riftPending: null,
+    phantom: null
   };
+}
+
+function ensureRoundWinsByPlayerNumber(match) {
+  if (!match || typeof match !== 'object') {
+    return { 1: 0, 2: 0 };
+  }
+  if (!match.roundWinsByPlayerNumber || typeof match.roundWinsByPlayerNumber !== 'object') {
+    match.roundWinsByPlayerNumber = { 1: 0, 2: 0 };
+  }
+  const wins = match.roundWinsByPlayerNumber;
+  wins[1] = Math.max(0, Number(wins[1]) || 0);
+  wins[2] = Math.max(0, Number(wins[2]) || 0);
+  return wins;
+}
+
+function getMatchRoundsNeededToWin(match) {
+  return Math.max(1, Number(match?.roundsNeededToWin) || MATCH_ROUNDS_NEEDED_TO_WIN);
+}
+
+function clearTransientRoundMatchState(match, timestamp = Date.now()) {
+  if (!match) return;
+  const now = Number(timestamp) || Date.now();
+  match.projectiles = [];
+  match.walls = [];
+  match.roundPillars = [];
+  match.rifts = [];
+  match.pendingAbilityCasts = [];
+  match.hitEvents = [];
+  match.resolvedProjectileIds = {};
+  match.isPaused = false;
+  match.pauseReason = '';
+  match.pausedByPlayerNumber = null;
+  match.pausedAt = null;
+  if (match.analytics && typeof match.analytics === 'object') {
+    match.analytics.playerLastImpactByNumber = {};
+    match.analytics.lastUpdatedAt = now;
+  }
+}
+
+function resetMatchPlayerForRoundStart(match, matchPlayer, timestamp = Date.now()) {
+  if (!match || !matchPlayer) return;
+  const now = Number(timestamp) || Date.now();
+  const playerNumber = Number(matchPlayer.matchPlayerNumber) || 0;
+  const spawnPosition = playerNumber === 1
+    ? clonePosition(match.spawnPositions?.player1)
+    : playerNumber === 2
+      ? clonePosition(match.spawnPositions?.player2)
+      : null;
+
+  resetTransientMatchPlayerState(matchPlayer, now);
+  if (spawnPosition) {
+    matchPlayer.position = spawnPosition;
+  }
+  matchPlayer.velocity = { x: 0, y: 0 };
+  matchPlayer.input = { x: 0, y: 0 };
+  matchPlayer.aim = playerNumber === 2 ? { x: -1, y: 0 } : { x: 1, y: 0 };
+  matchPlayer.lastAimUpdated = now;
+  matchPlayer.eliminated = false;
+  matchPlayer.lastHitAt = 0;
+  matchPlayer.hitInvulnerableUntil = 0;
+  matchPlayer.currentHealth = getPlayerMaxHealth(matchPlayer);
+  matchPlayer.lastDamagedAt = 0;
+  matchPlayer.lastDamageCause = '';
+  matchPlayer.lastDamageAbilityId = '';
+  matchPlayer.lastDamageSourcePlayerNumber = 0;
+  matchPlayer.lastLavaDamageAt = 0;
+  Object.values(ABILITY_DEFS).forEach((abilityDef) => {
+    setAbilityReadyAt(matchPlayer, abilityDef.id, 0);
+  });
+  matchPlayer.positionHistory = [];
+  ensurePlayerPositionHistory(matchPlayer, now);
+  matchPlayer.actionRateLimits = {};
+  matchPlayer.recentAbilityRequests = {};
+  matchPlayer.recentDraftRequests = {};
+  matchPlayer.lastUpdated = now;
+}
+
+function resetCombatStateForRoundStart(match, timestamp = Date.now()) {
+  if (!match) return;
+  const now = Number(timestamp) || Date.now();
+  clearTransientRoundMatchState(match, now);
+  match.roundPillars = generateRoundPillarsForMatchRound(match, now);
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    resetMatchPlayerForRoundStart(match, player, now);
+  });
+  match.eliminatedPlayerNumber = null;
+  match.winnerPlayerNumber = null;
+  match.eliminationCause = null;
+  match.matchEndReason = null;
+  match.endedAt = null;
+  match.roundEndAt = null;
+  match.nextRoundStartsAt = null;
+}
+
+function resolveRoundOutcome(match, eliminatedPlayer, winnerPlayer) {
+  if (!match) return { winnerNumber: null, eliminatedNumber: null };
+  let eliminatedNumber = Number(eliminatedPlayer?.matchPlayerNumber) || 0;
+  let winnerNumber = Number(winnerPlayer?.matchPlayerNumber) || 0;
+
+  if (eliminatedNumber > 0 && (winnerNumber <= 0 || winnerNumber === eliminatedNumber)) {
+    winnerNumber = Number(getOpponentPlayer(match, eliminatedNumber)?.matchPlayerNumber) || 0;
+  }
+  if (winnerNumber > 0 && (eliminatedNumber <= 0 || eliminatedNumber === winnerNumber)) {
+    eliminatedNumber = Number(getOpponentPlayer(match, winnerNumber)?.matchPlayerNumber) || 0;
+  }
+
+  if (winnerNumber <= 0 || eliminatedNumber <= 0 || winnerNumber === eliminatedNumber) {
+    const connectedPlayers = (Array.isArray(match.players) ? match.players : [])
+      .filter((player) => Number(player?.matchPlayerNumber) > 0)
+      .map((player) => Number(player.matchPlayerNumber));
+    const fallbackWinner = connectedPlayers.includes(1) ? 1 : connectedPlayers[0] || 1;
+    const fallbackEliminated = fallbackWinner === 1 ? 2 : 1;
+    return {
+      winnerNumber: fallbackWinner,
+      eliminatedNumber: fallbackEliminated
+    };
+  }
+
+  return { winnerNumber, eliminatedNumber };
+}
+
+function startRoundCountdown(room, roundNumber, reason = 'round_start', timestamp = Date.now()) {
+  if (!room?.match) return false;
+  const match = room.match;
+  if (match.phase === MATCH_PHASE_MATCH_END) return false;
+  const now = Number(timestamp) || Date.now();
+  const nextRoundNumber = clamp(
+    Number(roundNumber) || 1,
+    1,
+    Math.max(MATCH_MAX_ROUNDS, Number(match.maxRounds) || MATCH_MAX_ROUNDS)
+  );
+
+  resetCombatStateForRoundStart(match, now);
+  match.roundNumber = nextRoundNumber;
+  match.currentRoundStartedAt = now;
+  match.combatStartsAt = now + COMBAT_START_COUNTDOWN_MS;
+  match.combatCountdownSeconds = COMBAT_START_COUNTDOWN_SECONDS;
+  const didTransition = transitionMatchPhase(
+    room,
+    MATCH_PHASE_COMBAT_COUNTDOWN,
+    reason,
+    now
+  );
+  if (!didTransition) return false;
+
+  setRoomState(room, ROOM_STATES.COMBAT, reason);
+  logLifecycle('round', 'countdown_started', {
+    code: room.code,
+    matchId: match.matchId,
+    round: match.roundNumber,
+    combatStartsAt: match.combatStartsAt,
+    countdownSeconds: match.combatCountdownSeconds
+  });
+  return true;
+}
+
+function finalizeMatchEnd(room, {
+  winnerNumber = null,
+  eliminatedNumber = null,
+  reason = 'match_end',
+  timestamp = Date.now()
+} = {}) {
+  const match = room?.match;
+  if (!match) return false;
+  if (match.phase === MATCH_PHASE_MATCH_END) return false;
+  const endedAt = Number(timestamp) || Date.now();
+  const didTransition = transitionMatchPhase(room, MATCH_PHASE_MATCH_END, reason, endedAt);
+  if (!didTransition) return false;
+  setRoomState(room, ROOM_STATES.MATCH_END, reason);
+
+  const safeWinnerNumber = Number(winnerNumber) || null;
+  const safeEliminatedNumber = Number(eliminatedNumber) || null;
+  clearTransientRoundMatchState(match, endedAt);
+  match.eliminatedPlayerNumber = safeEliminatedNumber;
+  match.winnerPlayerNumber = safeWinnerNumber;
+  match.endedAt = endedAt;
+  match.matchEndReason = String(reason || 'match_end');
+  match.eliminationCause = String(reason || 'match_end');
+  match.roundEndAt = endedAt;
+  match.nextRoundStartsAt = null;
+  match.lastRoundWinnerPlayerNumber = safeWinnerNumber;
+  match.lastRoundEndedAt = endedAt;
+  match.lastRoundEndReason = String(reason || 'match_end');
+
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    resetTransientMatchPlayerState(player, endedAt);
+    player.eliminated = Number(player?.matchPlayerNumber) === safeEliminatedNumber;
+  });
+
+  logLifecycle('match', 'winner_declared', {
+    code: room.code,
+    winner: safeWinnerNumber,
+    eliminated: safeEliminatedNumber,
+    reason: match.eliminationCause,
+    endedAt
+  });
+  logMatchAnalyticsSummary(room, match, endedAt, reason);
+  return true;
 }
 
 function transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, reason, timestamp) {
@@ -1233,30 +2682,8 @@ function transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, reason, time
   if (match.phase === MATCH_PHASE_MATCH_END) return false;
 
   const endedAt = Number(timestamp) || Date.now();
-  const eliminatedNumber = Number(eliminatedPlayer?.matchPlayerNumber) || null;
-  const winnerNumber = Number(winnerPlayer?.matchPlayerNumber) || null;
-
-  const didTransition = transitionMatchPhase(room, MATCH_PHASE_MATCH_END, reason, endedAt);
-  if (!didTransition) return false;
-
-  match.eliminatedPlayerNumber = eliminatedNumber;
-  match.winnerPlayerNumber = winnerNumber;
-  match.endedAt = endedAt;
-  match.matchEndReason = String(reason || 'match_end');
-  match.eliminationCause = String(reason || 'match_end');
-  match.projectiles = [];
-  match.walls = [];
-  match.pendingAbilityCasts = [];
-  match.isPaused = false;
-  match.pauseReason = '';
-  match.pausedByPlayerNumber = null;
-  match.pausedAt = null;
-
-  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
-    resetTransientMatchPlayerState(player, endedAt);
-    player.eliminated = Number(player?.matchPlayerNumber) === eliminatedNumber;
-  });
-
+  const normalizedReason = String(reason || 'match_end');
+  const { winnerNumber, eliminatedNumber } = resolveRoundOutcome(match, eliminatedPlayer, winnerPlayer);
   const recentImpact = getRecentImpactForPlayer(match, eliminatedNumber, endedAt);
   if (recentImpact && Number(recentImpact.sourcePlayerNumber) === winnerNumber) {
     trackAbilityMetric(match, recentImpact.abilityId, 'eliminations', 1);
@@ -1270,14 +2697,64 @@ function transitionMatchToEnd(room, eliminatedPlayer, winnerPlayer, reason, time
     });
   }
 
-  logLifecycle('match', 'winner_declared', {
+  const isForfeitLike = normalizedReason.includes('forfeit');
+  const isBo3 = String(match.matchFormat || '').toLowerCase() === MATCH_FORMAT_BO3;
+  const shouldResolveAsRound = isBo3 && match.phase === MATCH_PHASE_COMBAT && !isForfeitLike;
+
+  if (!shouldResolveAsRound) {
+    return finalizeMatchEnd(room, {
+      winnerNumber,
+      eliminatedNumber,
+      reason: normalizedReason,
+      timestamp: endedAt
+    });
+  }
+
+  const roundWins = ensureRoundWinsByPlayerNumber(match);
+  roundWins[winnerNumber] = Math.max(0, Number(roundWins[winnerNumber]) || 0) + 1;
+  const winnerRoundWins = Number(roundWins[winnerNumber]) || 0;
+  const roundsNeededToWin = getMatchRoundsNeededToWin(match);
+
+  clearTransientRoundMatchState(match, endedAt);
+  match.eliminatedPlayerNumber = eliminatedNumber;
+  match.winnerPlayerNumber = winnerNumber;
+  match.eliminationCause = normalizedReason;
+  match.roundEndAt = endedAt;
+  match.endedAt = null;
+  match.matchEndReason = null;
+  match.lastRoundWinnerPlayerNumber = winnerNumber;
+  match.lastRoundEndedAt = endedAt;
+  match.lastRoundEndReason = normalizedReason;
+
+  (Array.isArray(match.players) ? match.players : []).forEach((player) => {
+    resetTransientMatchPlayerState(player, endedAt);
+    player.eliminated = Number(player?.matchPlayerNumber) === eliminatedNumber;
+  });
+
+  const hasMatchWinner = winnerRoundWins >= roundsNeededToWin;
+  if (hasMatchWinner) {
+    return finalizeMatchEnd(room, {
+      winnerNumber,
+      eliminatedNumber,
+      reason: normalizedReason,
+      timestamp: endedAt
+    });
+  }
+
+  const didTransition = transitionMatchPhase(room, MATCH_PHASE_ROUND_END, 'round_completed', endedAt);
+  if (!didTransition) return false;
+
+  match.nextRoundStartsAt = endedAt + ROUND_END_INTERMISSION_MS;
+  setRoomState(room, ROOM_STATES.COMBAT, 'round_completed');
+  logLifecycle('round', 'ended', {
     code: room.code,
+    matchId: match.matchId,
+    round: Number(match.roundNumber) || 1,
     winner: winnerNumber,
     eliminated: eliminatedNumber,
-    reason: match.eliminationCause,
-    endedAt
+    score: `${Number(roundWins[1]) || 0}-${Number(roundWins[2]) || 0}`,
+    nextRoundStartsAt: match.nextRoundStartsAt
   });
-  logMatchAnalyticsSummary(room, match, endedAt, reason);
   return true;
 }
 
@@ -1337,7 +2814,8 @@ function pushMatchHitEvent(match, hitEvent) {
     || type === 'gust_hit'
     || type === 'shock_hit'
     || type === 'charge_hit'
-    || type === 'hook_pull';
+    || type === 'hook_pull'
+    || type === 'solar_hit';
   if (abilityId && isOffensiveHit) {
     trackAbilityMetric(match, abilityId, 'hitsLanded', 1);
     if (sourcePlayerNumber > 0 && targetPlayerNumber > 0) {
@@ -1381,10 +2859,39 @@ function applyDamageToPlayer({
     };
   }
 
+  if (match.phase !== MATCH_PHASE_COMBAT) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth: getPlayerCurrentHealth(targetPlayer),
+      afterHealth: getPlayerCurrentHealth(targetPlayer),
+      eliminated: false
+    };
+  }
+
   const now = Number(timestamp) || Date.now();
+  if (isPlayerPhantomUntargetable(targetPlayer, now)) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth: getPlayerCurrentHealth(targetPlayer),
+      afterHealth: getPlayerCurrentHealth(targetPlayer),
+      eliminated: false
+    };
+  }
   const maxHealth = getPlayerMaxHealth(targetPlayer);
   const beforeHealth = getPlayerCurrentHealth(targetPlayer);
   if (beforeHealth <= 0) {
+    return {
+      applied: false,
+      amount: 0,
+      beforeHealth,
+      afterHealth: beforeHealth,
+      eliminated: false
+    };
+  }
+
+  if (isShieldActive(targetPlayer, now)) {
     return {
       applied: false,
       amount: 0,
@@ -1418,7 +2925,7 @@ function applyDamageToPlayer({
     after: afterHealth
   });
 
-  if (afterHealth > 0 || match.phase !== MATCH_PHASE_COMBAT) {
+  if (afterHealth > 0) {
     return {
       applied: true,
       amount: damageAmount,
@@ -1470,6 +2977,7 @@ function applyLavaDamageTick(room, match, tickTimestamp) {
   (Array.isArray(match.players) ? match.players : []).forEach((player) => {
     if (!player || player.connected === false) return;
     if (getPlayerCurrentHealth(player) <= 0) return;
+    if (isPlayerPhantomUntargetable(player, now)) return;
     if (!isInLavaHazard(player.position)) return;
 
     const lastLavaDamageAt = Number(player.lastLavaDamageAt) || 0;
@@ -1541,7 +3049,16 @@ function getRoomReconnectStatus(room, now = Date.now()) {
 }
 
 function setMatchPauseState(match, paused, reason = '', pausedByPlayerNumber = null, timestamp = Date.now()) {
-  if (!match || (match.phase !== MATCH_PHASE_COMBAT && match.phase !== MATCH_PHASE_COMBAT_COUNTDOWN)) return;
+  if (
+    !match
+    || (
+      match.phase !== MATCH_PHASE_COMBAT
+      && match.phase !== MATCH_PHASE_COMBAT_COUNTDOWN
+      && match.phase !== MATCH_PHASE_ROUND_END
+    )
+  ) {
+    return;
+  }
 
   if (paused) {
     if (match.isPaused === true && match.pauseReason === reason && Number(match.pausedByPlayerNumber) === Number(pausedByPlayerNumber)) {
@@ -1577,6 +3094,7 @@ function getStateForRoom(room) {
     if (room.match.phase === MATCH_PHASE_MATCH_END) return ROOM_STATES.MATCH_END;
     if (room.match.phase === MATCH_PHASE_COMBAT_COUNTDOWN) return ROOM_STATES.COMBAT;
     if (room.match.phase === MATCH_PHASE_COMBAT) return ROOM_STATES.COMBAT;
+    if (room.match.phase === MATCH_PHASE_ROUND_END) return ROOM_STATES.COMBAT;
     return ROOM_STATES.IN_MATCH;
   }
   if (room.players.length < MAX_PLAYERS_PER_ROOM) return ROOM_STATES.WAITING;
@@ -1662,10 +3180,14 @@ function createMatchForRoom(room) {
       fireblast: 0,
       blink: 0,
       shield: 0,
+      prism: 0,
       gust: 0,
       charge: 0,
       shock: 0,
       hook: 0,
+      solar: 0,
+      rift: 0,
+      phantom: 0,
       wall: 0,
       rewind: 0
     },
@@ -1674,19 +3196,29 @@ function createMatchForRoom(room) {
     recentDraftRequests: {},
     activeEffects: {
       shieldUntil: 0,
-      charge: null
+      prismUntil: 0,
+      solarDistortionUntil: 0,
+      charge: null,
+      riftPending: null,
+      phantom: null
     },
     lastUpdated: startedAt,
     nextFireblastAt: 0,
     nextBlinkAt: 0,
     nextShieldAt: 0,
+    nextPrismAt: 0,
     nextGustAt: 0,
     nextChargeAt: 0,
     nextShockAt: 0,
     nextHookAt: 0,
+    nextSolarAt: 0,
+    nextRiftAt: 0,
+    nextPhantomAt: 0,
     nextWallAt: 0,
     nextRewindAt: 0,
     activeShieldUntil: 0,
+    activePrismUntil: 0,
+    solarDistortionUntil: 0,
     positionHistory: []
   }));
 
@@ -1700,6 +3232,20 @@ function createMatchForRoom(room) {
     matchId,
     roomCode: room.code,
     startedAt,
+    matchFormat: MATCH_FORMAT_BO3,
+    roundsNeededToWin: MATCH_ROUNDS_NEEDED_TO_WIN,
+    maxRounds: MATCH_MAX_ROUNDS,
+    roundNumber: 1,
+    roundWinsByPlayerNumber: {
+      1: 0,
+      2: 0
+    },
+    currentRoundStartedAt: null,
+    roundEndAt: null,
+    nextRoundStartsAt: null,
+    lastRoundWinnerPlayerNumber: null,
+    lastRoundEndedAt: null,
+    lastRoundEndReason: '',
     phase: MATCH_PHASE_DRAFT,
     combatStartsAt: null,
     combatCountdownSeconds: COMBAT_START_COUNTDOWN_SECONDS,
@@ -1708,10 +3254,14 @@ function createMatchForRoom(room) {
     spawnPositions,
     projectiles: [],
     walls: [],
+    roundPillars: [],
+    rifts: [],
     pendingAbilityCasts: [],
     resolvedProjectileIds: {},
     nextProjectileSequence: 0,
     nextWallSequence: 0,
+    nextRoundPillarSequence: 0,
+    nextRiftSequence: 0,
     nextHitSequence: 0,
     hitEvents: [],
     analytics: {
@@ -1755,13 +3305,80 @@ function createMatchForRoom(room) {
   return room.match;
 }
 
+function buildPhantomIllusionSnapshotForPlayer(player, now = Date.now()) {
+  const phantom = getPlayerPhantomState(player);
+  if (!phantom) return null;
+  const illusionExpiresAt = Number(phantom.illusionExpiresAt) || 0;
+  if (illusionExpiresAt <= (Number(now) || Date.now())) return null;
+  const illusionPosition = clonePosition(phantom.illusionPosition);
+  if (!illusionPosition) return null;
+  const ownerPlayerNumber = Number(player?.matchPlayerNumber) || 0;
+  return {
+    ownerPlayerNumber,
+    illusionId: `${ownerPlayerNumber}-phantom`,
+    position: illusionPosition,
+    facing: { ...normalizeInputVector(phantom.illusionFacing) },
+    offset: { ...sanitizeVector(phantom.illusionOffset) },
+    expiresAt: illusionExpiresAt,
+    remainingMs: Math.max(0, illusionExpiresAt - (Number(now) || Date.now()))
+  };
+}
+
+function buildPlayerActiveEffectsSnapshot(player, now = Date.now()) {
+  const phantom = getPlayerPhantomState(player);
+  const phantomVanishUntil = getPlayerPhantomVanishUntil(player);
+  const phantomIllusion = buildPhantomIllusionSnapshotForPlayer(player, now);
+  const riftPending = getPlayerRiftPendingState(player);
+  const riftPendingExpiresAt = Number(riftPending?.expiresAt) || 0;
+  return {
+    shieldUntil: getPlayerActiveShieldUntil(player),
+    shieldRemainingMs: Math.max(0, getPlayerActiveShieldUntil(player) - now),
+    shieldActive: isShieldActive(player, now),
+    prismUntil: getPlayerActivePrismUntil(player),
+    prismRemainingMs: Math.max(0, getPlayerActivePrismUntil(player) - now),
+    prismActive: isPrismActive(player, now),
+    prismDirection: { ...getPrismFacingDirection(player, { x: 1, y: 0 }) },
+    solarDistortionUntil: getPlayerSolarDistortionUntil(player),
+    solarDistortionRemainingMs: Math.max(0, getPlayerSolarDistortionUntil(player) - now),
+    solarDistortionActive: isSolarDistortionActive(player, now),
+    chargeActive: Boolean(player?.activeEffects?.charge?.active),
+    chargeRemainingDistance: Math.max(0, Number(player?.activeEffects?.charge?.remainingDistance) || 0),
+    chargeDirection: { ...normalizeInputVector(player?.activeEffects?.charge?.direction) },
+    riftPendingActive: Boolean(riftPending),
+    riftPendingPortalA: clonePosition(riftPending?.portalA),
+    riftPendingExpiresAt,
+    riftPendingRemainingMs: riftPendingExpiresAt > 0 ? Math.max(0, riftPendingExpiresAt - now) : 0,
+    phantomVanishUntil,
+    phantomVanishRemainingMs: Math.max(0, phantomVanishUntil - now),
+    phantomUntargetableActive: isPlayerPhantomUntargetable(player, now),
+    phantomIllusion
+  };
+}
+
 function serializeMatch(match) {
   if (!match) return null;
   const now = Date.now();
+  const draftPool = match?.draft ? ensureDraftPoolEntries(match.draft) : null;
   return {
     matchId: match.matchId,
     roomCode: match.roomCode,
     startedAt: match.startedAt,
+    matchFormat: String(match.matchFormat || MATCH_FORMAT_BO3),
+    roundNumber: Math.max(1, Number(match.roundNumber) || 1),
+    roundsNeededToWin: Math.max(1, Number(match.roundsNeededToWin) || MATCH_ROUNDS_NEEDED_TO_WIN),
+    roundWinsByPlayerNumber: {
+      1: Math.max(0, Number(match.roundWinsByPlayerNumber?.[1]) || 0),
+      2: Math.max(0, Number(match.roundWinsByPlayerNumber?.[2]) || 0)
+    },
+    currentRoundStartedAt: Number(match.currentRoundStartedAt) || null,
+    roundEndAt: Number(match.roundEndAt) || null,
+    nextRoundStartsAt: Number(match.nextRoundStartsAt) || null,
+    roundIntermissionRemainingMs: Number(match.nextRoundStartsAt) > 0
+      ? Math.max(0, Number(match.nextRoundStartsAt) - now)
+      : 0,
+    lastRoundWinnerPlayerNumber: Number(match.lastRoundWinnerPlayerNumber) || null,
+    lastRoundEndedAt: Number(match.lastRoundEndedAt) || null,
+    lastRoundEndReason: String(match.lastRoundEndReason || ''),
     phase: match.phase,
     combatStartsAt: Number(match.combatStartsAt) || null,
     combatCountdownSeconds: Number(match.combatCountdownSeconds) || COMBAT_START_COUNTDOWN_SECONDS,
@@ -1810,21 +3427,18 @@ function serializeMatch(match) {
         .filter(Boolean),
       abilityCooldowns: buildAbilityCooldownSnapshot(player, now),
       abilityReadyAt: buildAbilityReadyAtSnapshot(player),
-      activeEffects: {
-        shieldUntil: getPlayerActiveShieldUntil(player),
-        shieldRemainingMs: Math.max(0, getPlayerActiveShieldUntil(player) - now),
-        shieldActive: isShieldActive(player, now),
-        chargeActive: Boolean(player?.activeEffects?.charge?.active),
-        chargeRemainingDistance: Math.max(0, Number(player?.activeEffects?.charge?.remainingDistance) || 0),
-        chargeDirection: { ...normalizeInputVector(player?.activeEffects?.charge?.direction) }
-      },
+      activeEffects: buildPlayerActiveEffectsSnapshot(player, now),
       nextFireblastAt: Number(player.nextFireblastAt) || 0,
       nextBlinkAt: Number(player.nextBlinkAt) || 0,
       nextShieldAt: Number(player.nextShieldAt) || 0,
+      nextPrismAt: Number(player.nextPrismAt) || 0,
       nextGustAt: Number(player.nextGustAt) || 0,
       nextChargeAt: Number(player.nextChargeAt) || 0,
       nextShockAt: Number(player.nextShockAt) || 0,
       nextHookAt: Number(player.nextHookAt) || 0,
+      nextSolarAt: Number(player.nextSolarAt) || 0,
+      nextRiftAt: Number(player.nextRiftAt) || 0,
+      nextPhantomAt: Number(player.nextPhantomAt) || 0,
       nextWallAt: Number(player.nextWallAt) || 0,
       nextRewindAt: Number(player.nextRewindAt) || 0,
       lastUpdated: player.lastUpdated
@@ -1837,10 +3451,14 @@ function serializeMatch(match) {
       const projectileAbilityId = normalizeSpellId(projectile.abilityId || ABILITY_IDS.FIREBLAST) || ABILITY_IDS.FIREBLAST;
       const defaultSpeed = projectileAbilityId === ABILITY_IDS.HOOK
         ? getAbilityNumber(ABILITY_IDS.HOOK, 'speed', 18, 0.01)
-        : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'speed', 14, 0.01);
+        : projectileAbilityId === ABILITY_IDS.SOLAR
+          ? getAbilityNumber(ABILITY_IDS.SOLAR, 'speed', 16.2, 0.01)
+          : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'speed', 14, 0.01);
       const defaultHitRadius = projectileAbilityId === ABILITY_IDS.HOOK
         ? getHookHitRadiusDefault()
-        : getFireblastHitRadiusDefault();
+        : projectileAbilityId === ABILITY_IDS.SOLAR
+          ? getSolarHitRadiusDefault()
+          : getFireblastHitRadiusDefault();
       return {
         projectileId: projectile.projectileId,
         abilityId: projectileAbilityId,
@@ -1863,6 +3481,24 @@ function serializeMatch(match) {
       spawnedAt: Number(wall.spawnedAt) || 0,
       expiresAt: Number(wall.expiresAt) || 0
     })),
+    roundPillars: ensureMatchRoundPillars(match).map((pillar) => ({
+      pillarId: String(pillar?.pillarId || ''),
+      position: clonePosition(pillar?.position),
+      radius: getRoundPillarRadius(pillar),
+      spawnedAt: Number(pillar?.spawnedAt) || 0
+    })),
+    rifts: ensureMatchRifts(match).map((rift) => ({
+      riftId: String(rift?.riftId || ''),
+      ownerPlayerNumber: Number(rift?.ownerPlayerNumber) || 0,
+      portalA: clonePosition(rift?.portalA),
+      portalB: clonePosition(rift?.portalB),
+      portalRadius: Math.max(0.05, Number(rift?.portalRadius) || getRiftPortalRadiusDefault()),
+      linkedAt: Number(rift?.linkedAt) || 0,
+      expiresAt: Number(rift?.expiresAt) || 0
+    })),
+    phantomIllusions: (Array.isArray(match.players) ? match.players : [])
+      .map((player) => buildPhantomIllusionSnapshotForPlayer(player, now))
+      .filter(Boolean),
     hitEvents: (Array.isArray(match.hitEvents) ? match.hitEvents : []).map((hitEvent) => ({
       hitId: String(hitEvent.hitId || ''),
       timestamp: Number(hitEvent.timestamp) || 0,
@@ -1892,7 +3528,7 @@ function serializeMatch(match) {
           : 0,
         turnOrder: Array.isArray(match.draft.turnOrder) ? match.draft.turnOrder.map((value) => Number(value) || 0) : [],
         pool: DRAFT_SPELL_POOL.reduce((acc, spellId) => {
-          const poolEntry = match.draft.pool?.[spellId];
+          const poolEntry = draftPool?.[spellId];
           acc[spellId] = {
             totalCopies: Number(poolEntry?.totalCopies) || Number(DRAFT_SPELL_COPY_LIMITS[spellId]) || 0,
             remainingCopies: Number(poolEntry?.remainingCopies) || 0
@@ -1934,6 +3570,22 @@ function serializeCombatState(match) {
     matchId: match.matchId,
     roomCode: match.roomCode,
     startedAt: match.startedAt,
+    matchFormat: String(match.matchFormat || MATCH_FORMAT_BO3),
+    roundNumber: Math.max(1, Number(match.roundNumber) || 1),
+    roundsNeededToWin: Math.max(1, Number(match.roundsNeededToWin) || MATCH_ROUNDS_NEEDED_TO_WIN),
+    roundWinsByPlayerNumber: {
+      1: Math.max(0, Number(match.roundWinsByPlayerNumber?.[1]) || 0),
+      2: Math.max(0, Number(match.roundWinsByPlayerNumber?.[2]) || 0)
+    },
+    currentRoundStartedAt: Number(match.currentRoundStartedAt) || null,
+    roundEndAt: Number(match.roundEndAt) || null,
+    nextRoundStartsAt: Number(match.nextRoundStartsAt) || null,
+    roundIntermissionRemainingMs: Number(match.nextRoundStartsAt) > 0
+      ? Math.max(0, Number(match.nextRoundStartsAt) - now)
+      : 0,
+    lastRoundWinnerPlayerNumber: Number(match.lastRoundWinnerPlayerNumber) || null,
+    lastRoundEndedAt: Number(match.lastRoundEndedAt) || null,
+    lastRoundEndReason: String(match.lastRoundEndReason || ''),
     phase: match.phase,
     combatStartsAt: Number(match.combatStartsAt) || null,
     combatCountdownSeconds: Number(match.combatCountdownSeconds) || COMBAT_START_COUNTDOWN_SECONDS,
@@ -1969,9 +3621,7 @@ function serializeCombatState(match) {
       abilityCooldowns: buildAbilityCooldownSnapshot(player, now),
       abilityReadyAt: buildAbilityReadyAtSnapshot(player),
       activeEffects: {
-        shieldUntil: getPlayerActiveShieldUntil(player),
-        shieldRemainingMs: Math.max(0, getPlayerActiveShieldUntil(player) - now),
-        shieldActive: isShieldActive(player, now),
+        ...buildPlayerActiveEffectsSnapshot(player, now),
         charge: {
           active: Boolean(player?.activeEffects?.charge?.active),
           remainingDistance: Math.max(0, Number(player?.activeEffects?.charge?.remainingDistance) || 0),
@@ -1989,10 +3639,14 @@ function serializeCombatState(match) {
       const projectileAbilityId = normalizeSpellId(projectile.abilityId || ABILITY_IDS.FIREBLAST) || ABILITY_IDS.FIREBLAST;
       const defaultSpeed = projectileAbilityId === ABILITY_IDS.HOOK
         ? getAbilityNumber(ABILITY_IDS.HOOK, 'speed', 18, 0.01)
-        : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'speed', 14, 0.01);
+        : projectileAbilityId === ABILITY_IDS.SOLAR
+          ? getAbilityNumber(ABILITY_IDS.SOLAR, 'speed', 16.2, 0.01)
+          : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'speed', 14, 0.01);
       const defaultHitRadius = projectileAbilityId === ABILITY_IDS.HOOK
         ? getHookHitRadiusDefault()
-        : getFireblastHitRadiusDefault();
+        : projectileAbilityId === ABILITY_IDS.SOLAR
+          ? getSolarHitRadiusDefault()
+          : getFireblastHitRadiusDefault();
       return {
         projectileId: projectile.projectileId,
         abilityId: projectileAbilityId,
@@ -2015,6 +3669,24 @@ function serializeCombatState(match) {
       spawnedAt: Number(wall.spawnedAt) || 0,
       expiresAt: Number(wall.expiresAt) || 0
     })),
+    roundPillars: ensureMatchRoundPillars(match).map((pillar) => ({
+      pillarId: String(pillar?.pillarId || ''),
+      position: clonePosition(pillar?.position),
+      radius: getRoundPillarRadius(pillar),
+      spawnedAt: Number(pillar?.spawnedAt) || 0
+    })),
+    rifts: ensureMatchRifts(match).map((rift) => ({
+      riftId: String(rift?.riftId || ''),
+      ownerPlayerNumber: Number(rift?.ownerPlayerNumber) || 0,
+      portalA: clonePosition(rift?.portalA),
+      portalB: clonePosition(rift?.portalB),
+      portalRadius: Math.max(0.05, Number(rift?.portalRadius) || getRiftPortalRadiusDefault()),
+      linkedAt: Number(rift?.linkedAt) || 0,
+      expiresAt: Number(rift?.expiresAt) || 0
+    })),
+    phantomIllusions: (Array.isArray(match.players) ? match.players : [])
+      .map((player) => buildPhantomIllusionSnapshotForPlayer(player, now))
+      .filter(Boolean),
     hitEvents: (Array.isArray(match.hitEvents) ? match.hitEvents : []).map((hitEvent) => ({
       hitId: String(hitEvent.hitId || ''),
       timestamp: Number(hitEvent.timestamp) || 0,
@@ -2128,6 +3800,17 @@ function emitMatchState(room, timestamp = Date.now(), options = {}) {
     roomCode: room.code,
     matchId: serializedMatch.matchId,
     startedAt: serializedMatch.startedAt,
+    matchFormat: serializedMatch.matchFormat,
+    roundNumber: serializedMatch.roundNumber,
+    roundsNeededToWin: serializedMatch.roundsNeededToWin,
+    roundWinsByPlayerNumber: serializedMatch.roundWinsByPlayerNumber,
+    currentRoundStartedAt: serializedMatch.currentRoundStartedAt,
+    roundEndAt: serializedMatch.roundEndAt,
+    nextRoundStartsAt: serializedMatch.nextRoundStartsAt,
+    roundIntermissionRemainingMs: serializedMatch.roundIntermissionRemainingMs,
+    lastRoundWinnerPlayerNumber: serializedMatch.lastRoundWinnerPlayerNumber,
+    lastRoundEndedAt: serializedMatch.lastRoundEndedAt,
+    lastRoundEndReason: serializedMatch.lastRoundEndReason,
     phase: serializedMatch.phase,
     combatStartsAt: serializedMatch.combatStartsAt,
     combatCountdownSeconds: serializedMatch.combatCountdownSeconds,
@@ -2140,6 +3823,9 @@ function emitMatchState(room, timestamp = Date.now(), options = {}) {
     players: serializedMatch.players,
     projectiles: serializedMatch.projectiles,
     walls: serializedMatch.walls,
+    roundPillars: serializedMatch.roundPillars,
+    rifts: serializedMatch.rifts,
+    phantomIllusions: serializedMatch.phantomIllusions,
     hitEvents: serializedMatch.hitEvents,
     abilityAnalytics: serializedMatch.abilityAnalytics,
     arenaBoundary: serializedMatch.arenaBoundary,
@@ -2159,6 +3845,17 @@ function emitCombatState(room, timestamp = Date.now(), options = {}) {
     roomCode: room.code,
     matchId: serializedCombatState.matchId,
     startedAt: serializedCombatState.startedAt,
+    matchFormat: serializedCombatState.matchFormat,
+    roundNumber: serializedCombatState.roundNumber,
+    roundsNeededToWin: serializedCombatState.roundsNeededToWin,
+    roundWinsByPlayerNumber: serializedCombatState.roundWinsByPlayerNumber,
+    currentRoundStartedAt: serializedCombatState.currentRoundStartedAt,
+    roundEndAt: serializedCombatState.roundEndAt,
+    nextRoundStartsAt: serializedCombatState.nextRoundStartsAt,
+    roundIntermissionRemainingMs: serializedCombatState.roundIntermissionRemainingMs,
+    lastRoundWinnerPlayerNumber: serializedCombatState.lastRoundWinnerPlayerNumber,
+    lastRoundEndedAt: serializedCombatState.lastRoundEndedAt,
+    lastRoundEndReason: serializedCombatState.lastRoundEndReason,
     phase: serializedCombatState.phase,
     combatStartsAt: serializedCombatState.combatStartsAt,
     combatCountdownSeconds: serializedCombatState.combatCountdownSeconds,
@@ -2171,6 +3868,9 @@ function emitCombatState(room, timestamp = Date.now(), options = {}) {
     spawnPositions: serializedCombatState.spawnPositions,
     projectiles: serializedCombatState.projectiles,
     walls: serializedCombatState.walls,
+    roundPillars: serializedCombatState.roundPillars,
+    rifts: serializedCombatState.rifts,
+    phantomIllusions: serializedCombatState.phantomIllusions,
     hitEvents: serializedCombatState.hitEvents,
     arenaBoundary: serializedCombatState.arenaBoundary,
     eliminatedPlayerNumber: serializedCombatState.eliminatedPlayerNumber,
@@ -2268,7 +3968,13 @@ function deleteRoomIfEmpty(room) {
 function tryResumePausedMatch(room, reason = 'player_reconnected') {
   if (!room?.match) return false;
   const match = room.match;
-  if (match.phase !== MATCH_PHASE_COMBAT && match.phase !== MATCH_PHASE_COMBAT_COUNTDOWN) return false;
+  if (
+    match.phase !== MATCH_PHASE_COMBAT
+    && match.phase !== MATCH_PHASE_COMBAT_COUNTDOWN
+    && match.phase !== MATCH_PHASE_ROUND_END
+  ) {
+    return false;
+  }
   if (match.isPaused !== true) return false;
   if (!areAllMatchPlayersConnected(match)) return false;
 
@@ -2419,7 +4125,14 @@ function beginDisconnectGraceForPlayer(room, player, disconnectReason = 'disconn
 
   scheduleReconnectGraceTimeout(room, player);
 
-  if (room.match && (room.match.phase === MATCH_PHASE_COMBAT || room.match.phase === MATCH_PHASE_COMBAT_COUNTDOWN)) {
+  if (
+    room.match
+    && (
+      room.match.phase === MATCH_PHASE_COMBAT
+      || room.match.phase === MATCH_PHASE_COMBAT_COUNTDOWN
+      || room.match.phase === MATCH_PHASE_ROUND_END
+    )
+  ) {
     setMatchPauseState(room.match, true, 'player_disconnected', matchPlayerNumber, now);
   }
 
@@ -2453,7 +4166,11 @@ function beginDisconnectGraceForPlayer(room, player, disconnectReason = 'disconn
 function completeDraftAndStartCombat(room, completedAt = Date.now()) {
   if (!room?.match) return false;
   const match = room.match;
-  if (match.phase === MATCH_PHASE_COMBAT || match.phase === MATCH_PHASE_COMBAT_COUNTDOWN) {
+  if (
+    match.phase === MATCH_PHASE_COMBAT
+    || match.phase === MATCH_PHASE_COMBAT_COUNTDOWN
+    || match.phase === MATCH_PHASE_ROUND_END
+  ) {
     logLifecycle('draft', 'complete_ignored_already_in_combat', {
       code: room.code,
       matchId: match.matchId
@@ -2478,52 +4195,38 @@ function completeDraftAndStartCombat(room, completedAt = Date.now()) {
     player.draftedSpells = draftedSpells;
     player.loadoutSpells = draftedSpells.slice(0, 3);
     player.loadout = ['fireblast', ...player.loadoutSpells];
-    player.input = { x: 0, y: 0 };
-    player.velocity = sanitizeVector(player.velocity);
-    setAbilityReadyAt(player, ABILITY_IDS.FIREBLAST, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.BLINK, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.SHIELD, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.GUST, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.CHARGE, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.SHOCK, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.HOOK, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.WALL, 0);
-    setAbilityReadyAt(player, ABILITY_IDS.REWIND, 0);
-    setPlayerActiveShieldUntil(player, 0);
-    player.activeEffects = {
-      ...(player.activeEffects || {}),
-      shieldUntil: 0,
-      charge: null
-    };
-    player.positionHistory = [];
-    ensurePlayerPositionHistory(player, now);
-    player.recentAbilityRequests = {};
-    player.recentDraftRequests = {};
-    player.actionRateLimits = {};
   });
 
-  match.combatStartsAt = now + COMBAT_START_COUNTDOWN_MS;
-  match.combatCountdownSeconds = COMBAT_START_COUNTDOWN_SECONDS;
-
-  const didTransition = transitionMatchPhase(
+  match.matchFormat = MATCH_FORMAT_BO3;
+  match.roundsNeededToWin = MATCH_ROUNDS_NEEDED_TO_WIN;
+  match.maxRounds = MATCH_MAX_ROUNDS;
+  match.roundNumber = 1;
+  match.roundWinsByPlayerNumber = { 1: 0, 2: 0 };
+  match.currentRoundStartedAt = null;
+  match.roundEndAt = null;
+  match.nextRoundStartsAt = null;
+  match.lastRoundWinnerPlayerNumber = null;
+  match.lastRoundEndedAt = null;
+  match.lastRoundEndReason = '';
+  const started = startRoundCountdown(
     room,
-    MATCH_PHASE_COMBAT_COUNTDOWN,
-    'draft_completed_start_countdown',
+    1,
+    'draft_completed_start_round_1',
     now
   );
-  if (!didTransition) {
+  if (!started) {
     return false;
   }
-  setRoomState(room, ROOM_STATES.COMBAT, 'draft_completed_start_countdown');
+
   logLifecycle('draft', 'completed', {
     code: room.code,
     at: now
   });
-  logLifecycle('match', 'combat_countdown_started', {
+  logLifecycle('match', 'bo3_started', {
     code: room.code,
     matchId: match.matchId,
-    combatStartsAt: match.combatStartsAt,
-    countdownSeconds: match.combatCountdownSeconds
+    format: MATCH_FORMAT_BO3,
+    roundsNeededToWin: match.roundsNeededToWin
   });
   return true;
 }
@@ -2565,6 +4268,7 @@ function applyDraftPick(room, pickingPlayerNumber, requestedSpellId, pickReason 
   if (!match || match.phase !== MATCH_PHASE_DRAFT || !match.draft) {
     return { ok: false, code: 'DRAFT_NOT_ACTIVE', message: 'Draft is not active.' };
   }
+  ensureDraftPoolEntries(match.draft);
 
   const now = Date.now();
   const currentTurnPlayerNumber = getDraftCurrentTurnPlayerNumber(match);
@@ -2659,6 +4363,27 @@ function resolveCastDirection(matchPlayer, payloadDirection) {
   return { x: 0, y: 0 };
 }
 
+function resolveCastTargetPosition(payload) {
+  const source = payload && typeof payload === 'object'
+    ? (
+      payload.targetPosition
+      || payload.target
+      || payload.position
+      || null
+    )
+    : null;
+  return clonePosition(source);
+}
+
+function resolveCastTargetDistance(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const sourceDistance = payload.targetDistance;
+  if (!Number.isFinite(Number(sourceDistance))) return null;
+  const normalizedDistance = Number(sourceDistance);
+  if (normalizedDistance < 0) return null;
+  return normalizedDistance;
+}
+
 function getPlayerChargeState(matchPlayer) {
   const chargeState = matchPlayer?.activeEffects?.charge;
   if (!chargeState || typeof chargeState !== 'object') return null;
@@ -2716,7 +4441,7 @@ function executeFireblastAbility(room, matchPlayer, payload, now) {
   };
 }
 
-function executeBlinkAbility(matchPlayer, payload, now) {
+function executeBlinkAbility(room, matchPlayer, payload, now) {
   const castDirection = resolveCastDirection(matchPlayer, payload?.direction || payload);
   if (castDirection.x === 0 && castDirection.y === 0) {
     return { ok: false, code: 'INVALID_AIM', message: 'Aim before casting blink.' };
@@ -2728,7 +4453,17 @@ function executeBlinkAbility(matchPlayer, payload, now) {
     x: currentPosition.x + (castDirection.x * blinkDistance),
     y: currentPosition.y + (castDirection.y * blinkDistance)
   };
-  const finalTargetPosition = clampPositionInsideArena(rawTargetPosition, PLAYER_RADIUS + 0.02);
+  const clampedTargetPosition = clampPositionInsideArena(rawTargetPosition, PLAYER_RADIUS + 0.02);
+  const safeTargetPosition = resolvePointAgainstArenaBlockers(
+    clampedTargetPosition,
+    currentPosition,
+    room?.match,
+    {
+      padding: PLAYER_RADIUS,
+      timestamp: now
+    }
+  );
+  const finalTargetPosition = clampPositionInsideArena(safeTargetPosition, PLAYER_RADIUS + 0.02);
   matchPlayer.position = finalTargetPosition;
   matchPlayer.lastUpdated = now;
 
@@ -2751,18 +4486,54 @@ function executeShieldAbility(room, matchPlayer, now) {
   };
 }
 
+function executePrismAbility(room, matchPlayer, now) {
+  const prismDurationMs = getAbilityNumber(ABILITY_IDS.PRISM, 'durationMs', 600, 50);
+  const prismUntil = now + prismDurationMs;
+  setPlayerActivePrismUntil(matchPlayer, prismUntil);
+  logRuntimeVerbose(`[match] prism_activated code=${room.code} player=${matchPlayer.matchPlayerNumber} until=${prismUntil}`);
+  return {
+    ok: true,
+    activeMs: prismDurationMs,
+    prismUntil
+  };
+}
+
 function executeGustAbility(room, matchPlayer, payload, now) {
   const castDirection = resolveCastDirection(matchPlayer, payload?.direction || payload);
-  if (castDirection.x === 0 && castDirection.y === 0) {
-    return { ok: false, code: 'INVALID_AIM', message: 'Aim before casting gust.' };
-  }
+  const emitGustCastEvent = (reason = 'cast', metadata = null) => {
+    const eventMetadata = {
+      reason: String(reason || 'cast')
+    };
+    if (metadata && typeof metadata === 'object') {
+      Object.assign(eventMetadata, metadata);
+    }
+    const gustCastEvent = createCombatEvent(room.match, {
+      type: 'gust_cast',
+      abilityId: ABILITY_IDS.GUST,
+      sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+      targetPlayerNumber: 0,
+      timestamp: now,
+      knockback: { x: 0, y: 0 },
+      metadata: eventMetadata
+    });
+    pushMatchHitEvent(room.match, gustCastEvent);
+  };
 
   const opponent = getOpponentPlayer(room.match, matchPlayer.matchPlayerNumber);
   if (!opponent) {
+    emitGustCastEvent('no_opponent');
     return {
       ok: true,
       hit: false,
       reason: 'no_opponent'
+    };
+  }
+  if (!isPlayerTargetableForCombatHit(opponent, now)) {
+    emitGustCastEvent('target_untargetable');
+    return {
+      ok: true,
+      hit: false,
+      reason: 'target_untargetable'
     };
   }
 
@@ -2771,6 +4542,10 @@ function executeGustAbility(room, matchPlayer, payload, now) {
   const distance = Math.hypot(dx, dy);
   const gustRange = getAbilityNumber(ABILITY_IDS.GUST, 'range', 3.4, 0.1);
   if (distance > gustRange) {
+    emitGustCastEvent('out_of_range', {
+      range: Number(gustRange) || 0,
+      distance: Number(distance.toFixed(2)) || 0
+    });
     return {
       ok: true,
       hit: false,
@@ -2778,12 +4553,70 @@ function executeGustAbility(room, matchPlayer, payload, now) {
       range: gustRange
     };
   }
+  const awayDirection = distance > 0.0001
+    ? { x: dx / distance, y: dy / distance }
+    : (castDirection.x !== 0 || castDirection.y !== 0 ? castDirection : { x: 1, y: 0 });
+
+  if (isPointInsidePrismCone(opponent, matchPlayer.position, now)) {
+    const prismDirection = getPrismFacingDirection(opponent, {
+      x: -awayDirection.x,
+      y: -awayDirection.y
+    });
+    const gustKnockbackImpulse = getAbilityNumber(ABILITY_IDS.GUST, 'knockbackImpulse', 8.8, 0);
+    const reflectedKnockback = {
+      x: prismDirection.x * gustKnockbackImpulse,
+      y: prismDirection.y * gustKnockbackImpulse
+    };
+    matchPlayer.velocity = sanitizeVector(matchPlayer.velocity);
+    matchPlayer.velocity.x += reflectedKnockback.x;
+    matchPlayer.velocity.y += reflectedKnockback.y;
+    matchPlayer.lastHitAt = now;
+    const gustDamage = getAbilityDamage(ABILITY_IDS.GUST);
+    const reflectedDamageResult = applyDamageToPlayer({
+      room,
+      match: room.match,
+      targetPlayer: matchPlayer,
+      sourcePlayer: opponent,
+      sourcePlayerNumber: opponent.matchPlayerNumber,
+      abilityId: ABILITY_IDS.GUST,
+      amount: gustDamage,
+      cause: 'spell_damage',
+      timestamp: now
+    });
+    const reflectedEvent = createCombatEvent(room.match, {
+      type: 'prism_reflect_gust',
+      abilityId: ABILITY_IDS.PRISM,
+      sourcePlayerNumber: opponent.matchPlayerNumber,
+      targetPlayerNumber: matchPlayer.matchPlayerNumber,
+      timestamp: now,
+      knockback: reflectedKnockback,
+      metadata: {
+        reflectedAbilityId: ABILITY_IDS.GUST,
+        damage: Number(reflectedDamageResult.amount) || 0,
+        healthBefore: Number(reflectedDamageResult.beforeHealth) || 0,
+        healthAfter: Number(reflectedDamageResult.afterHealth) || 0
+      }
+    });
+    pushMatchHitEvent(room.match, reflectedEvent);
+    logLifecycle('ability', 'gust_reflected_by_prism', {
+      code: room.code,
+      source: matchPlayer.matchPlayerNumber,
+      reflector: opponent.matchPlayerNumber
+    });
+    return {
+      ok: true,
+      hit: false,
+      reflected: true,
+      reason: 'reflected_by_prism',
+      targetPlayerNumber: matchPlayer.matchPlayerNumber
+    };
+  }
 
   opponent.velocity = sanitizeVector(opponent.velocity);
   const gustKnockbackImpulse = getAbilityNumber(ABILITY_IDS.GUST, 'knockbackImpulse', 8.8, 0);
   const knockback = {
-    x: castDirection.x * gustKnockbackImpulse,
-    y: castDirection.y * gustKnockbackImpulse
+    x: awayDirection.x * gustKnockbackImpulse,
+    y: awayDirection.y * gustKnockbackImpulse
   };
   opponent.velocity.x += knockback.x;
   opponent.velocity.y += knockback.y;
@@ -2825,6 +4658,241 @@ function executeGustAbility(room, matchPlayer, payload, now) {
     hit: true,
     targetPlayerNumber: opponent.matchPlayerNumber,
     distance
+  };
+}
+
+function executeSolarAbility(room, matchPlayer, payload, now) {
+  const castDirection = resolveCastDirection(matchPlayer, payload?.direction || payload);
+  if (castDirection.x === 0 && castDirection.y === 0) {
+    return { ok: false, code: 'INVALID_AIM', message: 'Aim before casting solar.' };
+  }
+
+  const projectile = createSolarProjectile(room.match, matchPlayer, castDirection, now);
+  room.match.projectiles.push(projectile);
+  logLifecycle('ability', 'solar_spawned', {
+    code: room.code,
+    projectileId: projectile.projectileId,
+    owner: projectile.ownerPlayerNumber
+  });
+
+  return {
+    ok: true,
+    projectileId: projectile.projectileId
+  };
+}
+
+function executeRiftAbility(room, matchPlayer, payload, now) {
+  const castDirection = resolveCastDirection(matchPlayer, payload?.direction || payload);
+  const targetPosition = resolveCastTargetPosition(payload);
+  const targetDistance = resolveCastTargetDistance(payload);
+  const portalRadius = getRiftPortalRadiusDefault();
+  const pending = getPlayerRiftPendingState(matchPlayer);
+  const pendingIsActive = pending && Number(pending.expiresAt) > now;
+
+  if (pending && !pendingIsActive) {
+    clearPlayerRiftPendingState(matchPlayer);
+  }
+
+  function resolvePlacement(originPoint, maxDistance) {
+    const origin = clonePosition(originPoint);
+    const maxRange = Math.max(0.05, Number(maxDistance) || 0);
+    if (!origin || maxRange <= 0) return null;
+
+    if (targetPosition) {
+      const dx = targetPosition.x - origin.x;
+      const dy = targetPosition.y - origin.y;
+      const rawDistance = Math.hypot(dx, dy);
+      if (rawDistance > 0.0001) {
+        const targetDirection = {
+          x: dx / rawDistance,
+          y: dy / rawDistance
+        };
+        const desiredDistance = Math.min(rawDistance, maxRange);
+        return findRiftPortalPlacement(
+          room.match,
+          origin,
+          targetDirection,
+          desiredDistance,
+          portalRadius,
+          now
+        );
+      }
+    }
+
+    if (targetDistance !== null && castDirection.x !== 0 && castDirection.y !== 0) {
+      const desiredDistance = Math.min(maxRange, Math.max(0, targetDistance));
+      return findRiftPortalPlacement(
+        room.match,
+        origin,
+        castDirection,
+        desiredDistance,
+        portalRadius,
+        now
+      );
+    }
+
+    if (castDirection.x === 0 && castDirection.y === 0) {
+      return null;
+    }
+
+    return findRiftPortalPlacement(
+      room.match,
+      origin,
+      castDirection,
+      maxRange,
+      portalRadius,
+      now
+    );
+  }
+
+  if (pendingIsActive) {
+    const portalB = resolvePlacement(
+      pending.portalA,
+      getAbilityNumber(ABILITY_IDS.RIFT, 'placementRangeBFromA', 12.0, 0.1)
+    );
+    if (!portalB) {
+      setAbilityReadyAt(matchPlayer, ABILITY_IDS.RIFT, now);
+      return {
+        ok: false,
+        code: 'INVALID_RIFT_PLACEMENT',
+        message: 'Rift B placement blocked.'
+      };
+    }
+
+    const activeRifts = ensureMatchRifts(room.match).filter((rift) => {
+      if (!rift) return false;
+      if ((Number(rift.expiresAt) || 0) <= now) return false;
+      return Number(rift.ownerPlayerNumber) !== Number(matchPlayer.matchPlayerNumber);
+    });
+    const rift = createRiftPair(room.match, matchPlayer.matchPlayerNumber, pending.portalA, portalB, now);
+    activeRifts.push(rift);
+    room.match.rifts = activeRifts;
+    clearPlayerRiftPendingState(matchPlayer);
+
+    const linkedEvent = createCombatEvent(room.match, {
+      type: 'rift_linked',
+      abilityId: ABILITY_IDS.RIFT,
+      sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+      targetPlayerNumber: 0,
+      timestamp: now,
+      metadata: {
+        riftId: rift.riftId,
+        portalA: clonePosition(rift.portalA),
+        portalB: clonePosition(rift.portalB),
+        durationMs: Math.max(0, Number(rift.expiresAt) - now)
+      }
+    });
+    pushMatchHitEvent(room.match, linkedEvent);
+
+    return {
+      ok: true,
+      linked: true,
+      riftStep: 'B',
+      riftId: rift.riftId,
+      portalA: clonePosition(rift.portalA),
+      portalB: clonePosition(rift.portalB),
+      durationMs: Math.max(0, Number(rift.expiresAt) - now)
+    };
+  }
+
+  const portalA = resolvePlacement(
+    matchPlayer.position,
+    getAbilityNumber(ABILITY_IDS.RIFT, 'placementRangeA', 7.0, 0.1)
+  );
+  if (!portalA) {
+    setAbilityReadyAt(matchPlayer, ABILITY_IDS.RIFT, now);
+    return {
+      ok: false,
+      code: 'INVALID_RIFT_PLACEMENT',
+      message: 'Rift A placement blocked.'
+    };
+  }
+
+  const pendingExpiresAt = now + getRiftUnfinishedTimeoutMsDefault();
+  setPlayerRiftPendingState(matchPlayer, {
+    portalA,
+    createdAt: now,
+    expiresAt: pendingExpiresAt
+  });
+  setAbilityReadyAt(matchPlayer, ABILITY_IDS.RIFT, now);
+
+  const placedEvent = createCombatEvent(room.match, {
+    type: 'rift_place_a',
+    abilityId: ABILITY_IDS.RIFT,
+    sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+    targetPlayerNumber: 0,
+    timestamp: now,
+    metadata: {
+      portalA: clonePosition(portalA),
+      pendingExpiresAt
+    }
+  });
+  pushMatchHitEvent(room.match, placedEvent);
+
+  return {
+    ok: true,
+    pendingPlacement: true,
+    riftStep: 'A',
+    portalA: clonePosition(portalA),
+    pendingExpiresAt,
+    cooldownStartsOnLink: true
+  };
+}
+
+function executePhantomAbility(room, matchPlayer, now) {
+  const existingPhantom = getPlayerPhantomState(matchPlayer);
+  if (existingPhantom) {
+    const existingVanishUntil = Number(existingPhantom.vanishUntil) || 0;
+    const existingIllusionUntil = Number(existingPhantom.illusionExpiresAt) || 0;
+    if (existingVanishUntil > now || existingIllusionUntil > now) {
+      return {
+        ok: false,
+        code: 'PHANTOM_ALREADY_ACTIVE',
+        message: 'Phantom is already active.'
+      };
+    }
+  }
+
+  const vanishDurationMs = getAbilityNumber(ABILITY_IDS.PHANTOM, 'vanishDurationMs', 300, 50);
+  const splitRadius = getAbilityNumber(ABILITY_IDS.PHANTOM, 'splitRadius', 0.65, 0.05);
+  const illusionLifetimeMs = getAbilityNumber(ABILITY_IDS.PHANTOM, 'illusionLifetimeMs', 2000, 50);
+  const origin = clonePosition(matchPlayer.position) || { x: 0, y: 0 };
+  const splitOffset = createPhantomSplitOffset(splitRadius);
+
+  matchPlayer.input = { x: 0, y: 0 };
+  matchPlayer.velocity = { x: 0, y: 0 };
+  matchPlayer.lastUpdated = now;
+
+  setPlayerPhantomState(matchPlayer, {
+    vanishUntil: now + vanishDurationMs,
+    origin,
+    splitOffset,
+    splitApplied: false,
+    illusionOffset: { x: 0, y: 0 },
+    illusionPosition: null,
+    illusionFacing: normalizeInputVector(matchPlayer.aim),
+    illusionExpiresAt: 0
+  });
+
+  const vanishEvent = createCombatEvent(room.match, {
+    type: 'phantom_vanish',
+    abilityId: ABILITY_IDS.PHANTOM,
+    sourcePlayerNumber: matchPlayer.matchPlayerNumber,
+    targetPlayerNumber: matchPlayer.matchPlayerNumber,
+    timestamp: now,
+    metadata: {
+      vanishDurationMs,
+      illusionLifetimeMs,
+      splitRadius
+    }
+  });
+  pushMatchHitEvent(room.match, vanishEvent);
+
+  return {
+    ok: true,
+    vanishDurationMs,
+    illusionLifetimeMs,
+    splitRadius
   };
 }
 
@@ -2872,6 +4940,13 @@ function executeShockAbility(room, matchPlayer, payload, now) {
       reason: 'no_opponent'
     };
   }
+  if (!isPlayerTargetableForCombatHit(opponent, now)) {
+    return {
+      ok: true,
+      hit: false,
+      reason: 'target_untargetable'
+    };
+  }
 
   const dx = opponent.position.x - matchPlayer.position.x;
   const dy = opponent.position.y - matchPlayer.position.y;
@@ -2898,6 +4973,25 @@ function executeShockAbility(room, matchPlayer, payload, now) {
       hit: false,
       reason: 'outside_cone',
       dot: Number(facingDot.toFixed(3))
+    };
+  }
+
+  if (isPointInsidePrismCone(opponent, matchPlayer.position, now)) {
+    const prismBlockEvent = createCombatEvent(room.match, {
+      type: 'prism_block_shock',
+      abilityId: ABILITY_IDS.PRISM,
+      sourcePlayerNumber: opponent.matchPlayerNumber,
+      targetPlayerNumber: matchPlayer.matchPlayerNumber,
+      timestamp: now,
+      metadata: {
+        blockedAbilityId: ABILITY_IDS.SHOCK
+      }
+    });
+    pushMatchHitEvent(room.match, prismBlockEvent);
+    return {
+      ok: true,
+      hit: false,
+      reason: 'blocked_by_prism'
     };
   }
 
@@ -3025,13 +5119,23 @@ function findValidWallSpawnPosition(match, matchPlayer, direction, now) {
       defaultHalfThickness: wallHalfThickness
     }));
     if (overlapsExistingWall) continue;
+    const overlapsPillar = Boolean(findBlockingRoundPillarForPoint(candidate, match, {
+      padding: wallHalfThickness * 0.75
+    }));
+    if (overlapsPillar) continue;
     return candidate;
   }
 
-  return clampPositionInsideArena({
+  const fallbackCandidate = clampPositionInsideArena({
     x: casterPosition.x + (directionVector.x * wallSpawnOffset),
     y: casterPosition.y + (directionVector.y * wallSpawnOffset)
   }, wallHalfLength + wallHalfThickness + 0.08);
+  return resolvePointAgainstRoundPillars(
+    fallbackCandidate,
+    casterPosition,
+    match,
+    { padding: wallHalfThickness * 0.75 }
+  );
 }
 
 function executeWallAbility(room, matchPlayer, payload, now) {
@@ -3091,15 +5195,13 @@ function executeRewindAbility(room, matchPlayer, now) {
     y: Number(selectedSnapshot.y) || currentPosition.y
   };
   const clampedDestination = clampPositionInsideArena(rawDestination, PLAYER_RADIUS + 0.02);
-  const safeDestination = resolvePointAgainstWalls(
+  const safeDestination = resolvePointAgainstArenaBlockers(
     clampedDestination,
     currentPosition,
-    room.match?.walls,
+    room.match,
     {
       padding: PLAYER_RADIUS,
-      timestamp: now,
-      defaultHalfLength: getWallHalfLengthDefault(),
-      defaultHalfThickness: getWallHalfThicknessDefault()
+      timestamp: now
     }
   );
 
@@ -3145,10 +5247,13 @@ function executeAbilityCast(room, matchPlayer, abilityDef, payload, now) {
     return executeFireblastAbility(room, matchPlayer, payload, now);
   }
   if (abilityDef.id === ABILITY_IDS.BLINK) {
-    return executeBlinkAbility(matchPlayer, payload, now);
+    return executeBlinkAbility(room, matchPlayer, payload, now);
   }
   if (abilityDef.id === ABILITY_IDS.SHIELD) {
     return executeShieldAbility(room, matchPlayer, now);
+  }
+  if (abilityDef.id === ABILITY_IDS.PRISM) {
+    return executePrismAbility(room, matchPlayer, now);
   }
   if (abilityDef.id === ABILITY_IDS.GUST) {
     return executeGustAbility(room, matchPlayer, payload, now);
@@ -3161,6 +5266,15 @@ function executeAbilityCast(room, matchPlayer, abilityDef, payload, now) {
   }
   if (abilityDef.id === ABILITY_IDS.HOOK) {
     return executeHookAbility(room, matchPlayer, payload, now);
+  }
+  if (abilityDef.id === ABILITY_IDS.SOLAR) {
+    return executeSolarAbility(room, matchPlayer, payload, now);
+  }
+  if (abilityDef.id === ABILITY_IDS.RIFT) {
+    return executeRiftAbility(room, matchPlayer, payload, now);
+  }
+  if (abilityDef.id === ABILITY_IDS.PHANTOM) {
+    return executePhantomAbility(room, matchPlayer, now);
   }
   if (abilityDef.id === ABILITY_IDS.WALL) {
     return executeWallAbility(room, matchPlayer, payload, now);
@@ -3203,11 +5317,14 @@ function applyChargeMovementRuntime({ room, match, player, previousPosition, del
     x: previousPosition.x + (chargeState.direction.x * stepDistance),
     y: previousPosition.y + (chargeState.direction.y * stepDistance)
   };
-  const wallResolvedChargePosition = resolvePointAgainstWalls(
+  const wallResolvedChargePosition = resolvePointAgainstArenaBlockers(
     proposedPosition,
     previousPosition,
-    match.walls,
-    buildWallCollisionOptions(PLAYER_RADIUS, tickTimestamp)
+    match,
+    {
+      padding: PLAYER_RADIUS,
+      timestamp: tickTimestamp
+    }
   );
   const resolvedChargePosition = clampPositionInsideArena(
     wallResolvedChargePosition,
@@ -3263,6 +5380,7 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
   if (!chargeState) return false;
   const targetPlayer = getOpponentPlayer(match, player.matchPlayerNumber);
   if (!targetPlayer || targetPlayer.connected === false) return false;
+  if (!isPlayerTargetableForCombatHit(targetPlayer, tickTimestamp)) return false;
 
   const dx = targetPlayer.position.x - player.position.x;
   const dy = targetPlayer.position.y - player.position.y;
@@ -3270,6 +5388,64 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
   const collisionRadius = PLAYER_RADIUS + chargeHitRadius;
   const didCollide = (dx * dx + dy * dy) <= (collisionRadius * collisionRadius);
   if (!didCollide) return false;
+
+  const incomingPoint = {
+    x: targetPlayer.position.x - (chargeState.direction.x * collisionRadius),
+    y: targetPlayer.position.y - (chargeState.direction.y * collisionRadius)
+  };
+  if (
+    isPointInsidePrismCone(targetPlayer, player.position, tickTimestamp)
+    || isPointInsidePrismCone(targetPlayer, incomingPoint, tickTimestamp)
+  ) {
+    clearPlayerChargeState(player);
+    const chargeKnockbackImpulse = getAbilityNumber(ABILITY_IDS.CHARGE, 'knockbackImpulse', 13.2, 0);
+    const prismPushbackMultiplier = getAbilityNumber(ABILITY_IDS.PRISM, 'chargePushbackMultiplierOnPrismUser', 0.30, 0);
+    const pushbackKnockback = {
+      x: chargeState.direction.x * chargeKnockbackImpulse * prismPushbackMultiplier,
+      y: chargeState.direction.y * chargeKnockbackImpulse * prismPushbackMultiplier
+    };
+    targetPlayer.velocity = sanitizeVector(targetPlayer.velocity);
+    targetPlayer.velocity.x += pushbackKnockback.x;
+    targetPlayer.velocity.y += pushbackKnockback.y;
+    targetPlayer.lastHitAt = tickTimestamp;
+
+    const settleDistance = (PLAYER_RADIUS * 2) + 0.14;
+    const desiredChargerPosition = {
+      x: targetPlayer.position.x - (chargeState.direction.x * settleDistance),
+      y: targetPlayer.position.y - (chargeState.direction.y * settleDistance)
+    };
+    const clampedChargerPosition = clampPositionInsideArena(desiredChargerPosition, PLAYER_RADIUS + 0.02);
+    player.position = resolvePointAgainstArenaBlockers(
+      clampedChargerPosition,
+      player.position,
+      match,
+      {
+        padding: PLAYER_RADIUS,
+        timestamp: tickTimestamp
+      }
+    );
+    player.lastUpdated = tickTimestamp;
+
+    const prismBlockEvent = createCombatEvent(match, {
+      type: 'prism_block_charge',
+      abilityId: ABILITY_IDS.PRISM,
+      sourcePlayerNumber: targetPlayer.matchPlayerNumber,
+      targetPlayerNumber: player.matchPlayerNumber,
+      timestamp: tickTimestamp,
+      knockback: pushbackKnockback,
+      metadata: {
+        blockedAbilityId: ABILITY_IDS.CHARGE,
+        pushbackMultiplier: prismPushbackMultiplier
+      }
+    });
+    pushMatchHitEvent(match, prismBlockEvent);
+    logLifecycle('ability', 'charge_blocked_by_prism', {
+      code: room.code,
+      source: player.matchPlayerNumber,
+      blocker: targetPlayer.matchPlayerNumber
+    });
+    return true;
+  }
 
   clearPlayerChargeState(player);
   targetPlayer.velocity = sanitizeVector(targetPlayer.velocity);
@@ -3300,11 +5476,14 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
     y: targetPlayer.position.y - (chargeState.direction.y * settleDistance)
   };
   const clampedChargerPosition = clampPositionInsideArena(desiredChargerPosition, PLAYER_RADIUS + 0.02);
-  player.position = resolvePointAgainstWalls(
+  player.position = resolvePointAgainstArenaBlockers(
     clampedChargerPosition,
     player.position,
-    match.walls,
-    buildWallCollisionOptions(PLAYER_RADIUS, tickTimestamp)
+    match,
+    {
+      padding: PLAYER_RADIUS,
+      timestamp: tickTimestamp
+    }
   );
   player.lastUpdated = tickTimestamp;
 
@@ -3341,12 +5520,253 @@ function handleChargePostMovementRuntime({ room, match, player, tickTimestamp })
   return true;
 }
 
-function handleFireblastProjectileBlockedByWall({ room, projectile }) {
+function shouldPrismReflectProjectileAbility(abilityId) {
+  const normalizedAbilityId = normalizeSpellId(abilityId);
+  return normalizedAbilityId === ABILITY_IDS.FIREBLAST
+    || normalizedAbilityId === ABILITY_IDS.HOOK
+    || normalizedAbilityId === ABILITY_IDS.GUST;
+}
+
+function resolvePrismProjectileIntercept({ room, match, projectile, targetPlayer, previousPosition, tickTimestamp }) {
+  if (!room || !match || !projectile || !targetPlayer) return { intercepted: false };
+  if (Number(projectile.ownerPlayerNumber) === Number(targetPlayer.matchPlayerNumber)) {
+    return { intercepted: false };
+  }
+  const projectileAbilityId = normalizeSpellId(projectile.abilityId || ABILITY_IDS.FIREBLAST) || ABILITY_IDS.FIREBLAST;
+  const hitRadius = Math.max(
+    0.05,
+    Number(projectile.hitRadius)
+      || (projectileAbilityId === ABILITY_IDS.HOOK ? getHookHitRadiusDefault() : getFireblastHitRadiusDefault())
+  );
+  const incomingDirection = normalizeInputVector({
+    x: -(Number(projectile.direction?.x) || 0),
+    y: -(Number(projectile.direction?.y) || 0)
+  });
+  const prismDirection = getPrismFacingDirection(targetPlayer, incomingDirection);
+  const currentPosition = clonePosition(projectile.position);
+  const previous = clonePosition(previousPosition);
+  const intersectsShieldBand = isPathIntersectingPrismShieldBand(
+    targetPlayer,
+    previous,
+    currentPosition,
+    tickTimestamp,
+    {
+      radiusPadding: hitRadius,
+      fallbackDirection: prismDirection
+    }
+  );
+  if (!intersectsShieldBand) {
+    return { intercepted: false };
+  }
+
+  const previousOwner = Number(projectile.ownerPlayerNumber) || 0;
+
+  if (shouldPrismReflectProjectileAbility(projectileAbilityId)) {
+    const inferredLifetimeMs = Math.max(
+      10,
+      Number(projectile.expiresAt) - Number(projectile.spawnedAt)
+    );
+    const defaultLifetimeMs = projectileAbilityId === ABILITY_IDS.HOOK
+      ? getAbilityNumber(ABILITY_IDS.HOOK, 'lifetimeMs', 900, 10)
+      : projectileAbilityId === ABILITY_IDS.SOLAR
+        ? getAbilityNumber(ABILITY_IDS.SOLAR, 'lifetimeMs', Math.round((12 / 16.2) * 1000), 10)
+        : getAbilityNumber(ABILITY_IDS.FIREBLAST, 'lifetimeMs', 1400, 10);
+    const reflectedLifetimeMs = Math.max(
+      10,
+      Number.isFinite(inferredLifetimeMs) ? inferredLifetimeMs : defaultLifetimeMs
+    );
+    const prismGeometry = getPrismShieldGeometry(targetPlayer, tickTimestamp, prismDirection);
+    const reflectSpawnRadius = Math.max(
+      PLAYER_RADIUS + hitRadius + 0.03,
+      Number(prismGeometry?.outerRadius) + hitRadius + 0.03
+    );
+    projectile.ownerPlayerNumber = targetPlayer.matchPlayerNumber;
+    projectile.direction = prismDirection;
+    projectile.position = {
+      x: targetPlayer.position.x + (prismDirection.x * reflectSpawnRadius),
+      y: targetPlayer.position.y + (prismDirection.y * reflectSpawnRadius)
+    };
+    projectile.spawnedAt = tickTimestamp;
+    projectile.expiresAt = tickTimestamp + reflectedLifetimeMs;
+
+    const reflectEvent = createCombatEvent(match, {
+      type: 'prism_reflect',
+      abilityId: ABILITY_IDS.PRISM,
+      sourcePlayerNumber: targetPlayer.matchPlayerNumber,
+      targetPlayerNumber: previousOwner,
+      projectileId: projectile.projectileId,
+      timestamp: tickTimestamp,
+      metadata: {
+        reflectedAbilityId: projectileAbilityId,
+        speed: Number(projectile.speed) || 0,
+        reflectedLifetimeMs
+      }
+    });
+    pushMatchHitEvent(match, reflectEvent);
+    logLifecycle('ability', 'prism_reflect', {
+      code: room.code,
+      projectileId: projectile.projectileId,
+      ability: projectileAbilityId,
+      blocker: targetPlayer.matchPlayerNumber,
+      previousOwner
+    });
+    return { intercepted: true, reflected: true, resolved: false };
+  }
+
+  const blockEvent = createCombatEvent(match, {
+    type: 'prism_block',
+    abilityId: ABILITY_IDS.PRISM,
+    sourcePlayerNumber: targetPlayer.matchPlayerNumber,
+    targetPlayerNumber: previousOwner,
+    projectileId: projectile.projectileId,
+    timestamp: tickTimestamp,
+    metadata: {
+      blockedAbilityId: projectileAbilityId
+    }
+  });
+  pushMatchHitEvent(match, blockEvent);
+  logLifecycle('ability', 'prism_block', {
+    code: room.code,
+    projectileId: projectile.projectileId,
+    ability: projectileAbilityId,
+    blocker: targetPlayer.matchPlayerNumber,
+    previousOwner
+  });
+  return { intercepted: true, reflected: false, resolved: true };
+}
+
+function applySolarDistortionDebuff(targetPlayer, tickTimestamp, durationMs) {
+  if (!targetPlayer) return 0;
+  const now = Number(tickTimestamp) || Date.now();
+  const duration = Math.max(0, Number(durationMs) || 0);
+  const currentUntil = getPlayerSolarDistortionUntil(targetPlayer);
+  const nextUntil = Math.max(currentUntil, now + duration);
+  setPlayerSolarDistortionUntil(targetPlayer, nextUntil);
+  return nextUntil;
+}
+
+function explodeSolarProjectile({ room, match, projectile, tickTimestamp, reason = 'impact' }) {
+  if (!room || !match || !projectile) {
+    return { exploded: false, hitCount: 0 };
+  }
+  const sourcePlayerNumber = Number(projectile.ownerPlayerNumber) || 0;
+  const sourcePlayer = getMatchPlayerByNumber(match, sourcePlayerNumber);
+  const origin = clonePosition(projectile.position) || { x: 0, y: 0 };
+  const impactRadius = getSolarImpactRadiusDefault();
+  const damageAmount = getAbilityDamage(ABILITY_IDS.SOLAR);
+  const knockbackImpulse = getAbilityNumber(ABILITY_IDS.SOLAR, 'knockbackImpulse', 2.5, 0);
+  const debuffDurationMs = getSolarDebuffDurationMsDefault();
+  const now = Number(tickTimestamp) || Date.now();
+  let hitCount = 0;
+
+  (Array.isArray(match.players) ? match.players : []).forEach((targetPlayer) => {
+    if (!targetPlayer || targetPlayer.connected === false) return;
+    if (Number(targetPlayer.matchPlayerNumber) === sourcePlayerNumber) return;
+    if (!isPlayerTargetableForCombatHit(targetPlayer, now)) return;
+    const dx = targetPlayer.position.x - origin.x;
+    const dy = targetPlayer.position.y - origin.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > (impactRadius + PLAYER_RADIUS)) return;
+    if (isPointInsidePrismCone(targetPlayer, origin, now)) {
+      const prismBlockEvent = createCombatEvent(match, {
+        type: 'prism_block',
+        abilityId: ABILITY_IDS.PRISM,
+        sourcePlayerNumber: targetPlayer.matchPlayerNumber,
+        targetPlayerNumber: sourcePlayerNumber,
+        projectileId: projectile.projectileId,
+        timestamp: now,
+        metadata: {
+          blockedAbilityId: ABILITY_IDS.SOLAR
+        }
+      });
+      pushMatchHitEvent(match, prismBlockEvent);
+      return;
+    }
+    const knockbackDirection = distance > 0.0001
+      ? { x: dx / distance, y: dy / distance }
+      : normalizeInputVector(projectile.direction);
+    const knockback = {
+      x: knockbackDirection.x * knockbackImpulse,
+      y: knockbackDirection.y * knockbackImpulse
+    };
+    targetPlayer.velocity = sanitizeVector(targetPlayer.velocity);
+    targetPlayer.velocity.x += knockback.x;
+    targetPlayer.velocity.y += knockback.y;
+    targetPlayer.lastHitAt = now;
+    const damageResult = applyDamageToPlayer({
+      room,
+      match,
+      targetPlayer,
+      sourcePlayer,
+      sourcePlayerNumber,
+      abilityId: ABILITY_IDS.SOLAR,
+      amount: damageAmount,
+      cause: 'spell_damage',
+      timestamp: now
+    });
+    const debuffUntil = applySolarDistortionDebuff(targetPlayer, now, debuffDurationMs);
+    const solarHitEvent = createCombatEvent(match, {
+      type: 'solar_hit',
+      abilityId: ABILITY_IDS.SOLAR,
+      sourcePlayerNumber,
+      targetPlayerNumber: targetPlayer.matchPlayerNumber,
+      projectileId: projectile.projectileId,
+      timestamp: now,
+      knockback,
+      metadata: {
+        reason,
+        radius: impactRadius,
+        distance: Number(distance.toFixed(2)),
+        damage: Number(damageResult.amount) || 0,
+        healthBefore: Number(damageResult.beforeHealth) || 0,
+        healthAfter: Number(damageResult.afterHealth) || 0,
+        debuffDurationMs,
+        debuffUntil
+      }
+    });
+    pushMatchHitEvent(match, solarHitEvent);
+    hitCount += 1;
+  });
+
+  const explodeEvent = createCombatEvent(match, {
+    type: 'solar_explode',
+    abilityId: ABILITY_IDS.SOLAR,
+    sourcePlayerNumber,
+    targetPlayerNumber: 0,
+    projectileId: projectile.projectileId,
+    timestamp: now,
+    metadata: {
+      reason,
+      radius: impactRadius,
+      hitCount
+    }
+  });
+  pushMatchHitEvent(match, explodeEvent);
+  return { exploded: true, hitCount };
+}
+
+function handleFireblastProjectileBlockedByWall({ room, match, projectile, wall = null, pillar = null, tickTimestamp }) {
   logLifecycle('ability', 'projectile_blocked_by_wall', {
     code: room.code,
     projectileId: projectile.projectileId,
     ability: ABILITY_IDS.FIREBLAST
   });
+  if (!match || !projectile) return;
+  const blockEvent = createCombatEvent(match, {
+    type: 'fireblast_blocked',
+    abilityId: ABILITY_IDS.FIREBLAST,
+    sourcePlayerNumber: projectile.ownerPlayerNumber,
+    targetPlayerNumber: 0,
+    projectileId: projectile.projectileId,
+    timestamp: tickTimestamp,
+    metadata: {
+      reason: pillar ? 'pillar' : 'wall',
+      position: clonePosition(projectile.position),
+      wallId: wall?.wallId ? String(wall.wallId) : '',
+      pillarId: pillar?.pillarId ? String(pillar.pillarId) : ''
+    }
+  });
+  pushMatchHitEvent(match, blockEvent);
 }
 
 function handleHookProjectileBlockedByWall({ room, projectile, wall }) {
@@ -3438,7 +5858,7 @@ function handleHookProjectileHit({ room, match, projectile, targetPlayer, tickTi
   const toTargetX = targetPlayer.position.x - sourcePlayer.position.x;
   const toTargetY = targetPlayer.position.y - sourcePlayer.position.y;
   const distanceToSource = Math.hypot(toTargetX, toTargetY);
-  const hookPullTargetDistance = getAbilityNumber(ABILITY_IDS.HOOK, 'pullTargetDistance', 1.55, 0.1);
+  const hookPullTargetDistance = getAbilityNumber(ABILITY_IDS.HOOK, 'pullTargetDistance', 1.35, 0.1);
   let pulledTargetPosition = beforePullPosition;
   if (distanceToSource > hookPullTargetDistance + 0.01) {
     const pullDir = distanceToSource > 0
@@ -3451,11 +5871,14 @@ function handleHookProjectileHit({ room, match, projectile, targetPlayer, tickTi
   }
 
   pulledTargetPosition = clampPositionInsideArena(pulledTargetPosition, PLAYER_RADIUS + 0.02);
-  pulledTargetPosition = resolvePointAgainstWalls(
+  pulledTargetPosition = resolvePointAgainstArenaBlockers(
     pulledTargetPosition,
     beforePullPosition,
-    match.walls,
-    buildWallCollisionOptions(PLAYER_RADIUS, tickTimestamp)
+    match,
+    {
+      padding: PLAYER_RADIUS,
+      timestamp: tickTimestamp
+    }
   );
 
   targetPlayer.position = pulledTargetPosition;
@@ -3506,6 +5929,37 @@ function handleHookProjectileHit({ room, match, projectile, targetPlayer, tickTi
   return { resolved: true };
 }
 
+function handleSolarProjectileBlockedByWall({ room, match, projectile, tickTimestamp }) {
+  explodeSolarProjectile({
+    room,
+    match,
+    projectile,
+    tickTimestamp,
+    reason: 'blocked_by_wall'
+  });
+}
+
+function handleSolarProjectileExpired({ room, match, projectile, tickTimestamp }) {
+  explodeSolarProjectile({
+    room,
+    match,
+    projectile,
+    tickTimestamp,
+    reason: 'max_range'
+  });
+}
+
+function handleSolarProjectileHit({ room, match, projectile, tickTimestamp }) {
+  explodeSolarProjectile({
+    room,
+    match,
+    projectile,
+    tickTimestamp,
+    reason: 'enemy_hit'
+  });
+  return { resolved: true };
+}
+
 function handleWallRuntimeTick({ match, tickTimestamp }) {
   pruneExpiredWalls(match, tickTimestamp);
 }
@@ -3514,6 +5968,12 @@ const abilityRuntimeHandlers = Object.freeze({
   [ABILITY_IDS.CHARGE]: Object.freeze({
     applyMovement: applyChargeMovementRuntime,
     onPostMovement: handleChargePostMovementRuntime
+  }),
+  [ABILITY_IDS.RIFT]: Object.freeze({
+    onMatchTick: handleRiftRuntimeTick
+  }),
+  [ABILITY_IDS.PHANTOM]: Object.freeze({
+    onMatchTick: handlePhantomRuntimeTick
   }),
   [ABILITY_IDS.WALL]: Object.freeze({
     onMatchTick: handleWallRuntimeTick
@@ -3527,6 +5987,11 @@ const abilityRuntimeHandlers = Object.freeze({
     onProjectileBlockedByWall: handleHookProjectileBlockedByWall,
     onProjectileExpired: handleHookProjectileExpired,
     onProjectileHit: handleHookProjectileHit
+  }),
+  [ABILITY_IDS.SOLAR]: Object.freeze({
+    onProjectileBlockedByWall: handleSolarProjectileBlockedByWall,
+    onProjectileExpired: handleSolarProjectileExpired,
+    onProjectileHit: handleSolarProjectileHit
   })
 });
 
@@ -3607,6 +6072,64 @@ function processMatchTickForRoom(room, tickTimestamp) {
     return;
   }
 
+  if (match.phase === MATCH_PHASE_ROUND_END) {
+    if (match.isPaused === true) {
+      emitMatchStateThrottled(room, tickTimestamp, false);
+      return;
+    }
+
+    const now = Number(tickTimestamp) || Date.now();
+    const nextRoundStartsAt = Number(match.nextRoundStartsAt) || 0;
+    if (nextRoundStartsAt <= 0) {
+      match.nextRoundStartsAt = now + ROUND_END_INTERMISSION_MS;
+      emitMatchStateThrottled(room, tickTimestamp, true);
+      return;
+    }
+
+    if (now >= nextRoundStartsAt) {
+      const roundWins = ensureRoundWinsByPlayerNumber(match);
+      const roundsNeededToWin = getMatchRoundsNeededToWin(match);
+      const hasMatchWinner = (Number(roundWins[1]) || 0) >= roundsNeededToWin
+        || (Number(roundWins[2]) || 0) >= roundsNeededToWin;
+      if (hasMatchWinner) {
+        const finalWinnerNumber = (Number(roundWins[1]) || 0) >= roundsNeededToWin ? 1 : 2;
+        const finalEliminatedNumber = finalWinnerNumber === 1 ? 2 : 1;
+        const didFinalize = finalizeMatchEnd(room, {
+          winnerNumber: finalWinnerNumber,
+          eliminatedNumber: finalEliminatedNumber,
+          reason: String(match.lastRoundEndReason || 'round_victory'),
+          timestamp: now
+        });
+        if (didFinalize) {
+          setRoomState(room, ROOM_STATES.MATCH_END, 'bo3_completed_from_round_end');
+          emitRoomUpdate(room);
+          emitMatchStateThrottled(room, tickTimestamp, true);
+          return;
+        }
+      }
+
+      const upcomingRound = clamp(
+        (Number(match.roundNumber) || 1) + 1,
+        1,
+        Math.max(MATCH_MAX_ROUNDS, Number(match.maxRounds) || MATCH_MAX_ROUNDS)
+      );
+      const didStartNextRound = startRoundCountdown(
+        room,
+        upcomingRound,
+        'round_intermission_complete',
+        now
+      );
+      if (didStartNextRound) {
+        emitRoomUpdate(room);
+        emitMatchStateThrottled(room, tickTimestamp, true);
+        return;
+      }
+    }
+
+    emitMatchStateThrottled(room, tickTimestamp, false);
+    return;
+  }
+
   if (match.phase === MATCH_PHASE_COMBAT_COUNTDOWN) {
     if (match.isPaused === true) {
       emitMatchStateThrottled(room, tickTimestamp, false);
@@ -3623,6 +6146,7 @@ function processMatchTickForRoom(room, tickTimestamp) {
         logLifecycle('match', 'combat_started', {
           code: room.code,
           matchId: match.matchId,
+          round: Number(match.roundNumber) || 1,
           at: tickTimestamp
         });
         emitRoomUpdate(room);
@@ -3680,8 +6204,15 @@ function processMatchTickForRoom(room, tickTimestamp) {
         nextPosition = clonePosition(chargeRuntime.nextPosition) || nextPosition;
       } else {
         if (input.x !== 0 || input.y !== 0) {
-          nextPosition.x += input.x * PLAYER_MOVE_SPEED * deltaSeconds;
-          nextPosition.y += input.y * PLAYER_MOVE_SPEED * deltaSeconds;
+          const shieldMoveSpeedMultiplier = Math.max(
+            0,
+            getAbilityNumber(ABILITY_IDS.SHIELD, 'moveSpeedMultiplier', 0.60, 0)
+          );
+          const moveSpeed = isShieldActive(player, tickTimestamp)
+            ? (PLAYER_MOVE_SPEED * shieldMoveSpeedMultiplier)
+            : PLAYER_MOVE_SPEED;
+          nextPosition.x += input.x * moveSpeed * deltaSeconds;
+          nextPosition.y += input.y * moveSpeed * deltaSeconds;
         }
 
         if (velocity.x !== 0 || velocity.y !== 0) {
@@ -3696,20 +6227,80 @@ function processMatchTickForRoom(room, tickTimestamp) {
           if (Math.abs(player.velocity.y) < 0.01) player.velocity.y = 0;
         }
 
+        const collisionPadding = PLAYER_RADIUS;
+        const wallCollisionOptions = buildWallCollisionOptions(collisionPadding, tickTimestamp);
         const blockingWall = findBlockingWallForMovement(
           previousPosition,
           nextPosition,
           match.walls,
-          {
-            padding: PLAYER_RADIUS,
-            timestamp: tickTimestamp,
-            defaultHalfLength: getWallHalfLengthDefault(),
-            defaultHalfThickness: getWallHalfThicknessDefault()
-          }
+          wallCollisionOptions
         );
-        if (blockingWall) {
-          nextPosition = previousPosition;
-          player.velocity = { x: 0, y: 0 };
+        const blockingPillar = findBlockingRoundPillarForPoint(
+          nextPosition,
+          match,
+          { padding: collisionPadding }
+        ) || findBlockingRoundPillarForPoint(
+          previousPosition,
+          match,
+          { padding: collisionPadding }
+        );
+        if (blockingWall || blockingPillar) {
+          const resolvedBlockedPosition = resolvePointAgainstArenaBlockers(
+            nextPosition,
+            previousPosition,
+            match,
+            {
+              padding: collisionPadding,
+              timestamp: tickTimestamp
+            }
+          );
+          let bestPosition = clonePosition(resolvedBlockedPosition) || clonePosition(previousPosition) || previousPosition;
+
+          if (blockingPillar && !blockingWall) {
+            const pillarSlidePosition = resolveSlidingMovementAgainstRoundPillar(
+              previousPosition,
+              nextPosition,
+              blockingPillar,
+              match,
+              {
+                padding: collisionPadding,
+                timestamp: tickTimestamp
+              }
+            );
+            if (pillarSlidePosition) {
+              const bestDistance = Math.hypot(
+                bestPosition.x - previousPosition.x,
+                bestPosition.y - previousPosition.y
+              );
+              const slideDistance = Math.hypot(
+                pillarSlidePosition.x - previousPosition.x,
+                pillarSlidePosition.y - previousPosition.y
+              );
+              if (slideDistance > (bestDistance + 0.0001)) {
+                bestPosition = pillarSlidePosition;
+              }
+            }
+          }
+
+          const pathStillBlocked =
+            !!findBlockingWallForMovement(previousPosition, bestPosition, match.walls, wallCollisionOptions)
+            || !!findBlockingRoundPillarForPoint(bestPosition, match, { padding: collisionPadding });
+
+          if (pathStillBlocked) {
+            nextPosition = previousPosition;
+            player.velocity = { x: 0, y: 0 };
+          } else {
+            const movedDistance = Math.hypot(
+              bestPosition.x - previousPosition.x,
+              bestPosition.y - previousPosition.y
+            );
+            if (movedDistance > 0.0001) {
+              nextPosition = bestPosition;
+            } else {
+              nextPosition = previousPosition;
+              player.velocity = { x: 0, y: 0 };
+            }
+          }
         }
       }
 
@@ -3762,7 +6353,16 @@ function processMatchTickForRoom(room, tickTimestamp) {
         const projectileHitRadius = Math.max(
           0.08,
           Number(projectile.hitRadius)
-            || getAbilityNumber(projectileAbilityId, 'hitRadius', projectileAbilityId === ABILITY_IDS.HOOK ? getHookHitRadiusDefault() : getFireblastHitRadiusDefault(), 0.05)
+            || getAbilityNumber(
+              projectileAbilityId,
+              'hitRadius',
+              projectileAbilityId === ABILITY_IDS.HOOK
+                ? getHookHitRadiusDefault()
+                : projectileAbilityId === ABILITY_IDS.SOLAR
+                  ? getSolarHitRadiusDefault()
+                  : getFireblastHitRadiusDefault(),
+              0.05
+            )
         );
 
         projectile.position.x += projectile.direction.x * projectile.speed * deltaSeconds;
@@ -3779,13 +6379,20 @@ function processMatchTickForRoom(room, tickTimestamp) {
             defaultHalfThickness: getWallHalfThicknessDefault()
           }
         );
-        if (blockingWall) {
+        const blockingPillar = findBlockingRoundPillarForMovement(
+          previousPosition,
+          projectile.position,
+          match,
+          { padding: projectileHitRadius * 0.85 }
+        );
+        if (blockingWall || blockingPillar) {
           if (typeof projectileHandler?.onProjectileBlockedByWall === 'function') {
             projectileHandler.onProjectileBlockedByWall({
               room,
               match,
               projectile,
-              wall: blockingWall,
+              wall: blockingWall || null,
+              pillar: blockingPillar || null,
               tickTimestamp
             });
           }
@@ -3807,7 +6414,28 @@ function processMatchTickForRoom(room, tickTimestamp) {
         }
 
         const targetPlayer = getOpponentPlayer(match, projectile.ownerPlayerNumber);
+        if (targetPlayer && !isPlayerTargetableForCombatHit(targetPlayer, tickTimestamp)) {
+          activeProjectiles.push(projectile);
+          return;
+        }
         if (targetPlayer) {
+          const prismIntercept = resolvePrismProjectileIntercept({
+            room,
+            match,
+            projectile,
+            targetPlayer,
+            previousPosition,
+            tickTimestamp
+          });
+          if (prismIntercept?.intercepted) {
+            if (prismIntercept.resolved === true) {
+              markProjectileResolved(match, projectile.projectileId, tickTimestamp);
+              return;
+            }
+            activeProjectiles.push(projectile);
+            return;
+          }
+
           const dx = targetPlayer.position.x - projectile.position.x;
           const dy = targetPlayer.position.y - projectile.position.y;
           const collisionRadius = PLAYER_RADIUS + projectileHitRadius;
@@ -3823,8 +6451,15 @@ function processMatchTickForRoom(room, tickTimestamp) {
               });
               if (hitResult?.resolved === true) {
                 markProjectileResolved(match, projectile.projectileId, tickTimestamp);
+                if (match.phase !== MATCH_PHASE_COMBAT) {
+                  eliminatedThisTick = true;
+                }
                 return;
               }
+            }
+            if (match.phase !== MATCH_PHASE_COMBAT) {
+              eliminatedThisTick = true;
+              return;
             }
           }
         }
@@ -4037,6 +6672,17 @@ function handleAbilityCastRequest(socket, abilityId, payloadOrAck, maybeAck) {
     }
     return;
   }
+  if (isPlayerPhantomUntargetable(matchPlayer, now)) {
+    trackAbilityMetric(room.match, abilityDef.id, 'castRejected', 1);
+    const rejected = fail('Cannot cast while Phantom vanish is active.', 'PHANTOM_VANISH_LOCKED');
+    if (requestId) {
+      recentAbilityRequests[requestId] = {
+        timestamp: now,
+        response: rejected
+      };
+    }
+    return;
+  }
   if (abilityDef.requiresDrafted && !hasSpellInLoadout(matchPlayer, abilityDef.id)) {
     trackAbilityMetric(room.match, abilityDef.id, 'castRejected', 1);
     const rejected = fail(`${abilityDef.id} is not in your drafted loadout.`, 'ABILITY_NOT_DRAFTED');
@@ -4080,7 +6726,10 @@ function handleAbilityCastRequest(socket, abilityId, payloadOrAck, maybeAck) {
   const cooldownMs = getAbilityCooldownMs(abilityDef.id);
   const castDelayMs = getAbilityCastDelayMs(abilityDef.id);
   let executionPayload = payload && typeof payload === 'object' ? { ...payload } : payload;
-  const abilityNeedsDirection = abilityDef.id !== ABILITY_IDS.SHIELD && abilityDef.id !== ABILITY_IDS.REWIND;
+  const abilityNeedsDirection = abilityDef.id !== ABILITY_IDS.SHIELD
+    && abilityDef.id !== ABILITY_IDS.GUST
+    && abilityDef.id !== ABILITY_IDS.REWIND
+    && abilityDef.id !== ABILITY_IDS.PHANTOM;
   if (abilityNeedsDirection) {
     const payloadDirection = payload && typeof payload === 'object'
       ? payload.direction
@@ -4239,10 +6888,14 @@ function cleanupRoomMatchState(room, reason = 'cleanup', timestamp = Date.now())
       setAbilityReadyAt(player, ABILITY_IDS.FIREBLAST, 0);
       setAbilityReadyAt(player, ABILITY_IDS.BLINK, 0);
       setAbilityReadyAt(player, ABILITY_IDS.SHIELD, 0);
+      setAbilityReadyAt(player, ABILITY_IDS.PRISM, 0);
       setAbilityReadyAt(player, ABILITY_IDS.GUST, 0);
       setAbilityReadyAt(player, ABILITY_IDS.CHARGE, 0);
       setAbilityReadyAt(player, ABILITY_IDS.SHOCK, 0);
       setAbilityReadyAt(player, ABILITY_IDS.HOOK, 0);
+      setAbilityReadyAt(player, ABILITY_IDS.SOLAR, 0);
+      setAbilityReadyAt(player, ABILITY_IDS.RIFT, 0);
+      setAbilityReadyAt(player, ABILITY_IDS.PHANTOM, 0);
       setAbilityReadyAt(player, ABILITY_IDS.WALL, 0);
       setAbilityReadyAt(player, ABILITY_IDS.REWIND, 0);
       player.positionHistory = [];
@@ -4254,6 +6907,8 @@ function cleanupRoomMatchState(room, reason = 'cleanup', timestamp = Date.now())
 
   match.projectiles = [];
   match.walls = [];
+  match.roundPillars = [];
+  match.rifts = [];
   match.pendingAbilityCasts = [];
   match.hitEvents = [];
   if (match.analytics && typeof match.analytics === 'object') {
@@ -4408,7 +7063,12 @@ function handleLeaveGameRequest(socket, ack) {
   const match = room.match;
   const phase = String(match?.phase || '').trim().toLowerCase();
   const canForfeit = match
-    && (phase === MATCH_PHASE_DRAFT || phase === MATCH_PHASE_COMBAT_COUNTDOWN || phase === MATCH_PHASE_COMBAT);
+    && (
+      phase === MATCH_PHASE_DRAFT
+      || phase === MATCH_PHASE_COMBAT_COUNTDOWN
+      || phase === MATCH_PHASE_COMBAT
+      || phase === MATCH_PHASE_ROUND_END
+    );
 
   if (canForfeit) {
     const leaverMatchPlayer = getMatchPlayerByPlayerId(match, roomPlayer.playerId);
@@ -5231,6 +7891,10 @@ io.on('connection', (socket) => {
     handleAbilityCastRequest(socket, ABILITY_IDS.SHIELD, payloadOrAck, maybeAck);
   });
 
+  socket.on('cast_prism', (payloadOrAck, maybeAck) => {
+    handleAbilityCastRequest(socket, ABILITY_IDS.PRISM, payloadOrAck, maybeAck);
+  });
+
   socket.on('cast_gust', (payloadOrAck, maybeAck) => {
     handleAbilityCastRequest(socket, ABILITY_IDS.GUST, payloadOrAck, maybeAck);
   });
@@ -5245,6 +7909,18 @@ io.on('connection', (socket) => {
 
   socket.on('cast_hook', (payloadOrAck, maybeAck) => {
     handleAbilityCastRequest(socket, ABILITY_IDS.HOOK, payloadOrAck, maybeAck);
+  });
+
+  socket.on('cast_solar', (payloadOrAck, maybeAck) => {
+    handleAbilityCastRequest(socket, ABILITY_IDS.SOLAR, payloadOrAck, maybeAck);
+  });
+
+  socket.on('cast_rift', (payloadOrAck, maybeAck) => {
+    handleAbilityCastRequest(socket, ABILITY_IDS.RIFT, payloadOrAck, maybeAck);
+  });
+
+  socket.on('cast_phantom', (payloadOrAck, maybeAck) => {
+    handleAbilityCastRequest(socket, ABILITY_IDS.PHANTOM, payloadOrAck, maybeAck);
   });
 
   socket.on('cast_wall', (payloadOrAck, maybeAck) => {
@@ -5583,6 +8259,7 @@ module.exports = {
   MATCH_PHASE_DRAFT,
   MATCH_PHASE_COMBAT_COUNTDOWN,
   MATCH_PHASE_COMBAT,
+  MATCH_PHASE_ROUND_END,
   MATCH_PHASE_MATCH_END,
   ROOM_STATES,
   startServer,

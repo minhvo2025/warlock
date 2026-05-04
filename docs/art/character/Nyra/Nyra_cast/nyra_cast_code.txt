@@ -1,0 +1,17 @@
+// nyra_cast.png (exported)
+// 960×768 | 5×4 = 20 frames
+
+this.load.spritesheet('nyra_cast', 'nyra_cast.png', {
+    frameWidth: 192,
+    frameHeight: 192
+});
+
+this.anims.create({
+    key: 'nyra_cast_anim',
+    frames: this.anims.generateFrameNumbers('nyra_cast', { start: 0, end: 19 }),
+    frameRate: 30,
+    repeat: -1
+});
+
+const nyra_cast = this.add.sprite(x, y, 'nyra_cast');
+nyra_cast.play('nyra_cast_anim');

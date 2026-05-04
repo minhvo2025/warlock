@@ -1,0 +1,17 @@
+// Nyra_dash.png (exported)
+// 1152×960 | 6×5 = 27 frames
+
+this.load.spritesheet('Nyra_dash', 'Nyra_dash.png', {
+    frameWidth: 192,
+    frameHeight: 192
+});
+
+this.anims.create({
+    key: 'Nyra_dash_anim',
+    frames: this.anims.generateFrameNumbers('Nyra_dash', { start: 0, end: 26 }),
+    frameRate: 30,
+    repeat: -1
+});
+
+const Nyra_dash = this.add.sprite(x, y, 'Nyra_dash');
+Nyra_dash.play('Nyra_dash_anim');

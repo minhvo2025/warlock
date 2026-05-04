@@ -13,17 +13,26 @@
   const ROOM_STATE_IN_MATCH = 'in_match';
   const MATCH_PHASE_DRAFT = 'draft';
   const MATCH_PHASE_COMBAT_COUNTDOWN = 'combat_countdown';
+  const MATCH_PHASE_ROUND_END = 'round_end';
   const DEFAULT_MATCH_PHASE = 'combat';
   const MATCH_PHASE_END = 'match_end';
   const READY_TOGGLE_ACK_TIMEOUT_MS = 2200;
   const INPUT_SEND_INTERVAL_MS = 16; // ~60 Hz input/aim updates for smoother local responsiveness
   const CLIENT_CAST_REQUEST_COALESCE_MS = 180;
   const CLIENT_DRAFT_REQUEST_COALESCE_MS = 150;
+  const DRAFT_PHASE_STICKY_MS = (() => {
+    const configured = Number(window.OUTRA_MULTIPLAYER_PHASE_STICKY_MS);
+    if (!Number.isFinite(configured)) return 1500;
+    return Math.max(240, configured);
+  })();
+  const RIFT_TARGET_DISTANCE_FALLBACK_UNITS_PER_PX = 0.04;
   const QUICK_MATCH_HEARTBEAT_MS = 3500;
   const RECONNECT_STORAGE_KEY = 'outra_multiplayer_reconnect_v1';
   const QUICK_MATCH_STATUS_IDLE = 'idle';
   const QUICK_MATCH_STATUS_SEARCHING = 'searching';
   const QUICK_MATCH_STATUS_MATCHED = 'matched';
+  // Legacy debug panel has been retired; keep APIs as compatibility no-ops.
+  const LEGACY_DEBUG_PANEL_ENABLED = false;
   const KNOWN_ROOM_STATES = new Set([
     ROOM_STATE_IDLE,
     ROOM_STATE_OFFLINE,
@@ -35,15 +44,19 @@
     ROOM_STATE_STARTING,
     ROOM_STATE_IN_MATCH
   ]);
-  const DRAFT_SPELL_LIST = ['charge', 'shock', 'gust', 'wall', 'rewind', 'shield', 'hook', 'blink'];
+  const DRAFT_SPELL_LIST = ['charge', 'prism', 'solar', 'rift', 'phantom', 'shock', 'gust', 'wall', 'rewind', 'shield', 'hook', 'blink'];
   const ABILITY_IDS = Object.freeze({
     FIREBLAST: 'fireblast',
     BLINK: 'blink',
     SHIELD: 'shield',
+    PRISM: 'prism',
     GUST: 'gust',
     CHARGE: 'charge',
     SHOCK: 'shock',
     HOOK: 'hook',
+    SOLAR: 'solar',
+    RIFT: 'rift',
+    PHANTOM: 'phantom',
     WALL: 'wall',
     REWIND: 'rewind'
   });
@@ -51,9 +64,13 @@
     fireblast: 'Fireblast',
     blink: 'Blink',
     shield: 'Shield',
+    prism: 'Prism',
     gust: 'Gust',
     charge: 'Charge',
     shock: 'Shock',
+    solar: 'Solar',
+    rift: 'Rift',
+    phantom: 'Phantom',
     wall: 'Wall',
     rewind: 'Rewind',
     hook: 'Hook'
@@ -62,9 +79,13 @@
     fireblast: 'fire',
     blink: 'blink',
     shield: 'shield',
+    prism: 'prism',
     gust: 'gust',
     charge: 'charge',
     shock: 'shock',
+    solar: 'solar',
+    rift: 'rift',
+    phantom: 'phantom',
     wall: 'wall',
     rewind: 'rewind',
     hook: 'hook'
@@ -127,7 +148,7 @@
   let roomHandlersBound = false;
   let panel = null;
   let panelToggleButton = null;
-  let debugToolsEnabled = typeof godModeEnabled === 'boolean' ? godModeEnabled : false;
+  let debugToolsEnabled = LEGACY_DEBUG_PANEL_ENABLED && typeof godModeEnabled === 'boolean' ? godModeEnabled : false;
   let abilityHud = null;
   let abilityHudSlots = [];
   let abilityStateBar = null;
@@ -156,8 +177,14 @@
   let gameplayVictoryOutCaption = null;
   let gameplayCountdownEl = null;
   let gameplayRoomBadge = null;
+  let gameplayBo3Hud = null;
+  let gameplayBo3Round = null;
+  let gameplayBo3LeftName = null;
+  let gameplayBo3LeftMarkers = null;
+  let gameplayBo3RightName = null;
+  let gameplayBo3RightMarkers = null;
   let phaseBannerEl = null;
-  let phaseBannerState = { text: '', shownAt: 0, durationMs: 1400, tone: 'default' };
+  let phaseBannerState = { text: '', shownAt: 0, durationMs: 1400, tone: 'default', placement: 'top' };
   let phaseBannerHideTimer = null;
   let matchEndPanelRevealAt = 0;
   let lastVictoryRewardMatchId = '';
@@ -166,6 +193,7 @@
   let panelFields = null;
   let panelInput = null;
   let isDebugVisible = false;
+  let latestStatusMessage = 'Ready.';
   let draftButtonElements = new Map();
   let readyToggleAckTimer = null;
   let movementInputTimer = null;
@@ -185,11 +213,22 @@
   let tuningIdentitySnapshot = null;
   let tuningUpdatedAt = null;
   let roomSnapshot = createInitialRoomSnapshot();
+  let presentationSnapshotCache = null;
   let runtimeSnapshotCache = null;
+  let draftPhaseStickyUntilMs = 0;
+  // Holds the last explicit match presentation phase ("draft" or "arena")
+  // so sparse "in_match" payloads do not cause render-phase flapping.
+  let presentationPhaseLatch = '';
   let quickMatchSnapshot = createInitialQuickMatchSnapshot();
   let quickMatchHeartbeatTimer = null;
   let quickMatchHeartbeatLastAt = 0;
   let lastAppliedRankedMatchId = '';
+  const riftPlacementState = {
+    active: false,
+    pendingStep: 'A',
+    activatedAt: 0,
+    awaitingSecondPortalResolve: false
+  };
 
   function createInitialRoomSnapshot(state = ROOM_STATE_IDLE) {
     return {
@@ -208,6 +247,20 @@
       },
       matchId: '',
       matchPhase: '',
+      matchFormat: '',
+      roundNumber: 1,
+      roundsNeededToWin: 2,
+      roundWinsByPlayerNumber: {
+        1: 0,
+        2: 0
+      },
+      currentRoundStartedAt: null,
+      roundEndAt: null,
+      nextRoundStartsAt: null,
+      roundIntermissionRemainingMs: 0,
+      lastRoundWinnerPlayerNumber: null,
+      lastRoundEndedAt: null,
+      lastRoundEndReason: '',
       matchPaused: false,
       matchPauseReason: '',
       matchPausedByPlayerNumber: null,
@@ -238,10 +291,27 @@
       opponentDraftedLoadout: [],
       myAbilityCooldowns: {},
       myAbilityReadyAt: {},
+      opponentAbilityCooldowns: {},
+      opponentAbilityReadyAt: {},
       myActiveEffects: {
         shieldUntil: 0,
         shieldRemainingMs: 0,
         shieldActive: false,
+        prismUntil: 0,
+        prismRemainingMs: 0,
+        prismActive: false,
+        prismDirection: null,
+        solarDistortionUntil: 0,
+        solarDistortionRemainingMs: 0,
+        solarDistortionActive: false,
+        riftPendingActive: false,
+        riftPendingPortalA: null,
+        riftPendingExpiresAt: 0,
+        riftPendingRemainingMs: 0,
+        phantomVanishUntil: 0,
+        phantomVanishRemainingMs: 0,
+        phantomUntargetableActive: false,
+        phantomIllusion: null,
         chargeActive: false,
         chargeRemainingDistance: 0,
         chargeDirection: null
@@ -250,6 +320,21 @@
         shieldUntil: 0,
         shieldRemainingMs: 0,
         shieldActive: false,
+        prismUntil: 0,
+        prismRemainingMs: 0,
+        prismActive: false,
+        prismDirection: null,
+        solarDistortionUntil: 0,
+        solarDistortionRemainingMs: 0,
+        solarDistortionActive: false,
+        riftPendingActive: false,
+        riftPendingPortalA: null,
+        riftPendingExpiresAt: 0,
+        riftPendingRemainingMs: 0,
+        phantomVanishUntil: 0,
+        phantomVanishRemainingMs: 0,
+        phantomUntargetableActive: false,
+        phantomIllusion: null,
         chargeActive: false,
         chargeRemainingDistance: 0,
         chargeDirection: null
@@ -257,12 +342,21 @@
       myBlinkReadyAt: 0,
       myBlinkRemainingMs: 0,
       myBlinkAvailable: false,
+      opponentBlinkReadyAt: 0,
+      opponentBlinkRemainingMs: 0,
+      opponentBlinkAvailable: false,
       myHasBlink: false,
       matchStateTimestamp: null,
       projectiles: [],
       projectileCount: 0,
       walls: [],
       wallCount: 0,
+      roundPillars: [],
+      roundPillarCount: 0,
+      rifts: [],
+      riftCount: 0,
+      phantomIllusions: [],
+      phantomIllusionCount: 0,
       hitEvents: [],
       lastHitEvent: null,
       matchResult: '',
@@ -290,7 +384,7 @@
       arenaBoundary: {
         type: 'circle',
         center: { x: 0, y: 0 },
-        radius: 12
+        radius: 14
       }
     };
   }
@@ -308,6 +402,7 @@
   }
 
   function invalidateRuntimeSnapshotCache() {
+    presentationSnapshotCache = null;
     runtimeSnapshotCache = null;
   }
 
@@ -325,6 +420,18 @@
   function parseNumber(value) {
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function normalizeRoundWinsByPlayerNumber(value, fallback = null) {
+    const source = value && typeof value === 'object'
+      ? value
+      : fallback && typeof fallback === 'object'
+        ? fallback
+        : {};
+    return {
+      1: Math.max(0, parseNumber(source?.[1]) || 0),
+      2: Math.max(0, parseNumber(source?.[2]) || 0)
+    };
   }
 
   function clamp(value, min, max) {
@@ -573,6 +680,137 @@
     setWallAimPreviewState(true, nextDirection);
   }
 
+  function clearRiftPlacementState(options = {}) {
+    const silent = options?.silent !== false;
+    const hadPlacement = riftPlacementState.active === true;
+    riftPlacementState.active = false;
+    riftPlacementState.pendingStep = 'A';
+    riftPlacementState.activatedAt = 0;
+    riftPlacementState.awaitingSecondPortalResolve = false;
+    if (!silent && hadPlacement) {
+      setStatusMessage('Rift placement canceled.');
+    }
+  }
+
+  function armRiftPlacementState(step = 'A') {
+    const normalizedStep = String(step || '').trim().toUpperCase() === 'B' ? 'B' : 'A';
+    riftPlacementState.active = true;
+    riftPlacementState.pendingStep = normalizedStep;
+    riftPlacementState.activatedAt = Date.now();
+    riftPlacementState.awaitingSecondPortalResolve = false;
+    if (normalizedStep === 'A') {
+      setStatusMessage('Rift targeting active. Left-click to place Rift A.');
+    } else {
+      setStatusMessage('Rift A placed. Left-click to place Rift B.');
+    }
+  }
+
+  function isRiftPlacementModeActive() {
+    if (riftPlacementState.active !== true) return false;
+    if (riftPlacementState.awaitingSecondPortalResolve) return false;
+    const placingSecondPortal = riftPlacementState.pendingStep === 'B';
+    const riftCastPending = pendingAbilityRequests.has(ABILITY_IDS.RIFT);
+    // Hide helper visuals while portal B cast is in-flight so the guidance
+    // disappears immediately after the second placement click.
+    if (placingSecondPortal && riftCastPending) {
+      return false;
+    }
+    return true;
+  }
+
+  function getArenaWorldUnitsPerPixel() {
+    const arenaRadiusPx = Number(arena?.radius) || Number(arena?.baseRadius) || 0;
+    const boundaryRadius = parseNumber(roomSnapshot?.arenaBoundary?.radius) || 0;
+    if (arenaRadiusPx > 0.001 && boundaryRadius > 0.001) {
+      return boundaryRadius / arenaRadiusPx;
+    }
+    const teleportDistancePx = Number(player?.teleportDistance) || 0;
+    if (teleportDistancePx > 0.001) {
+      return 6 / teleportDistancePx;
+    }
+    return RIFT_TARGET_DISTANCE_FALLBACK_UNITS_PER_PX;
+  }
+
+  function computeRiftTargetPayload(fallbackDirection = null) {
+    const fallback = normalizeDirectionInput(fallbackDirection)
+      || normalizeDirectionInput(roomSnapshot?.myAimDirection)
+      || { x: 1, y: 0 };
+    const mouseX = Number(mouse?.x);
+    const mouseY = Number(mouse?.y);
+    const playerX = Number(player?.x);
+    const playerY = Number(player?.y);
+    if (!Number.isFinite(mouseX) || !Number.isFinite(mouseY) || !Number.isFinite(playerX) || !Number.isFinite(playerY)) {
+      return {
+        direction: fallback
+      };
+    }
+
+    const dx = mouseX - playerX;
+    const dy = mouseY - playerY;
+    const pixelDistance = Math.hypot(dx, dy);
+    const direction = normalizeDirectionInput({ x: dx, y: dy }) || fallback;
+    const unitsPerPixel = getArenaWorldUnitsPerPixel();
+    const estimatedDistance = Math.max(0, pixelDistance * unitsPerPixel);
+    const myPosition = normalizePosition(roomSnapshot?.myPosition);
+    const boundaryCenter = normalizePosition(roomSnapshot?.arenaBoundary?.center) || { x: 0, y: 0 };
+    const arenaCenterX = Number(arena?.cx);
+    const arenaCenterY = Number(arena?.cy);
+    const arenaRadiusPx = Number(arena?.radius) || Number(arena?.baseRadius) || 0;
+    const boundaryRadius = parseNumber(roomSnapshot?.arenaBoundary?.radius) || 0;
+
+    let targetPosition = null;
+    if (
+      Number.isFinite(arenaCenterX)
+      && Number.isFinite(arenaCenterY)
+      && arenaRadiusPx > 0.001
+      && boundaryRadius > 0.001
+    ) {
+      const worldUnitsPerPx = boundaryRadius / arenaRadiusPx;
+      targetPosition = {
+        x: boundaryCenter.x + ((mouseX - arenaCenterX) * worldUnitsPerPx),
+        y: boundaryCenter.y + ((mouseY - arenaCenterY) * worldUnitsPerPx)
+      };
+    } else if (myPosition) {
+      targetPosition = {
+        x: myPosition.x + (direction.x * estimatedDistance),
+        y: myPosition.y + (direction.y * estimatedDistance)
+      };
+    }
+
+    const targetDistance = myPosition && targetPosition
+      ? Math.hypot(targetPosition.x - myPosition.x, targetPosition.y - myPosition.y)
+      : estimatedDistance;
+
+    const payload = {
+      direction
+    };
+    if (targetPosition) {
+      payload.targetPosition = targetPosition;
+    }
+    if (Number.isFinite(targetDistance) && targetDistance >= 0) {
+      payload.targetDistance = targetDistance;
+    }
+    return payload;
+  }
+
+  function placeRiftAtCursor() {
+    if (!isRiftPlacementModeActive()) return false;
+    const fallbackDirection = Number(roomSnapshot.myMatchPlayerNumber) === 2
+      ? { x: -1, y: 0 }
+      : { x: 1, y: 0 };
+    const castDirection = computeAimInputFromMouse()
+      || computeAimInputFromKeyboard()
+      || normalizeDirectionInput(roomSnapshot.myAimDirection)
+      || fallbackDirection;
+    const payload = computeRiftTargetPayload(castDirection);
+    castAbility(ABILITY_IDS.RIFT, {
+      logPrefix: 'rift_place_click',
+      forceCast: true,
+      payload
+    });
+    return true;
+  }
+
   function beginHeldWallCast(slotIndex) {
     const numericIndex = Number(slotIndex);
     if (!Number.isInteger(numericIndex) || numericIndex < 0) return false;
@@ -607,6 +845,7 @@
     lastSentInput = { x: 0, y: 0 };
     lastSentAim = { x: 0, y: 0 };
     clearPendingActionRequests();
+    clearRiftPlacementState({ silent: true });
     if (heldWallCastSlotIndex !== null) {
       releaseHeldWallCast(heldWallCastSlotIndex, { cast: false });
     } else {
@@ -638,7 +877,7 @@
     const source = value && typeof value === 'object' ? value : null;
     const center = normalizePosition(source?.center) || { x: 0, y: 0 };
     const radiusValue = parseNumber(source?.radius);
-    const radius = radiusValue === null ? 12 : Math.max(0.1, radiusValue);
+    const radius = radiusValue === null ? 14 : Math.max(0.1, radiusValue);
     return {
       type: 'circle',
       center,
@@ -872,35 +1111,80 @@
   }
 
   function buildMultiplayerPresentationSnapshot() {
+    if (presentationSnapshotCache) {
+      return presentationSnapshotCache;
+    }
+
     const hasRoom = Boolean(roomSnapshot.code);
     const roomState = trimString(roomSnapshot.state);
     const matchPhase = trimString(roomSnapshot.matchPhase);
+    const nowMs = Date.now();
     const phaseAssetApi = window.outraPhaseAssets;
     const arenaAssetsReady = !phaseAssetApi || typeof phaseAssetApi.isArenaAssetsReady !== 'function'
       ? true
       : Boolean(phaseAssetApi.isArenaAssetsReady());
     const draftStatus = trimString(roomSnapshot.draft?.status).toLowerCase();
-    let isDraftActive = hasRoom && (
-      matchPhase === MATCH_PHASE_DRAFT
+    const isExplicitDraftPhase = matchPhase === MATCH_PHASE_DRAFT;
+    const isExplicitArenaPhase =
+      matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN
+      || matchPhase === DEFAULT_MATCH_PHASE
+      || matchPhase === MATCH_PHASE_ROUND_END
+      || matchPhase === MATCH_PHASE_END;
+    const hasDraftSignal = hasRoom && (
+      isExplicitDraftPhase
       || roomState === ROOM_STATE_DRAFT
       || draftStatus === 'draft'
       || draftStatus === 'active'
     );
-    let isArenaActive = hasRoom && (
-      matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN
-      || matchPhase === DEFAULT_MATCH_PHASE
-      || matchPhase === MATCH_PHASE_END
+    const hardArenaSignal = hasRoom && (
+      isExplicitArenaPhase
       || roomState === ROOM_STATE_COMBAT
       || roomState === ROOM_STATE_MATCH_END
-      || roomState === ROOM_STATE_IN_MATCH
     );
+    const softInMatchSignal = hasRoom && roomState === ROOM_STATE_IN_MATCH;
+
+    // Keep phase-exclusive UI stable: explicit arena phases win,
+    // otherwise any draft signal takes precedence and ambiguous "in_match"
+    // follows the last explicit phase latch.
+    let isDraftActive = false;
+    let isArenaActive = false;
+    if (hardArenaSignal) {
+      isArenaActive = true;
+      presentationPhaseLatch = 'arena';
+    } else if (hasDraftSignal) {
+      isDraftActive = true;
+      presentationPhaseLatch = 'draft';
+    } else if (softInMatchSignal) {
+      if (presentationPhaseLatch === 'draft') {
+        isDraftActive = true;
+      } else if (presentationPhaseLatch === 'arena') {
+        isArenaActive = true;
+      }
+    }
+
     const isArenaPending = Boolean(isArenaActive) && !arenaAssetsReady;
     if (isArenaPending) {
       isArenaActive = false;
     }
-    // In combat/countdown/end, arena phase must take precedence even if draft status lingers.
-    if (isArenaActive && matchPhase !== MATCH_PHASE_DRAFT) {
-      isDraftActive = false;
+
+    if (isDraftActive && !isArenaActive && !isArenaPending) {
+      draftPhaseStickyUntilMs = nowMs + DRAFT_PHASE_STICKY_MS;
+    } else if (
+      !isDraftActive
+      && hasRoom
+      && !isArenaActive
+      && !isArenaPending
+      && !isExplicitArenaPhase
+      && draftPhaseStickyUntilMs > nowMs
+    ) {
+      // Briefly preserve draft phase across transient server snapshots that drop draft flags.
+      isDraftActive = true;
+    }
+    if (!hasRoom || isArenaActive || isArenaPending || isExplicitArenaPhase) {
+      draftPhaseStickyUntilMs = 0;
+    }
+    if (!hasRoom || (!softInMatchSignal && !isDraftActive && !isArenaActive)) {
+      presentationPhaseLatch = '';
     }
 
     let myMatchPlayerNumber = Number(roomSnapshot.myMatchPlayerNumber);
@@ -1006,6 +1290,28 @@
     cooldownSecondsBySpell.fire = Math.max(0, getAbilityCooldownRemainingMs(ABILITY_IDS.FIREBLAST) / 1000);
     availabilityBySpell.fire = getAbilityAvailabilityText(ABILITY_IDS.FIREBLAST);
 
+    const opponentCooldownSecondsBySpell = {};
+    normalizeSpellList(roomSnapshot.opponentLoadout).forEach((abilityId) => {
+      const mappedSpellId = toUiSpellId(abilityId);
+      if (!mappedSpellId) return;
+      opponentCooldownSecondsBySpell[mappedSpellId] = Math.max(
+        0,
+        getAbilityCooldownRemainingMsFromMaps(
+          roomSnapshot.opponentAbilityCooldowns,
+          roomSnapshot.opponentAbilityReadyAt,
+          abilityId
+        ) / 1000
+      );
+    });
+    opponentCooldownSecondsBySpell.fire = Math.max(
+      0,
+      getAbilityCooldownRemainingMsFromMaps(
+        roomSnapshot.opponentAbilityCooldowns,
+        roomSnapshot.opponentAbilityReadyAt,
+        ABILITY_IDS.FIREBLAST
+      ) / 1000
+    );
+
     const canPickNow = isDraftActive
       && Boolean(socket?.connected)
       && Boolean(activeTurnPlayerId)
@@ -1014,7 +1320,7 @@
     const pausedByDisconnect = Boolean(roomSnapshot.matchPaused)
       && disconnectedPlayers.length > 0;
 
-    return {
+    presentationSnapshotCache = {
       active: hasRoom,
       roomCode: roomSnapshot.code || '',
       roomState,
@@ -1024,7 +1330,16 @@
       isArenaPending,
       arenaAssetsReady,
       isCountdownActive: matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN,
+      isRoundEnd: matchPhase === MATCH_PHASE_ROUND_END,
       isMatchEnd: matchPhase === MATCH_PHASE_END,
+      bo3: {
+        matchFormat: trimString(roomSnapshot.matchFormat) || 'bo3',
+        roundNumber: Math.max(1, Number(roomSnapshot.roundNumber) || 1),
+        roundsNeededToWin: Math.max(1, Number(roomSnapshot.roundsNeededToWin) || 2),
+        roundWinsByPlayerNumber: normalizeRoundWinsByPlayerNumber(roomSnapshot.roundWinsByPlayerNumber),
+        roundIntermissionRemainingMs: Math.max(0, Number(roomSnapshot.roundIntermissionRemainingMs) || 0),
+        lastRoundWinnerPlayerNumber: parseNumber(roomSnapshot.lastRoundWinnerPlayerNumber)
+      },
       draft: {
         localPlayerId,
         activePlayerId: activeTurnPlayerId,
@@ -1044,6 +1359,7 @@
       arena: {
         loadout: uiLoadout,
         cooldownSecondsBySpell,
+        opponentCooldownSecondsBySpell,
         availabilityBySpell,
         myHealth: Math.max(0, Number(roomSnapshot.myCurrentHealth) || 0),
         myMaxHealth: Math.max(1, Number(roomSnapshot.myMaxHealth) || 100),
@@ -1051,6 +1367,10 @@
         opponentMaxHealth: Math.max(0, Number(roomSnapshot.opponentMaxHealth) || 0),
         shieldActive: Boolean(roomSnapshot.myActiveEffects?.shieldActive),
         shieldRemainingSeconds: Math.max(0, Number(roomSnapshot.myActiveEffects?.shieldRemainingMs || 0) / 1000),
+        riftPendingActive: Boolean(roomSnapshot.myActiveEffects?.riftPendingActive),
+        riftPendingRemainingSeconds: Math.max(0, Number(roomSnapshot.myActiveEffects?.riftPendingRemainingMs || 0) / 1000),
+        phantomVanishActive: Boolean(roomSnapshot.myActiveEffects?.phantomUntargetableActive)
+          || Math.max(0, Number(roomSnapshot.myActiveEffects?.phantomVanishRemainingMs || 0)) > 0,
         hitEvent: roomSnapshot.lastHitEvent || null,
         matchResult: getMatchResultText() || ''
       },
@@ -1059,6 +1379,7 @@
         disconnectedPlayers
       }
     };
+    return presentationSnapshotCache;
   }
 
   function clonePositionSafe(position) {
@@ -1077,6 +1398,31 @@
       shieldUntil: parseNumber(source.shieldUntil) || 0,
       shieldRemainingMs: Math.max(0, parseNumber(source.shieldRemainingMs) || 0),
       shieldActive: Boolean(source.shieldActive),
+      prismUntil: parseNumber(source.prismUntil) || 0,
+      prismRemainingMs: Math.max(0, parseNumber(source.prismRemainingMs) || 0),
+      prismActive: Boolean(source.prismActive),
+      prismDirection: cloneVectorSafe(source.prismDirection),
+      solarDistortionUntil: parseNumber(source.solarDistortionUntil) || 0,
+      solarDistortionRemainingMs: Math.max(0, parseNumber(source.solarDistortionRemainingMs) || 0),
+      solarDistortionActive: Boolean(source.solarDistortionActive),
+      riftPendingActive: Boolean(source.riftPendingActive),
+      riftPendingPortalA: clonePositionSafe(source.riftPendingPortalA),
+      riftPendingExpiresAt: parseNumber(source.riftPendingExpiresAt) || 0,
+      riftPendingRemainingMs: Math.max(0, parseNumber(source.riftPendingRemainingMs) || 0),
+      phantomVanishUntil: parseNumber(source.phantomVanishUntil) || 0,
+      phantomVanishRemainingMs: Math.max(0, parseNumber(source.phantomVanishRemainingMs) || 0),
+      phantomUntargetableActive: Boolean(source.phantomUntargetableActive),
+      phantomIllusion: source.phantomIllusion && typeof source.phantomIllusion === 'object'
+        ? {
+            ownerPlayerNumber: parseNumber(source.phantomIllusion.ownerPlayerNumber),
+            illusionId: trimString(source.phantomIllusion.illusionId),
+            position: clonePositionSafe(source.phantomIllusion.position),
+            facing: cloneVectorSafe(source.phantomIllusion.facing),
+            offset: cloneVectorSafe(source.phantomIllusion.offset),
+            expiresAt: parseNumber(source.phantomIllusion.expiresAt),
+            remainingMs: parseNumber(source.phantomIllusion.remainingMs)
+          }
+        : null,
       chargeActive: Boolean(source.chargeActive),
       chargeRemainingDistance: Math.max(0, parseNumber(source.chargeRemainingDistance) || 0),
       chargeDirection: cloneVectorSafe(source.chargeDirection)
@@ -1159,6 +1505,39 @@
         }))
       : [];
 
+    const roundPillars = Array.isArray(roomSnapshot.roundPillars)
+      ? roomSnapshot.roundPillars.map((pillar) => ({
+          pillarId: trimString(pillar?.pillarId),
+          position: clonePositionSafe(pillar?.position),
+          radius: parseNumber(pillar?.radius),
+          spawnedAt: parseNumber(pillar?.spawnedAt)
+        }))
+      : [];
+
+    const rifts = Array.isArray(roomSnapshot.rifts)
+      ? roomSnapshot.rifts.map((rift) => ({
+          riftId: trimString(rift?.riftId),
+          ownerPlayerNumber: parseNumber(rift?.ownerPlayerNumber),
+          portalA: clonePositionSafe(rift?.portalA),
+          portalB: clonePositionSafe(rift?.portalB),
+          portalRadius: parseNumber(rift?.portalRadius),
+          linkedAt: parseNumber(rift?.linkedAt),
+          expiresAt: parseNumber(rift?.expiresAt)
+        }))
+      : [];
+
+    const phantomIllusions = Array.isArray(roomSnapshot.phantomIllusions)
+      ? roomSnapshot.phantomIllusions.map((illusion) => ({
+          ownerPlayerNumber: parseNumber(illusion?.ownerPlayerNumber),
+          illusionId: trimString(illusion?.illusionId),
+          position: clonePositionSafe(illusion?.position),
+          facing: cloneVectorSafe(illusion?.facing),
+          offset: cloneVectorSafe(illusion?.offset),
+          expiresAt: parseNumber(illusion?.expiresAt),
+          remainingMs: parseNumber(illusion?.remainingMs)
+        }))
+      : [];
+
     const hitEvents = Array.isArray(roomSnapshot.hitEvents)
       ? roomSnapshot.hitEvents.map((event) => ({
           hitId: trimString(event?.hitId),
@@ -1181,9 +1560,17 @@
       roomState: trimString(roomSnapshot.state),
       matchId: roomSnapshot.matchId || '',
       matchPhase: trimString(roomSnapshot.matchPhase),
+      matchStateTimestamp: parseNumber(roomSnapshot.matchStateTimestamp),
       isDraftActive: presentation.isDraftActive,
       isArenaActive: presentation.isArenaActive,
+      isRoundEnd: trimString(roomSnapshot.matchPhase) === MATCH_PHASE_ROUND_END,
       isMatchEnd: presentation.isMatchEnd,
+      matchFormat: trimString(roomSnapshot.matchFormat) || 'bo3',
+      roundNumber: Math.max(1, Number(roomSnapshot.roundNumber) || 1),
+      roundsNeededToWin: Math.max(1, Number(roomSnapshot.roundsNeededToWin) || 2),
+      roundWinsByPlayerNumber: normalizeRoundWinsByPlayerNumber(roomSnapshot.roundWinsByPlayerNumber),
+      roundIntermissionRemainingMs: Math.max(0, Number(roomSnapshot.roundIntermissionRemainingMs) || 0),
+      lastRoundWinnerPlayerNumber: parseNumber(roomSnapshot.lastRoundWinnerPlayerNumber),
       myPlayerNumber: resolvedMyNumber,
       opponentPlayerNumber: opponentNumber,
       myDisplayName,
@@ -1202,8 +1589,17 @@
       opponentMaxHealth: parseNumber(roomSnapshot.opponentMaxHealth),
       myActiveEffects: cloneEffectsSafe(roomSnapshot.myActiveEffects),
       opponentActiveEffects: cloneEffectsSafe(roomSnapshot.opponentActiveEffects),
+      myBlinkReadyAt: parseNumber(roomSnapshot.myBlinkReadyAt) || 0,
+      myBlinkRemainingMs: Math.max(0, parseNumber(roomSnapshot.myBlinkRemainingMs) || 0),
+      myBlinkAvailable: Boolean(roomSnapshot.myBlinkAvailable),
+      opponentBlinkReadyAt: parseNumber(roomSnapshot.opponentBlinkReadyAt) || 0,
+      opponentBlinkRemainingMs: Math.max(0, parseNumber(roomSnapshot.opponentBlinkRemainingMs) || 0),
+      opponentBlinkAvailable: Boolean(roomSnapshot.opponentBlinkAvailable),
       projectiles,
       walls,
+      roundPillars,
+      rifts,
+      phantomIllusions,
       hitEvents,
       lastHitEvent: roomSnapshot.lastHitEvent
         ? {
@@ -1230,11 +1626,21 @@
   function getAbilityCooldownRemainingMs(abilityId) {
     const normalizedAbilityId = trimString(abilityId).toLowerCase();
     if (!normalizedAbilityId) return 0;
-    const directRemaining = parseNumber(roomSnapshot.myAbilityCooldowns?.[normalizedAbilityId]);
+    return getAbilityCooldownRemainingMsFromMaps(
+      roomSnapshot.myAbilityCooldowns,
+      roomSnapshot.myAbilityReadyAt,
+      normalizedAbilityId
+    );
+  }
+
+  function getAbilityCooldownRemainingMsFromMaps(cooldownsMap, readyAtMap, abilityId) {
+    const normalizedAbilityId = trimString(abilityId).toLowerCase();
+    if (!normalizedAbilityId) return 0;
+    const directRemaining = parseNumber(cooldownsMap?.[normalizedAbilityId]);
     if (directRemaining !== null && directRemaining > 0) {
       return directRemaining;
     }
-    const readyAt = parseNumber(roomSnapshot.myAbilityReadyAt?.[normalizedAbilityId]) || 0;
+    const readyAt = parseNumber(readyAtMap?.[normalizedAbilityId]) || 0;
     return readyAt > 0 ? Math.max(0, readyAt - Date.now()) : 0;
   }
 
@@ -1359,15 +1765,48 @@
     return 'Opponent';
   }
 
+  function getRoundsNeededToWin() {
+    return Math.max(1, Number(roomSnapshot.roundsNeededToWin) || 2);
+  }
+
+  function getRoundWinsForPlayerNumber(playerNumber) {
+    const winsMap = roomSnapshot.roundWinsByPlayerNumber && typeof roomSnapshot.roundWinsByPlayerNumber === 'object'
+      ? roomSnapshot.roundWinsByPlayerNumber
+      : {};
+    return Math.max(0, Number(winsMap?.[playerNumber]) || 0);
+  }
+
+  function getRoundLabelText() {
+    const roundNumber = Math.max(1, Number(roomSnapshot.roundNumber) || 1);
+    const wins1 = getRoundWinsForPlayerNumber(1);
+    const wins2 = getRoundWinsForPlayerNumber(2);
+    const roundsNeeded = getRoundsNeededToWin();
+    if (roundNumber >= (roundsNeeded + 1) || (wins1 === roundsNeeded - 1 && wins2 === roundsNeeded - 1 && roundNumber >= 3)) {
+      return 'Final Round';
+    }
+    return `Round ${roundNumber}`;
+  }
+
+  function getRoundWinnerText() {
+    const winnerNumber = Number(roomSnapshot.lastRoundWinnerPlayerNumber) || Number(roomSnapshot.winnerPlayerNumber);
+    if (!Number.isFinite(winnerNumber) || winnerNumber <= 0) return '';
+    const roundNumber = Math.max(1, Number(roomSnapshot.roundNumber) || 1);
+    return `${getMatchPlayerDisplayName(winnerNumber, 'Opponent')} wins Round ${roundNumber}`;
+  }
+
+  function getBo3ScoreText() {
+    return `${getRoundWinsForPlayerNumber(1)}-${getRoundWinsForPlayerNumber(2)}`;
+  }
+
   function getMatchResultText() {
     if (roomSnapshot.matchPhase !== MATCH_PHASE_END) return '';
     const winner = Number(roomSnapshot.winnerPlayerNumber);
     const eliminated = Number(roomSnapshot.eliminatedPlayerNumber);
     const mine = Number(roomSnapshot.myMatchPlayerNumber);
 
-    if (Number.isFinite(winner) && Number.isFinite(mine) && winner === mine) return 'You win';
-    if (Number.isFinite(eliminated) && Number.isFinite(mine) && eliminated === mine) return 'You lose';
-    if (Number.isFinite(winner)) return `${getMatchPlayerDisplayName(winner, 'Opponent')} wins`;
+    if (Number.isFinite(winner) && Number.isFinite(mine) && winner === mine) return 'You win the Match';
+    if (Number.isFinite(eliminated) && Number.isFinite(mine) && eliminated === mine) return 'You lose the Match';
+    if (Number.isFinite(winner)) return `${getMatchPlayerDisplayName(winner, 'Opponent')} wins the Match`;
     return 'Match ended';
   }
 
@@ -1467,7 +1906,13 @@
         return `Match paused: opponent disconnected (${getReconnectSummaryText()}).`;
       }
       if (roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN) {
-        return `Combat starts in ${formatDurationMs(getCombatCountdownMs())}.`;
+        return `${getRoundLabelText()} starts in ${formatDurationMs(getCombatCountdownMs())}.`;
+      }
+      if (roomSnapshot.matchPhase === MATCH_PHASE_ROUND_END) {
+        const roundResultText = getRoundWinnerText() || 'Round ended';
+        const intermissionMs = Math.max(0, Number(roomSnapshot.roundIntermissionRemainingMs) || 0);
+        const intermissionText = intermissionMs > 0 ? ` Next round in ${formatDurationMs(intermissionMs)}.` : '';
+        return `${roundResultText}. Score ${getBo3ScoreText()}.${intermissionText}`;
       }
       if (roomSnapshot.matchPhase === MATCH_PHASE_END) {
         return `${getMatchResultText()}.`;
@@ -1520,7 +1965,7 @@
     return '';
   }
 
-  function ensureDebugPanelStyles() {
+  function ensureGameplayOverlayStyles() {
     if (document.getElementById('outraMultiplayerDebugStyles')) return;
 
     const styleEl = document.createElement('style');
@@ -1907,6 +2352,95 @@
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
       }
 
+      .mpBo3Hud {
+        position: fixed;
+        left: 50%;
+        top: 38px;
+        transform: translateX(-50%);
+        min-width: min(520px, calc(100vw - 22px));
+        border-radius: 12px;
+        border: 1px solid rgba(170, 196, 255, 0.32);
+        background: rgba(8, 12, 22, 0.78);
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.34);
+        padding: 8px 12px;
+        display: none;
+      }
+
+      .mpBo3TopRow {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .mpBo3Label {
+        color: #c7d9ff;
+        font: 800 11px/1 'Segoe UI', Tahoma, sans-serif;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+
+      .mpBo3Round {
+        color: #f4f8ff;
+        font: 800 13px/1 'Segoe UI', Tahoma, sans-serif;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .mpBo3ScoreRow {
+        margin-top: 7px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mpBo3Player {
+        border-radius: 9px;
+        border: 1px solid rgba(132, 160, 225, 0.26);
+        background: rgba(14, 20, 36, 0.68);
+        padding: 7px 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+      }
+
+      .mpBo3Player.is-leading {
+        border-color: rgba(134, 224, 182, 0.5);
+        box-shadow: 0 0 0 1px rgba(134, 224, 182, 0.16);
+      }
+
+      .mpBo3PlayerName {
+        color: #d7e5ff;
+        font: 700 12px/1 'Segoe UI', Tahoma, sans-serif;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .mpBo3Markers {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 4px;
+        min-width: 42px;
+      }
+
+      .mpBo3MarkerIcon {
+        width: 15px;
+        height: 15px;
+        object-fit: contain;
+        opacity: 0.28;
+        filter: grayscale(1) brightness(0.74) saturate(0.25);
+        transform: translateZ(0);
+      }
+
+      .mpBo3MarkerIcon.is-earned {
+        opacity: 1;
+        filter: drop-shadow(0 0 5px rgba(255, 212, 128, 0.42));
+      }
+
       .mpPhaseBanner {
         position: fixed;
         left: 50%;
@@ -1944,6 +2478,15 @@
       .mpPhaseBanner.is-visible {
         opacity: 1;
         transform: translateX(-50%) translateY(0);
+      }
+
+      .mpPhaseBanner.is-placement-center {
+        top: 50%;
+        transform: translateX(-50%) translateY(calc(-50% - 10px));
+      }
+
+      .mpPhaseBanner.is-placement-center.is-visible {
+        transform: translateX(-50%) translateY(-50%);
       }
 
       .mpDraftPanel {
@@ -2483,6 +3026,20 @@
           padding: 8px 10px;
         }
 
+        .mpBo3Hud {
+          top: 30px;
+          min-width: calc(100vw - 12px);
+          padding: 7px 9px;
+        }
+
+        .mpBo3Round {
+          font-size: 12px;
+        }
+
+        .mpBo3PlayerName {
+          font-size: 11px;
+        }
+
         .mpCombatCountdown {
           min-width: 104px;
           font-size: 52px;
@@ -2494,7 +3051,34 @@
     document.head.appendChild(styleEl);
   }
 
+  function ensureDebugPanelStyles() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return;
+    ensureGameplayOverlayStyles();
+  }
+
+  function teardownLegacyDebugPanel() {
+    if (panel && document.body?.contains(panel)) {
+      panel.remove();
+    }
+    if (panelToggleButton && document.body?.contains(panelToggleButton)) {
+      panelToggleButton.remove();
+    }
+    panel = null;
+    panelToggleButton = null;
+    panelFields = null;
+    panelInput = null;
+    draftButtonElements = new Map();
+    isDebugVisible = false;
+  }
+
   function applyDebugPanelVisibility() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) {
+      isDebugVisible = false;
+      if (abilityHud && document.body?.contains(abilityHud)) {
+        abilityHud.style.display = 'none';
+      }
+      return;
+    }
     if (!debugToolsEnabled) {
       isDebugVisible = false;
     }
@@ -2515,6 +3099,12 @@
   }
 
   function setDebugToolsEnabled(nextEnabled = false) {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) {
+      debugToolsEnabled = false;
+      teardownLegacyDebugPanel();
+      renderDebugPanel();
+      return false;
+    }
     debugToolsEnabled = !!nextEnabled;
     if (!debugToolsEnabled) {
       isDebugVisible = false;
@@ -2527,10 +3117,16 @@
   }
 
   function getDebugToolsEnabled() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return false;
     return !!debugToolsEnabled;
   }
 
   function setDebugPanelVisible(nextVisible = true) {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) {
+      teardownLegacyDebugPanel();
+      renderDebugPanel();
+      return false;
+    }
     if (!debugToolsEnabled) {
       isDebugVisible = false;
     } else {
@@ -2543,6 +3139,7 @@
   }
 
   function getDebugPanelVisible() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return false;
     return !!isDebugVisible;
   }
 
@@ -2554,6 +3151,7 @@
   }
 
   function maybeAutoHideDebugPanelOnDraftEnter(wasInDraftPhase) {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return;
     if (!isDebugVisible) return;
     if (wasInDraftPhase) return;
     if (!isSnapshotInDraftPhase(roomSnapshot)) return;
@@ -2563,6 +3161,7 @@
   }
 
   function ensureDebugToggleButton() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return null;
     if (!debugToolsEnabled) return null;
     if (panelToggleButton && document.body.contains(panelToggleButton)) return panelToggleButton;
     if (!document.body) return null;
@@ -2581,6 +3180,7 @@
   }
 
   function ensureDebugPanel() {
+    if (!LEGACY_DEBUG_PANEL_ENABLED) return null;
     if (panel && document.body.contains(panel)) {
       ensureDebugToggleButton();
       applyDebugPanelVisibility();
@@ -2589,7 +3189,7 @@
     if (!debugToolsEnabled) return null;
     if (!document.body) return null;
 
-    ensureDebugPanelStyles();
+    ensureGameplayOverlayStyles();
     ensureDebugToggleButton();
 
     panel = document.createElement('section');
@@ -2808,7 +3408,7 @@
     if (abilityHud && document.body.contains(abilityHud)) return abilityHud;
     if (!document.body) return null;
 
-    ensureDebugPanelStyles();
+    ensureGameplayOverlayStyles();
 
     abilityHud = document.createElement('section');
     abilityHud.className = 'mpAbilityHud';
@@ -2985,6 +3585,12 @@
     return 'default';
   }
 
+  function normalizePhaseBannerPlacement(placement) {
+    const normalized = trimString(placement).toLowerCase();
+    if (normalized === 'center') return 'center';
+    return 'top';
+  }
+
   function applyPhaseBannerToneClass(tone) {
     if (!phaseBannerEl) return;
     const normalizedTone = normalizePhaseBannerTone(tone);
@@ -2995,11 +3601,22 @@
     phaseBannerEl.dataset.toneClassName = toneClassName;
   }
 
-  function showPhaseBanner(text, durationMs = 1400, tone = 'default') {
+  function applyPhaseBannerPlacementClass(placement) {
+    if (!phaseBannerEl) return;
+    const normalizedPlacement = normalizePhaseBannerPlacement(placement);
+    const placementClassName = `is-placement-${normalizedPlacement}`;
+    if (phaseBannerEl.dataset.placementClassName === placementClassName) return;
+    phaseBannerEl.classList.remove('is-placement-top', 'is-placement-center');
+    phaseBannerEl.classList.add(placementClassName);
+    phaseBannerEl.dataset.placementClassName = placementClassName;
+  }
+
+  function showPhaseBanner(text, durationMs = 1400, tone = 'default', placement = 'top') {
     const message = trimString(text);
     if (!message) return;
     ensureGameplayUi();
     const bannerTone = normalizePhaseBannerTone(tone);
+    const bannerPlacement = normalizePhaseBannerPlacement(placement);
     if (phaseBannerHideTimer !== null) {
       window.clearTimeout(phaseBannerHideTimer);
       phaseBannerHideTimer = null;
@@ -3008,20 +3625,24 @@
       text: message,
       shownAt: Date.now(),
       durationMs: Math.max(300, Number(durationMs) || 1400),
-      tone: bannerTone
+      tone: bannerTone,
+      placement: bannerPlacement
     };
     if (!phaseBannerEl) return;
     phaseBannerEl.textContent = message;
     applyPhaseBannerToneClass(bannerTone);
+    applyPhaseBannerPlacementClass(bannerPlacement);
     phaseBannerEl.classList.add('is-visible');
     phaseBannerHideTimer = window.setTimeout(() => {
       phaseBannerHideTimer = null;
       phaseBannerState.text = '';
       phaseBannerState.tone = 'default';
+      phaseBannerState.placement = 'top';
       if (!phaseBannerEl) return;
       phaseBannerEl.classList.remove('is-visible');
       phaseBannerEl.textContent = '';
       applyPhaseBannerToneClass('default');
+      applyPhaseBannerPlacementClass('top');
     }, phaseBannerState.durationMs);
   }
 
@@ -3030,15 +3651,19 @@
     const now = Date.now();
     const bannerText = trimString(phaseBannerState.text);
     const bannerTone = normalizePhaseBannerTone(phaseBannerState.tone);
+    const bannerPlacement = normalizePhaseBannerPlacement(phaseBannerState.placement);
     const shouldShow = Boolean(bannerText)
       && (now - Number(phaseBannerState.shownAt || 0)) < Number(phaseBannerState.durationMs || 0);
     phaseBannerEl.textContent = bannerText;
     applyPhaseBannerToneClass(bannerTone);
+    applyPhaseBannerPlacementClass(bannerPlacement);
     phaseBannerEl.classList.toggle('is-visible', shouldShow);
     if (!shouldShow && bannerText) {
       phaseBannerState.text = '';
       phaseBannerState.tone = 'default';
+      phaseBannerState.placement = 'top';
       applyPhaseBannerToneClass('default');
+      applyPhaseBannerPlacementClass('top');
     }
   }
 
@@ -3049,7 +3674,7 @@
   }
 
   function getVictoryOutIconPath() {
-    return String(window.OUTRA_3D_CONFIG?.lobbyArt?.currency || '/docs/art/Lobby/Currency.png').trim();
+    return String(window.OUTRA_VISUAL_CONFIG?.lobbyArt?.currency || '/docs/art/Lobby/Currency.png').trim();
   }
 
   function formatVictoryOutLabel(outGained) {
@@ -3173,12 +3798,28 @@
     if (gameplayUiRoot && document.body.contains(gameplayUiRoot)) return gameplayUiRoot;
     if (!document.body) return null;
 
-    ensureDebugPanelStyles();
+    ensureGameplayOverlayStyles();
     gameplayDraftButtons = new Map();
     gameplayUiRoot = document.createElement('section');
     gameplayUiRoot.className = 'mpGameplayUi';
     gameplayUiRoot.innerHTML = `
       <div class="mpGameplayRoomBadge" data-mp-game-room-badge></div>
+      <section class="mpBo3Hud" data-mp-game-bo3>
+        <div class="mpBo3TopRow">
+          <div class="mpBo3Label">BO3</div>
+          <div class="mpBo3Round" data-mp-game-bo3-round>Round 1</div>
+        </div>
+        <div class="mpBo3ScoreRow">
+          <div class="mpBo3Player" data-mp-game-bo3-left>
+            <span class="mpBo3PlayerName" data-mp-game-bo3-left-name>Player 1</span>
+            <span class="mpBo3Markers" data-mp-game-bo3-left-markers>○○</span>
+          </div>
+          <div class="mpBo3Player" data-mp-game-bo3-right>
+            <span class="mpBo3PlayerName" data-mp-game-bo3-right-name>Player 2</span>
+            <span class="mpBo3Markers" data-mp-game-bo3-right-markers>○○</span>
+          </div>
+        </div>
+      </section>
       <div class="mpPhaseBanner" data-mp-game-phase-banner></div>
       <section class="mpDraftPanel" data-mp-game-draft>
         <div class="mpDraftHeader">
@@ -3245,6 +3886,12 @@
     `;
 
     gameplayRoomBadge = gameplayUiRoot.querySelector('[data-mp-game-room-badge]');
+    gameplayBo3Hud = gameplayUiRoot.querySelector('[data-mp-game-bo3]');
+    gameplayBo3Round = gameplayUiRoot.querySelector('[data-mp-game-bo3-round]');
+    gameplayBo3LeftName = gameplayUiRoot.querySelector('[data-mp-game-bo3-left-name]');
+    gameplayBo3LeftMarkers = gameplayUiRoot.querySelector('[data-mp-game-bo3-left-markers]');
+    gameplayBo3RightName = gameplayUiRoot.querySelector('[data-mp-game-bo3-right-name]');
+    gameplayBo3RightMarkers = gameplayUiRoot.querySelector('[data-mp-game-bo3-right-markers]');
     phaseBannerEl = gameplayUiRoot.querySelector('[data-mp-game-phase-banner]');
     gameplayDraftPanel = gameplayUiRoot.querySelector('[data-mp-game-draft]');
     gameplayDraftHeader = gameplayUiRoot.querySelector('[data-mp-game-draft-header]');
@@ -3400,6 +4047,7 @@
       phase === MATCH_PHASE_DRAFT
       || phase === MATCH_PHASE_COMBAT_COUNTDOWN
       || phase === DEFAULT_MATCH_PHASE
+      || phase === MATCH_PHASE_ROUND_END
       || phase === MATCH_PHASE_END
     ) {
       return true;
@@ -3409,6 +4057,73 @@
     return state === ROOM_STATE_DRAFT
       || state === ROOM_STATE_COMBAT
       || state === ROOM_STATE_MATCH_END;
+  }
+
+  function renderBo3Markers(container, wins, roundsNeededToWin) {
+    if (!container) return;
+    const total = Math.max(1, Number(roundsNeededToWin) || 2);
+    const filled = Math.max(0, Math.min(total, Number(wins) || 0));
+    const iconPath = getVictoryOutIconPath();
+    const renderKey = `${filled}/${total}/${iconPath}`;
+    if (container.dataset.markerKey === renderKey) return;
+    container.dataset.markerKey = renderKey;
+
+    container.replaceChildren();
+    for (let index = 0; index < total; index += 1) {
+      const icon = document.createElement('img');
+      icon.className = 'mpBo3MarkerIcon';
+      if (index < filled) {
+        icon.classList.add('is-earned');
+      }
+      icon.src = iconPath;
+      icon.alt = index < filled ? 'Round won' : 'Round pending';
+      icon.loading = 'eager';
+      icon.decoding = 'async';
+      container.appendChild(icon);
+    }
+  }
+
+  function renderGameplayBo3Hud() {
+    if (!gameplayBo3Hud) return;
+    const phase = trimString(roomSnapshot.matchPhase);
+    const shouldShow = Boolean(roomSnapshot.matchId)
+      && (
+        phase === MATCH_PHASE_COMBAT_COUNTDOWN
+        || phase === DEFAULT_MATCH_PHASE
+        || phase === MATCH_PHASE_ROUND_END
+        || phase === MATCH_PHASE_END
+      );
+    gameplayBo3Hud.style.display = shouldShow ? 'block' : 'none';
+    if (!shouldShow) return;
+
+    const roundsNeeded = getRoundsNeededToWin();
+    const wins1 = getRoundWinsForPlayerNumber(1);
+    const wins2 = getRoundWinsForPlayerNumber(2);
+    const leftName = getMatchPlayerDisplayName(1, 'Player 1');
+    const rightName = getMatchPlayerDisplayName(2, 'Player 2');
+
+    if (gameplayBo3Round) {
+      gameplayBo3Round.textContent = getRoundLabelText();
+    }
+    if (gameplayBo3LeftName) {
+      gameplayBo3LeftName.textContent = leftName;
+      gameplayBo3LeftName.title = leftName;
+    }
+    if (gameplayBo3RightName) {
+      gameplayBo3RightName.textContent = rightName;
+      gameplayBo3RightName.title = rightName;
+    }
+    renderBo3Markers(gameplayBo3LeftMarkers, wins1, roundsNeeded);
+    renderBo3Markers(gameplayBo3RightMarkers, wins2, roundsNeeded);
+
+    const leftCard = gameplayUiRoot?.querySelector('[data-mp-game-bo3-left]');
+    const rightCard = gameplayUiRoot?.querySelector('[data-mp-game-bo3-right]');
+    if (leftCard) {
+      leftCard.classList.toggle('is-leading', wins1 > wins2);
+    }
+    if (rightCard) {
+      rightCard.classList.toggle('is-leading', wins2 > wins1);
+    }
   }
 
   function renderGameplayRoomBadge() {
@@ -3434,10 +4149,15 @@
       if (phaseBannerEl) {
         phaseBannerEl.classList.remove('is-visible');
         phaseBannerEl.textContent = '';
+        applyPhaseBannerPlacementClass('top');
+      }
+      if (gameplayBo3Hud) {
+        gameplayBo3Hud.style.display = 'none';
       }
       return;
     }
     renderGameplayRoomBadge();
+    renderGameplayBo3Hud();
     renderGameplayDraftPanel();
     renderGameplayCountdown();
     renderGameplayEndPanel();
@@ -3445,8 +4165,9 @@
   }
 
   function setStatusMessage(message) {
-    if (!panelFields?.message) return;
-    panelFields.message.textContent = String(message || 'Ready.');
+    latestStatusMessage = String(message || 'Ready.');
+    if (!LEGACY_DEBUG_PANEL_ENABLED || !panelFields?.message) return;
+    panelFields.message.textContent = latestStatusMessage;
   }
 
   function clearReadyToggleAckTimer() {
@@ -3458,11 +4179,8 @@
   function startReconnectUiTimer() {
     if (reconnectUiTimer !== null) return;
     reconnectUiTimer = window.setInterval(() => {
-      const disconnectedPlayers = getDisconnectedPlayers();
-      const inDraftPhase = roomSnapshot.matchPhase === MATCH_PHASE_DRAFT;
-      const inCountdownPhase = roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN;
-      if (!disconnectedPlayers.length && !inDraftPhase && !inCountdownPhase) return;
-      refreshTransientDebugPanelValues();
+      if (!shouldRunReconnectUiTimer()) return;
+      refreshTransientUiValues();
     }, 400);
   }
 
@@ -3472,8 +4190,24 @@
     reconnectUiTimer = null;
   }
 
-  function refreshTransientDebugPanelValues() {
-    if (!debugToolsEnabled || !isDebugVisible || !panelFields) {
+  function shouldRunReconnectUiTimer() {
+    const disconnectedPlayers = getDisconnectedPlayers();
+    const inDraftPhase = roomSnapshot.matchPhase === MATCH_PHASE_DRAFT;
+    const inCountdownPhase = roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN;
+    return disconnectedPlayers.length > 0 || inDraftPhase || inCountdownPhase;
+  }
+
+  function syncReconnectUiTimer() {
+    if (shouldRunReconnectUiTimer()) {
+      startReconnectUiTimer();
+    } else {
+      stopReconnectUiTimer();
+    }
+  }
+
+  function refreshTransientUiValues() {
+    const shouldRenderDebugDetails = LEGACY_DEBUG_PANEL_ENABLED && debugToolsEnabled && isDebugVisible && Boolean(panelFields);
+    if (!shouldRenderDebugDetails) {
       if (abilityHud) abilityHud.style.display = 'none';
       renderGameplayUi();
       return;
@@ -3488,6 +4222,10 @@
     }
     renderAbilityHud();
     renderGameplayUi();
+  }
+
+  function refreshTransientDebugPanelValues() {
+    refreshTransientUiValues();
   }
 
   function maybeStoreReconnectIdentityFromPayload(payload) {
@@ -3770,11 +4508,11 @@
   }
 
   function renderDebugPanel() {
-    if (debugToolsEnabled) ensureDebugPanel();
+    if (debugToolsEnabled && LEGACY_DEBUG_PANEL_ENABLED) ensureDebugPanel();
     ensureGameplayUi();
-    const shouldRenderDebugDetails = debugToolsEnabled && isDebugVisible;
+    syncReconnectUiTimer();
+    const shouldRenderDebugDetails = LEGACY_DEBUG_PANEL_ENABLED && debugToolsEnabled && isDebugVisible;
     if (!shouldRenderDebugDetails || !panelFields) {
-      stopReconnectUiTimer();
       if (abilityHud) abilityHud.style.display = 'none';
       renderGameplayUi();
       return;
@@ -3841,6 +4579,9 @@
     if (panelFields.tuningSummary) {
       panelFields.tuningSummary.textContent = formatTuningSnapshotSummary();
     }
+    if (panelFields.message) {
+      panelFields.message.textContent = latestStatusMessage;
+    }
     renderDraftButtons();
     updateStateStyles();
 
@@ -3894,15 +4635,7 @@
       panelFields.returnButton.disabled = !canReturnToRoom;
     }
 
-    if (
-      getDisconnectedPlayers().length > 0
-      || roomSnapshot.matchPhase === MATCH_PHASE_DRAFT
-      || roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN
-    ) {
-      startReconnectUiTimer();
-    } else {
-      stopReconnectUiTimer();
-    }
+    syncReconnectUiTimer();
 
     renderAbilityHud();
     renderGameplayUi();
@@ -4020,6 +4753,8 @@
 
   function clearRoomSnapshot(state = ROOM_STATE_IDLE) {
     invalidateRuntimeSnapshotCache();
+    draftPhaseStickyUntilMs = 0;
+    presentationPhaseLatch = '';
     resetRealtimeInputState({ emitNeutral: false });
     stopVictoryRewardAnimation();
     roomSnapshot = createInitialRoomSnapshot(state);
@@ -4031,8 +4766,10 @@
     }
     phaseBannerState.text = '';
     phaseBannerState.tone = 'default';
+    phaseBannerState.placement = 'top';
     if (phaseBannerEl) {
       applyPhaseBannerToneClass('default');
+      applyPhaseBannerPlacementClass('top');
       phaseBannerEl.classList.remove('is-visible');
       phaseBannerEl.textContent = '';
     }
@@ -4045,15 +4782,31 @@
   function applyMatchPayload(payload, players) {
     invalidateRuntimeSnapshotCache();
     const payloadObject = payload && typeof payload === 'object' ? payload : null;
+    const inMatchFlowNow = isRoomInMatchFlow(roomSnapshot.state);
+    const fallbackMatchId = inMatchFlowNow ? trimString(roomSnapshot.matchId) : '';
     const payloadMatch = payloadObject?.match && typeof payloadObject.match === 'object'
       ? payloadObject.match
       : null;
-    const topLevelMatchId = trimString(payloadObject?.matchId);
-    const match = payloadMatch || (topLevelMatchId
+    const topLevelMatchId = trimString(payloadObject?.matchId) || fallbackMatchId;
+    let match = payloadMatch || (topLevelMatchId
       ? {
           matchId: topLevelMatchId,
           roomCode: trimString(payloadObject?.roomCode) || roomSnapshot.code,
           startedAt: parseNumber(payloadObject?.startedAt) || roomSnapshot.matchStartedAt,
+          matchFormat: trimString(payloadObject?.matchFormat) || roomSnapshot.matchFormat,
+          roundNumber: parseNumber(payloadObject?.roundNumber) || roomSnapshot.roundNumber,
+          roundsNeededToWin: parseNumber(payloadObject?.roundsNeededToWin) || roomSnapshot.roundsNeededToWin,
+          roundWinsByPlayerNumber: normalizeRoundWinsByPlayerNumber(
+            payloadObject?.roundWinsByPlayerNumber,
+            roomSnapshot.roundWinsByPlayerNumber
+          ),
+          currentRoundStartedAt: parseNumber(payloadObject?.currentRoundStartedAt) || roomSnapshot.currentRoundStartedAt,
+          roundEndAt: parseNumber(payloadObject?.roundEndAt) || roomSnapshot.roundEndAt,
+          nextRoundStartsAt: parseNumber(payloadObject?.nextRoundStartsAt) || roomSnapshot.nextRoundStartsAt,
+          roundIntermissionRemainingMs: parseNumber(payloadObject?.roundIntermissionRemainingMs) || roomSnapshot.roundIntermissionRemainingMs,
+          lastRoundWinnerPlayerNumber: parseNumber(payloadObject?.lastRoundWinnerPlayerNumber) || roomSnapshot.lastRoundWinnerPlayerNumber,
+          lastRoundEndedAt: parseNumber(payloadObject?.lastRoundEndedAt) || roomSnapshot.lastRoundEndedAt,
+          lastRoundEndReason: trimString(payloadObject?.lastRoundEndReason) || roomSnapshot.lastRoundEndReason,
           phase: trimString(payloadObject?.phase) || roomSnapshot.matchPhase || DEFAULT_MATCH_PHASE,
           combatStartsAt: parseNumber(payloadObject?.combatStartsAt) || roomSnapshot.combatStartsAt,
           combatCountdownSeconds: parseNumber(payloadObject?.combatCountdownSeconds) || roomSnapshot.combatCountdownSeconds,
@@ -4068,17 +4821,43 @@
           arenaBoundary: payloadObject?.arenaBoundary || roomSnapshot.arenaBoundary,
           projectiles: Array.isArray(payloadObject?.projectiles) ? payloadObject.projectiles : roomSnapshot.projectiles,
           walls: Array.isArray(payloadObject?.walls) ? payloadObject.walls : roomSnapshot.walls,
+          roundPillars: Array.isArray(payloadObject?.roundPillars) ? payloadObject.roundPillars : roomSnapshot.roundPillars,
+          rifts: Array.isArray(payloadObject?.rifts) ? payloadObject.rifts : roomSnapshot.rifts,
+          phantomIllusions: Array.isArray(payloadObject?.phantomIllusions) ? payloadObject.phantomIllusions : roomSnapshot.phantomIllusions,
           hitEvents: Array.isArray(payloadObject?.hitEvents) ? payloadObject.hitEvents : roomSnapshot.hitEvents,
           eliminatedPlayerNumber: parseNumber(payloadObject?.eliminatedPlayerNumber) || roomSnapshot.eliminatedPlayerNumber,
           winnerPlayerNumber: parseNumber(payloadObject?.winnerPlayerNumber) || roomSnapshot.winnerPlayerNumber,
           endedAt: parseNumber(payloadObject?.endedAt) || roomSnapshot.matchEndedAt
         }
       : null);
+    if (payloadMatch && !trimString(payloadMatch.matchId) && topLevelMatchId) {
+      match = {
+        ...payloadMatch,
+        matchId: topLevelMatchId,
+      };
+    }
     const matchId = trimString(match?.matchId);
     if (!matchId) {
+      // Sparse realtime packets can occasionally omit match identity.
+      // During active match flow, keep the current snapshot instead of hard-resetting state,
+      // which otherwise causes phase/render-scale flapping (visible blink on fractional DPR).
+      if (inMatchFlowNow && trimString(roomSnapshot.matchId)) {
+        return;
+      }
       matchEndPanelRevealAt = 0;
       roomSnapshot.matchId = '';
       roomSnapshot.matchPhase = '';
+      roomSnapshot.matchFormat = '';
+      roomSnapshot.roundNumber = 1;
+      roomSnapshot.roundsNeededToWin = 2;
+      roomSnapshot.roundWinsByPlayerNumber = { 1: 0, 2: 0 };
+      roomSnapshot.currentRoundStartedAt = null;
+      roomSnapshot.roundEndAt = null;
+      roomSnapshot.nextRoundStartsAt = null;
+      roomSnapshot.roundIntermissionRemainingMs = 0;
+      roomSnapshot.lastRoundWinnerPlayerNumber = null;
+      roomSnapshot.lastRoundEndedAt = null;
+      roomSnapshot.lastRoundEndReason = '';
       roomSnapshot.matchPaused = false;
       roomSnapshot.matchPauseReason = '';
       roomSnapshot.matchPausedByPlayerNumber = null;
@@ -4113,6 +4892,21 @@
         shieldUntil: 0,
         shieldRemainingMs: 0,
         shieldActive: false,
+        prismUntil: 0,
+        prismRemainingMs: 0,
+        prismActive: false,
+        prismDirection: null,
+        solarDistortionUntil: 0,
+        solarDistortionRemainingMs: 0,
+        solarDistortionActive: false,
+        riftPendingActive: false,
+        riftPendingPortalA: null,
+        riftPendingExpiresAt: 0,
+        riftPendingRemainingMs: 0,
+        phantomVanishUntil: 0,
+        phantomVanishRemainingMs: 0,
+        phantomUntargetableActive: false,
+        phantomIllusion: null,
         chargeActive: false,
         chargeRemainingDistance: 0,
         chargeDirection: null
@@ -4121,6 +4915,21 @@
         shieldUntil: 0,
         shieldRemainingMs: 0,
         shieldActive: false,
+        prismUntil: 0,
+        prismRemainingMs: 0,
+        prismActive: false,
+        prismDirection: null,
+        solarDistortionUntil: 0,
+        solarDistortionRemainingMs: 0,
+        solarDistortionActive: false,
+        riftPendingActive: false,
+        riftPendingPortalA: null,
+        riftPendingExpiresAt: 0,
+        riftPendingRemainingMs: 0,
+        phantomVanishUntil: 0,
+        phantomVanishRemainingMs: 0,
+        phantomUntargetableActive: false,
+        phantomIllusion: null,
         chargeActive: false,
         chargeRemainingDistance: 0,
         chargeDirection: null
@@ -4128,12 +4937,21 @@
       roomSnapshot.myBlinkReadyAt = 0;
       roomSnapshot.myBlinkRemainingMs = 0;
       roomSnapshot.myBlinkAvailable = false;
+      roomSnapshot.opponentBlinkReadyAt = 0;
+      roomSnapshot.opponentBlinkRemainingMs = 0;
+      roomSnapshot.opponentBlinkAvailable = false;
       roomSnapshot.myHasBlink = false;
       roomSnapshot.matchStateTimestamp = null;
       roomSnapshot.projectiles = [];
       roomSnapshot.projectileCount = 0;
       roomSnapshot.walls = [];
       roomSnapshot.wallCount = 0;
+      roomSnapshot.roundPillars = [];
+      roomSnapshot.roundPillarCount = 0;
+      roomSnapshot.rifts = [];
+      roomSnapshot.riftCount = 0;
+      roomSnapshot.phantomIllusions = [];
+      roomSnapshot.phantomIllusionCount = 0;
       roomSnapshot.hitEvents = [];
       roomSnapshot.lastHitEvent = null;
       roomSnapshot.matchResult = '';
@@ -4162,7 +4980,35 @@
     }
 
     roomSnapshot.matchId = matchId;
-    roomSnapshot.matchPhase = trimString(match?.phase) || DEFAULT_MATCH_PHASE;
+    const incomingMatchPhase = trimString(match?.phase || payload?.phase);
+    if (incomingMatchPhase) {
+      roomSnapshot.matchPhase = incomingMatchPhase;
+    } else if (!trimString(roomSnapshot.matchPhase)) {
+      roomSnapshot.matchPhase = DEFAULT_MATCH_PHASE;
+    }
+    roomSnapshot.matchFormat = trimString(match?.matchFormat) || roomSnapshot.matchFormat || 'bo3';
+    roomSnapshot.roundNumber = Math.max(1, parseNumber(match?.roundNumber) || parseNumber(payload?.roundNumber) || roomSnapshot.roundNumber || 1);
+    roomSnapshot.roundsNeededToWin = Math.max(1, parseNumber(match?.roundsNeededToWin) || parseNumber(payload?.roundsNeededToWin) || roomSnapshot.roundsNeededToWin || 2);
+    roomSnapshot.roundWinsByPlayerNumber = normalizeRoundWinsByPlayerNumber(
+      match?.roundWinsByPlayerNumber || payload?.roundWinsByPlayerNumber,
+      roomSnapshot.roundWinsByPlayerNumber
+    );
+    roomSnapshot.currentRoundStartedAt = parseNumber(match?.currentRoundStartedAt) || parseNumber(payload?.currentRoundStartedAt) || null;
+    roomSnapshot.roundEndAt = parseNumber(match?.roundEndAt) || parseNumber(payload?.roundEndAt) || null;
+    roomSnapshot.nextRoundStartsAt = parseNumber(match?.nextRoundStartsAt) || parseNumber(payload?.nextRoundStartsAt) || null;
+    roomSnapshot.roundIntermissionRemainingMs = Math.max(
+      0,
+      parseNumber(match?.roundIntermissionRemainingMs)
+      || parseNumber(payload?.roundIntermissionRemainingMs)
+      || (
+        roomSnapshot.nextRoundStartsAt
+          ? Math.max(0, roomSnapshot.nextRoundStartsAt - Date.now())
+          : 0
+      )
+    );
+    roomSnapshot.lastRoundWinnerPlayerNumber = parseNumber(match?.lastRoundWinnerPlayerNumber) || parseNumber(payload?.lastRoundWinnerPlayerNumber) || null;
+    roomSnapshot.lastRoundEndedAt = parseNumber(match?.lastRoundEndedAt) || parseNumber(payload?.lastRoundEndedAt) || null;
+    roomSnapshot.lastRoundEndReason = trimString(match?.lastRoundEndReason || payload?.lastRoundEndReason);
     roomSnapshot.matchPaused = Boolean(match?.isPaused);
     roomSnapshot.matchPauseReason = trimString(match?.pauseReason);
     roomSnapshot.matchPausedByPlayerNumber = parseNumber(match?.pausedByPlayerNumber) || null;
@@ -4182,36 +5028,172 @@
       : Boolean(payloadObject && Object.prototype.hasOwnProperty.call(payloadObject, 'draft'));
     if (hasDraftPayload) {
       const draftPayload = match?.draft && typeof match.draft === 'object' ? match.draft : null;
-      const draftPool = draftPayload?.pool && typeof draftPayload.pool === 'object'
-        ? draftPayload.pool
-        : {};
-      const picksByPlayer = draftPayload?.picksByPlayerNumber && typeof draftPayload.picksByPlayerNumber === 'object'
-        ? draftPayload.picksByPlayerNumber
-        : {};
-      roomSnapshot.draft = {
-        status: trimString(draftPayload?.status),
-        currentTurnIndex: parseNumber(draftPayload?.currentTurnIndex) || 0,
-        currentTurnPlayerNumber: parseNumber(draftPayload?.currentTurnPlayerNumber),
-        turnDurationMs: parseNumber(draftPayload?.turnDurationMs) || 0,
-        turnStartedAt: parseNumber(draftPayload?.turnStartedAt),
-        turnEndsAt: parseNumber(draftPayload?.turnEndsAt),
-        turnRemainingMs: parseNumber(draftPayload?.turnRemainingMs) || 0,
-        turnOrder: Array.isArray(draftPayload?.turnOrder)
-          ? draftPayload.turnOrder.map((value) => parseNumber(value) || 0)
-          : [],
-        pool: DRAFT_SPELL_LIST.reduce((acc, spellId) => {
-          const entry = draftPool?.[spellId];
-          acc[spellId] = {
-            totalCopies: parseNumber(entry?.totalCopies) || 0,
-            remainingCopies: parseNumber(entry?.remainingCopies) || 0
+      const previousDraft = roomSnapshot.draft && typeof roomSnapshot.draft === 'object'
+        ? roomSnapshot.draft
+        : {
+            status: '',
+            currentTurnIndex: 0,
+            currentTurnPlayerNumber: null,
+            turnDurationMs: 0,
+            turnStartedAt: null,
+            turnEndsAt: null,
+            turnRemainingMs: 0,
+            turnOrder: [],
+            pool: {},
+            picksByPlayerNumber: {
+              1: [],
+              2: []
+            }
           };
-          return acc;
-        }, {}),
-        picksByPlayerNumber: {
-          1: Array.isArray(picksByPlayer?.[1]) ? picksByPlayer[1].map((spellId) => trimString(spellId)).filter(Boolean) : [],
-          2: Array.isArray(picksByPlayer?.[2]) ? picksByPlayer[2].map((spellId) => trimString(spellId)).filter(Boolean) : []
-        }
-      };
+
+      if (draftPayload) {
+        const draftPool = draftPayload.pool && typeof draftPayload.pool === 'object'
+          ? draftPayload.pool
+          : {};
+        const hasDraftPoolPayload = Object.keys(draftPool).length > 0;
+        const picksByPlayer = draftPayload.picksByPlayerNumber && typeof draftPayload.picksByPlayerNumber === 'object'
+          ? draftPayload.picksByPlayerNumber
+          : {};
+        const hasPicksPayloadP1 = Array.isArray(picksByPlayer?.[1]);
+        const hasPicksPayloadP2 = Array.isArray(picksByPlayer?.[2]);
+        const turnOrderRaw = Array.isArray(draftPayload.turnOrder)
+          ? draftPayload.turnOrder
+            .map((value) => parseNumber(value) || 0)
+            .filter((value) => Number.isFinite(value) && value > 0)
+          : [];
+        const previousTurnOrder = Array.isArray(previousDraft.turnOrder)
+          ? previousDraft.turnOrder
+            .map((value) => parseNumber(value) || 0)
+            .filter((value) => Number.isFinite(value) && value > 0)
+          : [];
+        const resolvedTurnOrder = turnOrderRaw.length ? turnOrderRaw : previousTurnOrder;
+
+        const currentTurnPlayerParsed = parseNumber(draftPayload.currentTurnPlayerNumber);
+        const currentTurnIndexParsed = parseNumber(draftPayload.currentTurnIndex);
+        const turnDurationParsed = parseNumber(draftPayload.turnDurationMs);
+        const turnStartedAtParsed = parseNumber(draftPayload.turnStartedAt);
+        const turnEndsAtParsed = parseNumber(draftPayload.turnEndsAt);
+        const turnRemainingParsed = parseNumber(draftPayload.turnRemainingMs);
+        const previousTurnRemaining = Math.max(0, parseNumber(previousDraft.turnRemainingMs) || 0);
+
+        const resolvedCurrentTurnIndex = currentTurnIndexParsed !== null
+          ? Math.max(0, currentTurnIndexParsed)
+          : Math.max(0, parseNumber(previousDraft.currentTurnIndex) || 0);
+        const resolvedCurrentTurnPlayerNumber = currentTurnPlayerParsed !== null
+          ? currentTurnPlayerParsed
+          : parseNumber(previousDraft.currentTurnPlayerNumber);
+        const resolvedTurnDurationMs = turnDurationParsed !== null
+          ? Math.max(0, turnDurationParsed)
+          : Math.max(0, parseNumber(previousDraft.turnDurationMs) || 0);
+        const resolvedTurnStartedAt = turnStartedAtParsed !== null
+          ? turnStartedAtParsed
+          : parseNumber(previousDraft.turnStartedAt);
+        const resolvedTurnEndsAt = turnEndsAtParsed !== null
+          ? turnEndsAtParsed
+          : parseNumber(previousDraft.turnEndsAt);
+        const resolvedTurnRemainingMs = turnRemainingParsed !== null
+          ? Math.max(0, turnRemainingParsed)
+          : (resolvedTurnEndsAt !== null
+            ? Math.max(0, resolvedTurnEndsAt - Date.now())
+            : previousTurnRemaining);
+
+        const picksForCalcP1 = hasPicksPayloadP1
+          ? picksByPlayer[1]
+          : (Array.isArray(previousDraft.picksByPlayerNumber?.[1]) ? previousDraft.picksByPlayerNumber[1] : []);
+        const picksForCalcP2 = hasPicksPayloadP2
+          ? picksByPlayer[2]
+          : (Array.isArray(previousDraft.picksByPlayerNumber?.[2]) ? previousDraft.picksByPlayerNumber[2] : []);
+
+        const resolvedPool = hasDraftPoolPayload
+          ? DRAFT_SPELL_LIST.reduce((acc, spellId) => {
+              const entry = draftPool?.[spellId];
+              const normalizedSpellId = trimString(spellId).toLowerCase();
+              let pickedCount = 0;
+              for (const pickedSpellId of [...picksForCalcP1, ...picksForCalcP2]) {
+                if (trimString(pickedSpellId).toLowerCase() === normalizedSpellId) {
+                  pickedCount += 1;
+                }
+              }
+              const totalCopiesRaw = parseNumber(entry?.totalCopies);
+              const totalCopies = totalCopiesRaw !== null
+                ? Math.max(0, totalCopiesRaw)
+                : 1;
+              const remainingCopiesRaw = parseNumber(entry?.remainingCopies);
+              const remainingCopies = remainingCopiesRaw !== null
+                ? Math.max(0, Math.min(totalCopies, remainingCopiesRaw))
+                : Math.max(0, totalCopies - pickedCount);
+              acc[spellId] = {
+                totalCopies,
+                remainingCopies
+              };
+              return acc;
+            }, {})
+          : (previousDraft.pool && typeof previousDraft.pool === 'object' ? previousDraft.pool : {});
+
+        const resolvedPicksP1 = hasPicksPayloadP1
+          ? picksByPlayer[1].map((spellId) => trimString(spellId)).filter(Boolean)
+          : (Array.isArray(previousDraft.picksByPlayerNumber?.[1])
+            ? previousDraft.picksByPlayerNumber[1].map((spellId) => trimString(spellId)).filter(Boolean)
+            : []);
+        const resolvedPicksP2 = hasPicksPayloadP2
+          ? picksByPlayer[2].map((spellId) => trimString(spellId)).filter(Boolean)
+          : (Array.isArray(previousDraft.picksByPlayerNumber?.[2])
+            ? previousDraft.picksByPlayerNumber[2].map((spellId) => trimString(spellId)).filter(Boolean)
+            : []);
+
+        const hasDraftTurnSignal = resolvedTurnOrder.length > 0
+          || Number.isFinite(currentTurnPlayerParsed)
+          || Number.isFinite(currentTurnIndexParsed);
+        const hasDraftPoolSignal = hasDraftPoolPayload || Object.keys(resolvedPool).length > 0;
+        const normalizedDraftStatus = trimString(draftPayload.status).toLowerCase();
+        const previousDraftStatus = trimString(previousDraft.status).toLowerCase();
+        const derivedDraftStatus = normalizedDraftStatus
+          || (hasDraftTurnSignal || hasDraftPoolSignal ? 'draft' : previousDraftStatus);
+
+        roomSnapshot.draft = {
+          status: derivedDraftStatus,
+          currentTurnIndex: resolvedCurrentTurnIndex,
+          currentTurnPlayerNumber: resolvedCurrentTurnPlayerNumber,
+          turnDurationMs: resolvedTurnDurationMs,
+          turnStartedAt: resolvedTurnStartedAt,
+          turnEndsAt: resolvedTurnEndsAt,
+          turnRemainingMs: resolvedTurnRemainingMs,
+          turnOrder: resolvedTurnOrder,
+          pool: resolvedPool,
+          picksByPlayerNumber: {
+            1: resolvedPicksP1,
+            2: resolvedPicksP2
+          }
+        };
+      } else {
+        // Keep the previous draft snapshot on sparse/null payloads.
+        // This prevents transient turn/index resets from causing draft UI flashes.
+        roomSnapshot.draft = {
+          status: trimString(previousDraft.status).toLowerCase(),
+          currentTurnIndex: Math.max(0, parseNumber(previousDraft.currentTurnIndex) || 0),
+          currentTurnPlayerNumber: parseNumber(previousDraft.currentTurnPlayerNumber),
+          turnDurationMs: Math.max(0, parseNumber(previousDraft.turnDurationMs) || 0),
+          turnStartedAt: parseNumber(previousDraft.turnStartedAt),
+          turnEndsAt: parseNumber(previousDraft.turnEndsAt),
+          turnRemainingMs: Math.max(0, parseNumber(previousDraft.turnRemainingMs) || 0),
+          turnOrder: Array.isArray(previousDraft.turnOrder)
+            ? previousDraft.turnOrder
+              .map((value) => parseNumber(value) || 0)
+              .filter((value) => Number.isFinite(value) && value > 0)
+            : [],
+          pool: previousDraft.pool && typeof previousDraft.pool === 'object'
+            ? previousDraft.pool
+            : {},
+          picksByPlayerNumber: {
+            1: Array.isArray(previousDraft.picksByPlayerNumber?.[1])
+              ? previousDraft.picksByPlayerNumber[1].map((spellId) => trimString(spellId)).filter(Boolean)
+              : [],
+            2: Array.isArray(previousDraft.picksByPlayerNumber?.[2])
+              ? previousDraft.picksByPlayerNumber[2].map((spellId) => trimString(spellId)).filter(Boolean)
+              : []
+          }
+        };
+      }
     }
 
     const myNumberFromPayload = parseNumber(payload?.matchPlayerNumber);
@@ -4422,10 +5404,55 @@
     const resolvedShieldRemainingMs = shieldRemainingMs !== null
       ? Math.max(0, shieldRemainingMs)
       : Math.max(0, shieldUntil - Date.now());
+    const prismUntil = parseNumber(activeEffectsPayload?.prismUntil) || 0;
+    const prismRemainingMs = parseNumber(activeEffectsPayload?.prismRemainingMs);
+    const resolvedPrismRemainingMs = prismRemainingMs !== null
+      ? Math.max(0, prismRemainingMs)
+      : Math.max(0, prismUntil - Date.now());
+    const solarDistortionUntil = parseNumber(activeEffectsPayload?.solarDistortionUntil) || 0;
+    const solarDistortionRemainingMs = parseNumber(activeEffectsPayload?.solarDistortionRemainingMs);
+    const resolvedSolarDistortionRemainingMs = solarDistortionRemainingMs !== null
+      ? Math.max(0, solarDistortionRemainingMs)
+      : Math.max(0, solarDistortionUntil - Date.now());
+    const riftPendingExpiresAt = parseNumber(activeEffectsPayload?.riftPendingExpiresAt) || 0;
+    const riftPendingRemainingMs = parseNumber(activeEffectsPayload?.riftPendingRemainingMs);
+    const resolvedRiftPendingRemainingMs = riftPendingRemainingMs !== null
+      ? Math.max(0, riftPendingRemainingMs)
+      : Math.max(0, riftPendingExpiresAt - Date.now());
+    const phantomVanishUntil = parseNumber(activeEffectsPayload?.phantomVanishUntil) || 0;
+    const phantomVanishRemainingMs = parseNumber(activeEffectsPayload?.phantomVanishRemainingMs);
+    const resolvedPhantomVanishRemainingMs = phantomVanishRemainingMs !== null
+      ? Math.max(0, phantomVanishRemainingMs)
+      : Math.max(0, phantomVanishUntil - Date.now());
     roomSnapshot.myActiveEffects = {
       shieldUntil,
       shieldRemainingMs: resolvedShieldRemainingMs,
       shieldActive: Boolean(activeEffectsPayload?.shieldActive) || resolvedShieldRemainingMs > 0,
+      prismUntil,
+      prismRemainingMs: resolvedPrismRemainingMs,
+      prismActive: Boolean(activeEffectsPayload?.prismActive) || resolvedPrismRemainingMs > 0,
+      prismDirection: normalizePosition(activeEffectsPayload?.prismDirection),
+      solarDistortionUntil,
+      solarDistortionRemainingMs: resolvedSolarDistortionRemainingMs,
+      solarDistortionActive: Boolean(activeEffectsPayload?.solarDistortionActive) || resolvedSolarDistortionRemainingMs > 0,
+      riftPendingActive: Boolean(activeEffectsPayload?.riftPendingActive) || resolvedRiftPendingRemainingMs > 0,
+      riftPendingPortalA: normalizePosition(activeEffectsPayload?.riftPendingPortalA),
+      riftPendingExpiresAt,
+      riftPendingRemainingMs: resolvedRiftPendingRemainingMs,
+      phantomVanishUntil,
+      phantomVanishRemainingMs: resolvedPhantomVanishRemainingMs,
+      phantomUntargetableActive: Boolean(activeEffectsPayload?.phantomUntargetableActive) || resolvedPhantomVanishRemainingMs > 0,
+      phantomIllusion: activeEffectsPayload?.phantomIllusion && typeof activeEffectsPayload.phantomIllusion === 'object'
+        ? {
+            ownerPlayerNumber: parseNumber(activeEffectsPayload.phantomIllusion.ownerPlayerNumber),
+            illusionId: trimString(activeEffectsPayload.phantomIllusion.illusionId),
+            position: normalizePosition(activeEffectsPayload.phantomIllusion.position),
+            facing: normalizePosition(activeEffectsPayload.phantomIllusion.facing),
+            offset: normalizePosition(activeEffectsPayload.phantomIllusion.offset),
+            expiresAt: parseNumber(activeEffectsPayload.phantomIllusion.expiresAt),
+            remainingMs: parseNumber(activeEffectsPayload.phantomIllusion.remainingMs)
+          }
+        : null,
       chargeActive: Boolean(selfChargePayload?.active) || Boolean(activeEffectsPayload?.chargeActive),
       chargeRemainingDistance: Math.max(
         0,
@@ -4447,10 +5474,55 @@
     const resolvedOpponentShieldRemainingMs = opponentShieldRemainingMs !== null
       ? Math.max(0, opponentShieldRemainingMs)
       : Math.max(0, opponentShieldUntil - Date.now());
+    const opponentPrismUntil = parseNumber(opponentEffectsPayload?.prismUntil) || 0;
+    const opponentPrismRemainingMs = parseNumber(opponentEffectsPayload?.prismRemainingMs);
+    const resolvedOpponentPrismRemainingMs = opponentPrismRemainingMs !== null
+      ? Math.max(0, opponentPrismRemainingMs)
+      : Math.max(0, opponentPrismUntil - Date.now());
+    const opponentSolarDistortionUntil = parseNumber(opponentEffectsPayload?.solarDistortionUntil) || 0;
+    const opponentSolarDistortionRemainingMs = parseNumber(opponentEffectsPayload?.solarDistortionRemainingMs);
+    const resolvedOpponentSolarDistortionRemainingMs = opponentSolarDistortionRemainingMs !== null
+      ? Math.max(0, opponentSolarDistortionRemainingMs)
+      : Math.max(0, opponentSolarDistortionUntil - Date.now());
+    const opponentRiftPendingExpiresAt = parseNumber(opponentEffectsPayload?.riftPendingExpiresAt) || 0;
+    const opponentRiftPendingRemainingMs = parseNumber(opponentEffectsPayload?.riftPendingRemainingMs);
+    const resolvedOpponentRiftPendingRemainingMs = opponentRiftPendingRemainingMs !== null
+      ? Math.max(0, opponentRiftPendingRemainingMs)
+      : Math.max(0, opponentRiftPendingExpiresAt - Date.now());
+    const opponentPhantomVanishUntil = parseNumber(opponentEffectsPayload?.phantomVanishUntil) || 0;
+    const opponentPhantomVanishRemainingMs = parseNumber(opponentEffectsPayload?.phantomVanishRemainingMs);
+    const resolvedOpponentPhantomVanishRemainingMs = opponentPhantomVanishRemainingMs !== null
+      ? Math.max(0, opponentPhantomVanishRemainingMs)
+      : Math.max(0, opponentPhantomVanishUntil - Date.now());
     roomSnapshot.opponentActiveEffects = {
       shieldUntil: opponentShieldUntil,
       shieldRemainingMs: resolvedOpponentShieldRemainingMs,
       shieldActive: Boolean(opponentEffectsPayload?.shieldActive) || resolvedOpponentShieldRemainingMs > 0,
+      prismUntil: opponentPrismUntil,
+      prismRemainingMs: resolvedOpponentPrismRemainingMs,
+      prismActive: Boolean(opponentEffectsPayload?.prismActive) || resolvedOpponentPrismRemainingMs > 0,
+      prismDirection: normalizePosition(opponentEffectsPayload?.prismDirection),
+      solarDistortionUntil: opponentSolarDistortionUntil,
+      solarDistortionRemainingMs: resolvedOpponentSolarDistortionRemainingMs,
+      solarDistortionActive: Boolean(opponentEffectsPayload?.solarDistortionActive) || resolvedOpponentSolarDistortionRemainingMs > 0,
+      riftPendingActive: Boolean(opponentEffectsPayload?.riftPendingActive) || resolvedOpponentRiftPendingRemainingMs > 0,
+      riftPendingPortalA: normalizePosition(opponentEffectsPayload?.riftPendingPortalA),
+      riftPendingExpiresAt: opponentRiftPendingExpiresAt,
+      riftPendingRemainingMs: resolvedOpponentRiftPendingRemainingMs,
+      phantomVanishUntil: opponentPhantomVanishUntil,
+      phantomVanishRemainingMs: resolvedOpponentPhantomVanishRemainingMs,
+      phantomUntargetableActive: Boolean(opponentEffectsPayload?.phantomUntargetableActive) || resolvedOpponentPhantomVanishRemainingMs > 0,
+      phantomIllusion: opponentEffectsPayload?.phantomIllusion && typeof opponentEffectsPayload.phantomIllusion === 'object'
+        ? {
+            ownerPlayerNumber: parseNumber(opponentEffectsPayload.phantomIllusion.ownerPlayerNumber),
+            illusionId: trimString(opponentEffectsPayload.phantomIllusion.illusionId),
+            position: normalizePosition(opponentEffectsPayload.phantomIllusion.position),
+            facing: normalizePosition(opponentEffectsPayload.phantomIllusion.facing),
+            offset: normalizePosition(opponentEffectsPayload.phantomIllusion.offset),
+            expiresAt: parseNumber(opponentEffectsPayload.phantomIllusion.expiresAt),
+            remainingMs: parseNumber(opponentEffectsPayload.phantomIllusion.remainingMs)
+          }
+        : null,
       chargeActive: Boolean(opponentChargePayload?.active) || Boolean(opponentEffectsPayload?.chargeActive),
       chargeRemainingDistance: Math.max(
         0,
@@ -4468,6 +5540,34 @@
     roomSnapshot.myBlinkReadyAt = nextBlinkAt;
     roomSnapshot.myBlinkRemainingMs = resolvedBlinkRemainingMs;
     roomSnapshot.myBlinkAvailable = isAbilityUsable(ABILITY_IDS.BLINK);
+
+    const opponentAbilityCooldownsPayload = opponentMatchPlayer?.abilityCooldowns && typeof opponentMatchPlayer.abilityCooldowns === 'object'
+      ? opponentMatchPlayer.abilityCooldowns
+      : {};
+    const opponentAbilityReadyAtPayload = opponentMatchPlayer?.abilityReadyAt && typeof opponentMatchPlayer.abilityReadyAt === 'object'
+      ? opponentMatchPlayer.abilityReadyAt
+      : {};
+    const normalizedOpponentCooldowns = {};
+    const normalizedOpponentReadyAt = {};
+    Object.keys(opponentAbilityCooldownsPayload).forEach((abilityId) => {
+      const normalizedAbilityId = trimString(abilityId).toLowerCase();
+      if (!normalizedAbilityId) return;
+      normalizedOpponentCooldowns[normalizedAbilityId] = Math.max(0, parseNumber(opponentAbilityCooldownsPayload[abilityId]) || 0);
+    });
+    Object.keys(opponentAbilityReadyAtPayload).forEach((abilityId) => {
+      const normalizedAbilityId = trimString(abilityId).toLowerCase();
+      if (!normalizedAbilityId) return;
+      normalizedOpponentReadyAt[normalizedAbilityId] = Math.max(0, parseNumber(opponentAbilityReadyAtPayload[abilityId]) || 0);
+    });
+    roomSnapshot.opponentAbilityCooldowns = normalizedOpponentCooldowns;
+    roomSnapshot.opponentAbilityReadyAt = normalizedOpponentReadyAt;
+    const opponentNextBlinkAt = parseNumber(opponentMatchPlayer?.nextBlinkAt) || parseNumber(normalizedOpponentReadyAt[ABILITY_IDS.BLINK]) || 0;
+    const opponentSerializedBlinkRemaining = parseNumber(normalizedOpponentCooldowns[ABILITY_IDS.BLINK]) || 0;
+    const opponentTimeBasedRemainingMs = opponentNextBlinkAt > 0 ? Math.max(0, opponentNextBlinkAt - Date.now()) : 0;
+    const opponentResolvedBlinkRemainingMs = Math.max(opponentTimeBasedRemainingMs, opponentSerializedBlinkRemaining);
+    roomSnapshot.opponentBlinkReadyAt = opponentNextBlinkAt;
+    roomSnapshot.opponentBlinkRemainingMs = opponentResolvedBlinkRemainingMs;
+    roomSnapshot.opponentBlinkAvailable = opponentResolvedBlinkRemainingMs <= 0 && opponentLoadout.includes(ABILITY_IDS.BLINK);
 
     const matchProjectiles = Array.isArray(match?.projectiles) ? match.projectiles : [];
     roomSnapshot.projectiles = matchProjectiles.map((projectile) => ({
@@ -4494,6 +5594,36 @@
       expiresAt: parseNumber(wall?.expiresAt)
     }));
     roomSnapshot.wallCount = roomSnapshot.walls.length;
+    const matchRoundPillars = Array.isArray(match?.roundPillars) ? match.roundPillars : [];
+    roomSnapshot.roundPillars = matchRoundPillars.map((pillar) => ({
+      pillarId: trimString(pillar?.pillarId),
+      position: normalizePosition(pillar?.position),
+      radius: parseNumber(pillar?.radius),
+      spawnedAt: parseNumber(pillar?.spawnedAt)
+    }));
+    roomSnapshot.roundPillarCount = roomSnapshot.roundPillars.length;
+    const matchRifts = Array.isArray(match?.rifts) ? match.rifts : [];
+    roomSnapshot.rifts = matchRifts.map((rift) => ({
+      riftId: trimString(rift?.riftId),
+      ownerPlayerNumber: parseNumber(rift?.ownerPlayerNumber),
+      portalA: normalizePosition(rift?.portalA),
+      portalB: normalizePosition(rift?.portalB),
+      portalRadius: parseNumber(rift?.portalRadius),
+      linkedAt: parseNumber(rift?.linkedAt),
+      expiresAt: parseNumber(rift?.expiresAt)
+    }));
+    roomSnapshot.riftCount = roomSnapshot.rifts.length;
+    const phantomIllusionPayload = Array.isArray(match?.phantomIllusions) ? match.phantomIllusions : [];
+    roomSnapshot.phantomIllusions = phantomIllusionPayload.map((illusion) => ({
+      ownerPlayerNumber: parseNumber(illusion?.ownerPlayerNumber),
+      illusionId: trimString(illusion?.illusionId),
+      position: normalizePosition(illusion?.position),
+      facing: normalizePosition(illusion?.facing),
+      offset: normalizePosition(illusion?.offset),
+      expiresAt: parseNumber(illusion?.expiresAt),
+      remainingMs: parseNumber(illusion?.remainingMs)
+    }));
+    roomSnapshot.phantomIllusionCount = roomSnapshot.phantomIllusions.length;
 
     const matchHitEvents = Array.isArray(match?.hitEvents) ? match.hitEvents : [];
     roomSnapshot.hitEvents = matchHitEvents.map((hitEvent) => ({
@@ -4634,6 +5764,20 @@
       players
     );
 
+    if (
+      roomSnapshot.matchPhase !== DEFAULT_MATCH_PHASE
+      || !roomSnapshot.matchId
+      || roomSnapshot.matchPaused
+    ) {
+      clearRiftPlacementState({ silent: true });
+    } else if (roomSnapshot.myActiveEffects?.riftPendingActive) {
+      if (riftPlacementState.active) {
+        riftPlacementState.pendingStep = 'B';
+      }
+    } else if (riftPlacementState.active && riftPlacementState.pendingStep === 'B') {
+      clearRiftPlacementState({ silent: true });
+    }
+
     if (code) {
       updateQuickMatchState({
         status: QUICK_MATCH_STATUS_IDLE,
@@ -4773,7 +5917,9 @@
       }
       setStatusMessage(getStateMessage());
       applyLocalRankedProgressFromMatchEnd();
-      console.info(`${LOG_PREFIX} room_update`, payload);
+      if (debugToolsEnabled) {
+        console.info(`${LOG_PREFIX} room_update`, payload);
+      }
     });
 
     socket.on('reconnect_grace_started', (payload) => {
@@ -4887,6 +6033,8 @@
         roomSnapshot.state = ROOM_STATE_MATCH_END;
       } else if (roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN) {
         roomSnapshot.state = ROOM_STATE_COMBAT;
+      } else if (roomSnapshot.matchPhase === MATCH_PHASE_ROUND_END) {
+        roomSnapshot.state = ROOM_STATE_COMBAT;
       } else if (roomSnapshot.matchPhase === DEFAULT_MATCH_PHASE) {
         roomSnapshot.state = ROOM_STATE_COMBAT;
       } else {
@@ -4898,11 +6046,6 @@
       const nextHitId = trimString(nextHit?.hitId);
       if (nextHitId && nextHitId !== previousHitId) {
         const markerText = formatHitEvent(nextHit);
-        const myNumber = Number(roomSnapshot.myMatchPlayerNumber);
-        const targetPlayerNumber = Number(nextHit?.targetPlayerNumber);
-        if (Number.isFinite(myNumber) && Number.isFinite(targetPlayerNumber)) {
-          showPhaseBanner(targetPlayerNumber === myNumber ? 'Hit Taken' : 'Hit Landed', 520);
-        }
         setStatusMessage(markerText);
         console.info(`${LOG_PREFIX} hit_event ${nextHitId}`, nextHit);
       }
@@ -4928,8 +6071,21 @@
           setStatusMessage(`Draft phase.${turnText}`);
         } else if (roomSnapshot.matchPhase === MATCH_PHASE_COMBAT_COUNTDOWN) {
           matchEndPanelRevealAt = 0;
-          showPhaseBanner('Draft Complete', 1000);
-          setStatusMessage('Draft complete. Combat countdown started.');
+          const introText = getRoundLabelText();
+          showPhaseBanner(introText, 1100);
+          setStatusMessage(`${introText} starts in ${formatDurationMs(getCombatCountdownMs())}.`);
+        } else if (roomSnapshot.matchPhase === MATCH_PHASE_ROUND_END) {
+          matchEndPanelRevealAt = 0;
+          const roundWinner = Number(roomSnapshot.lastRoundWinnerPlayerNumber) || Number(roomSnapshot.winnerPlayerNumber);
+          const myNumber = Number(roomSnapshot.myMatchPlayerNumber);
+          const roundText = getRoundWinnerText() || 'Round ended';
+          const tone = Number.isFinite(roundWinner) && Number.isFinite(myNumber)
+            ? (roundWinner === myNumber ? 'success' : 'danger')
+            : 'default';
+          const intermissionMs = Math.max(0, Number(roomSnapshot.roundIntermissionRemainingMs) || 0);
+          const intermissionText = intermissionMs > 0 ? ` Next round in ${formatDurationMs(intermissionMs)}.` : '';
+          showPhaseBanner(roundText, 1400, tone, 'center');
+          setStatusMessage(`${roundText}. Score ${getBo3ScoreText()}.${intermissionText}`);
         } else if (roomSnapshot.matchPhase === DEFAULT_MATCH_PHASE) {
           matchEndPanelRevealAt = 0;
           showPhaseBanner('Fight', 900);
@@ -4944,6 +6100,11 @@
         } else {
           setStatusMessage('Match resumed.');
         }
+      } else if (roomSnapshot.matchPhase === MATCH_PHASE_ROUND_END) {
+        const roundText = getRoundWinnerText() || 'Round ended';
+        const intermissionMs = Math.max(0, Number(roomSnapshot.roundIntermissionRemainingMs) || 0);
+        const intermissionText = intermissionMs > 0 ? ` Next round in ${formatDurationMs(intermissionMs)}.` : '';
+        setStatusMessage(`${roundText}. Score ${getBo3ScoreText()}.${intermissionText}`);
       } else if (roomSnapshot.matchPhase === MATCH_PHASE_DRAFT) {
         const nextTurnPlayer = Number(roomSnapshot.draft?.currentTurnPlayerNumber);
         if (Number.isFinite(nextTurnPlayer) && nextTurnPlayer !== previousDraftTurnPlayer) {
@@ -5200,6 +6361,9 @@
   }
 
   function cancelQuickMatch() {
+    const previousSnapshot = {
+      ...quickMatchSnapshot
+    };
     const requested = emitWhenConnected(
       'cancel_quick_match',
       undefined,
@@ -5207,6 +6371,13 @@
       (response) => {
         if (!response) return;
         if (response.ok === false) {
+          updateQuickMatchState({
+            status: previousSnapshot.status || QUICK_MATCH_STATUS_SEARCHING,
+            queueDepth: Math.max(0, parseNumber(previousSnapshot.queueDepth) || 0),
+            queuedAt: Math.max(0, parseNumber(previousSnapshot.queuedAt) || 0),
+            roomCode: normalizeRoomCode(previousSnapshot.roomCode || ''),
+            reason: trimString(response?.code || 'cancel_failed')
+          }, { log: true });
           const message = trimString(response?.message) || 'Unable to cancel queue.';
           setStatusMessage(message);
           return;
@@ -5222,6 +6393,14 @@
       }
     );
     if (!requested) return false;
+    updateQuickMatchState({
+      status: QUICK_MATCH_STATUS_IDLE,
+      queueDepth: 0,
+      queuedAt: 0,
+      roomCode: '',
+      reason: 'cancel_requested'
+    }, { log: true });
+    setStatusMessage('Canceling quick match queue...');
     console.info(`${LOG_PREFIX} cancel_quick_match requested`);
     return true;
   }
@@ -5343,10 +6522,28 @@
       return;
     }
 
+    if (normalizedAbilityId === ABILITY_IDS.RIFT && options?.forceCast !== true) {
+      const step = roomSnapshot.myActiveEffects?.riftPendingActive ? 'B' : 'A';
+      armRiftPlacementState(step);
+      return;
+    }
+    if (normalizedAbilityId !== ABILITY_IDS.RIFT && riftPlacementState.active) {
+      clearRiftPlacementState({ silent: true });
+    }
+
     const now = Date.now();
     const pendingAt = Number(pendingAbilityRequests.get(normalizedAbilityId)) || 0;
     if ((now - pendingAt) < CLIENT_CAST_REQUEST_COALESCE_MS) {
       return;
+    }
+    const riftSecondPortalAttempt =
+      normalizedAbilityId === ABILITY_IDS.RIFT
+      && options?.forceCast === true
+      && riftPlacementState.active === true
+      && riftPlacementState.pendingStep === 'B';
+    if (riftSecondPortalAttempt) {
+      // Keep helper hidden right after placing portal B until resolution.
+      riftPlacementState.awaitingSecondPortalResolve = true;
     }
     pendingAbilityRequests.set(normalizedAbilityId, now);
     const requestId = createClientActionId(`cast-${normalizedAbilityId}`);
@@ -5363,6 +6560,19 @@
       requestId,
       direction: liveAimDirection
     };
+    const extraPayload = options?.payload && typeof options.payload === 'object'
+      ? options.payload
+      : null;
+    if (extraPayload) {
+      const targetPosition = normalizePosition(extraPayload.targetPosition);
+      if (targetPosition) {
+        directionPayload.targetPosition = targetPosition;
+      }
+      const targetDistance = parseNumber(extraPayload.targetDistance);
+      if (targetDistance !== null && targetDistance >= 0) {
+        directionPayload.targetDistance = targetDistance;
+      }
+    }
 
     const abilityLabel = toAbilityLabel(normalizedAbilityId);
     const logPrefix = options.logPrefix || `${normalizedAbilityId}`;
@@ -5370,6 +6580,9 @@
     const timeoutId = window.setTimeout(() => {
       if (resolved) return;
       pendingAbilityRequests.delete(normalizedAbilityId);
+      if (riftSecondPortalAttempt) {
+        riftPlacementState.awaitingSecondPortalResolve = false;
+      }
       setStatusMessage(`${abilityLabel} request timed out (no server response). Restart backend and verify server URL.`);
     }, 1600);
 
@@ -5381,11 +6594,38 @@
         resolved = true;
         window.clearTimeout(timeoutId);
         pendingAbilityRequests.delete(normalizedAbilityId);
-        if (!response) return;
+        if (!response) {
+          if (riftSecondPortalAttempt) {
+            riftPlacementState.awaitingSecondPortalResolve = false;
+          }
+          return;
+        }
         if (response.ok === false) {
+          if (
+            normalizedAbilityId === ABILITY_IDS.RIFT
+            && trimString(response?.code).toUpperCase() === 'INVALID_RIFT_PLACEMENT'
+          ) {
+            // Invalid B placement should immediately re-enable placement helper.
+            riftPlacementState.awaitingSecondPortalResolve = false;
+          }
           const message = trimString(response?.message) || `${abilityLabel} cast failed.`;
+          if (
+            normalizedAbilityId === ABILITY_IDS.RIFT
+            && trimString(response?.code).toUpperCase() !== 'INVALID_RIFT_PLACEMENT'
+          ) {
+            clearRiftPlacementState({ silent: true });
+          }
           setStatusMessage(message);
           return;
+        }
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+          window.dispatchEvent(new CustomEvent('outra:multiplayer-cast-ack', {
+            detail: {
+              ok: true,
+              abilityId: normalizedAbilityId,
+              response
+            }
+          }));
         }
         if (normalizedAbilityId === ABILITY_IDS.FIREBLAST && response.projectileId) {
           setStatusMessage(`${abilityLabel} cast: ${response.projectileId}`);
@@ -5396,6 +6636,19 @@
           setStatusMessage(`${abilityLabel} cast -> (${destination.x.toFixed(2)}, ${destination.y.toFixed(2)})`);
           console.info(`${LOG_PREFIX} ${logPrefix}_destination x=${destination.x.toFixed(2)} y=${destination.y.toFixed(2)}`);
           return;
+        }
+        if (normalizedAbilityId === ABILITY_IDS.RIFT) {
+          if (trimString(response?.riftStep).toUpperCase() === 'A') {
+            armRiftPlacementState('B');
+            return;
+          }
+          if (trimString(response?.riftStep).toUpperCase() === 'B') {
+            clearRiftPlacementState({ silent: true });
+            const durationMs = Math.max(0, Number(response?.durationMs) || 0);
+            const durationSec = durationMs > 0 ? (durationMs / 1000).toFixed(1) : '4.0';
+            setStatusMessage(`Rift linked for ${durationSec}s.`);
+            return;
+          }
         }
         if (response.hit === true && Number.isFinite(Number(response.targetPlayerNumber))) {
           setStatusMessage(
@@ -5414,6 +6667,9 @@
       resolved = true;
       window.clearTimeout(timeoutId);
       pendingAbilityRequests.delete(normalizedAbilityId);
+      if (riftSecondPortalAttempt) {
+        riftPlacementState.awaitingSecondPortalResolve = false;
+      }
       return;
     }
     setStatusMessage(`${abilityLabel} requested...`);
@@ -5470,7 +6726,6 @@
   }
 
   function leaveRoom() {
-    if (!socket) return;
     resetRealtimeInputState({ emitNeutral: true });
     updateQuickMatchState({
       status: QUICK_MATCH_STATUS_IDLE,
@@ -5479,9 +6734,16 @@
       roomCode: '',
       reason: 'leave_room'
     });
-    emitWhenConnected('leave_room', undefined, 'Connecting and leaving room...');
+    const requested = emitWhenConnected('leave_room', undefined, 'Connecting and leaving room...');
+    // Optimistically clear local match flow so lobby systems can resume immediately.
+    clearRoomSnapshot(ROOM_STATE_IDLE);
+    renderDebugPanel();
     setStatusMessage('Leaving room...');
-    console.info(`${LOG_PREFIX} leave_room requested`);
+    if (requested) {
+      console.info(`${LOG_PREFIX} leave_room requested`);
+    } else {
+      console.info(`${LOG_PREFIX} leave_room local_clear_only`);
+    }
   }
 
   function leaveGame() {
@@ -5519,6 +6781,10 @@
       }
     );
     if (!requested) return false;
+    // Optimistically clear local match flow to avoid stale arena/draft presentation flags
+    // delaying lobby rendering/animation while waiting for server leave ack.
+    clearRoomSnapshot(ROOM_STATE_IDLE);
+    renderDebugPanel();
     updateQuickMatchState({
       status: QUICK_MATCH_STATUS_IDLE,
       queueDepth: 0,
@@ -5554,12 +6820,14 @@
     };
   }
 
-  if (debugToolsEnabled) {
+  if (debugToolsEnabled && LEGACY_DEBUG_PANEL_ENABLED) {
     if (document.readyState === 'loading') {
       window.addEventListener('DOMContentLoaded', ensureDebugPanel, { once: true });
     } else {
       ensureDebugPanel();
     }
+  } else if (!LEGACY_DEBUG_PANEL_ENABLED) {
+    teardownLegacyDebugPanel();
   }
 
   window.outraMultiplayer = {
@@ -5584,6 +6852,9 @@
     castWall,
     castRewind,
     castFireblast,
+    placeRiftAtCursor,
+    isRiftPlacementModeActive,
+    cancelRiftPlacement: () => clearRiftPlacementState({ silent: true }),
     playVictoryRewardAnimation,
     requestDraftPick: draftPick,
     disconnect,
